@@ -1,0 +1,60 @@
+body {
+  margin: 0;
+  background: #1b2129;
+}
+
+.demo-strip {
+  height: 44px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #16191f;
+  border-bottom: 1px solid #2a323c;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.demo-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.demo-mark {
+  color: #d9a441;
+  font-size: 16px;
+}
+
+.demo-name {
+  color: #edeae0;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+}
+
+.demo-tagline {
+  color: #8a919b;
+  font-size: 11.5px;
+}
+
+.demo-link {
+  color: #8a919b;
+  text-decoration: none;
+  font-size: 12px;
+  border: 1px solid #3a434e;
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+.demo-link:hover {
+  color: #d9a441;
+  border-color: #d9a441;
+}
+
+/* Reaches into component internals on purpose: the rolodex hardcodes
+   min-height: 100vh on .pf-root, and the demo gives 44px of that to
+   the brand strip above it. */
+.pf-root {
+  min-height: calc(100vh - 44px);
+}
