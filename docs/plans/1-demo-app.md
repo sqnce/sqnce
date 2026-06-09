@@ -6,7 +6,7 @@
 
 **Architecture:** The demo consumes `@sqnce/react` from workspace source. Two new optional props (`workflowGroups`, `initialRunFor`) plus an optional second argument to `generateDraft` land in the component first; content (definitions, seeds, drafts) layers on top; deploy and docs land last. Every task leaves the repo building and tested.
 
-**Tech Stack:** Plain ESM JavaScript, React 18, Vite, Node 20 test runner, GitHub Actions Pages deploy.
+**Tech Stack:** Plain ESM JavaScript, current React (peer range `>=18`), Vite, Node 20 test runner, GitHub Actions Pages deploy.
 
 **Process notes:**
 - Work happens in the `demo-app` worktree (`.worktrees/demo-app`), PR #7. Commit after every task; each push to the draft PR gets `@codex review` commented (drafts do not auto-trigger Codex).
@@ -84,7 +84,7 @@ npm install -w examples/demo react react-dom @sqnce/react
 npm install -w examples/demo -D vite @vitejs/plugin-react
 ```
 
-Expected: `examples/demo/package.json` gains dependencies (react, react-dom, `@sqnce/react` at `^0.1.0` resolved to the workspace) and devDependencies (vite, `@vitejs/plugin-react`); `package-lock.json` is created at the root.
+Expected: `examples/demo/package.json` gains dependencies (react, react-dom, `@sqnce/react` at `^0.1.0` resolved to the workspace) and devDependencies (vite, `@vitejs/plugin-react`); `package-lock.json` is created at the root. The installs are unqualified on purpose: the demo tracks current majors (React 19, Vite 8 at the time of writing), and the component's peer range `react >=18` covers them.
 
 - [ ] **Step 4: Write the Vite config**
 
@@ -1846,7 +1846,7 @@ Expected: install clean, 11 tests pass, build succeeds.
 - [ ] **Step 2: Conventions sweep**
 
 ```bash
-grep -rn $'—' --include='*.md' --include='*.js' --include='*.jsx' --include='*.json' --include='*.yml' . --exclude-dir=node_modules
+grep -rn $'\xe2\x80\x94' --include='*.md' --include='*.js' --include='*.jsx' --include='*.json' --include='*.yml' . --exclude-dir=node_modules
 ```
 
 Expected: no matches (no em dashes anywhere).

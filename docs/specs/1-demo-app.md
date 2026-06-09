@@ -24,7 +24,7 @@ New Vite React app at `examples/demo`, added to npm workspaces.
 - Strip content: `◫ sqnce` wordmark (IBM Plex Mono, gold mark), tagline "staged, gated workflows", and a GitHub link to the repo on the right.
 - The component hardcodes `min-height: 100vh` on `.pf-root`. The demo stylesheet overrides it to `calc(100vh - 44px)` (the strip is fixed at 44px) with a comment stating it reaches into component internals on purpose. Demo-local only.
 - Files: `index.html`, `vite.config.js` (`base: "/sqnce/"`), `src/main.jsx`, `src/App.jsx`, `src/seeds.js`, `src/drafts.js`, `src/demo.css`.
-- Package: `sqnce-demo`, private, React 18, `@sqnce/react` resolved through the workspace. Definitions imported by relative path from `/definitions` (single source of truth, no copies).
+- Package: `sqnce-demo`, private, current React (the component's peer range is `react >=18`; the demo tracks the latest major on purpose). `@sqnce/react` resolved through the workspace. Definitions imported by relative path from `/definitions` (single source of truth, no copies).
 - Persistence: localStorage under the key `sqnce-demo-v1`, storing the component's `{ activeId, runs }` shape. Returning visitors keep their state.
 
 ## New @sqnce/react props
