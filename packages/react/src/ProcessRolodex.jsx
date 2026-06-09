@@ -98,7 +98,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     [workflows, activeId]
   );
   const subs = useMemo(() => flattenSubStages(def), [def]);
-  const run = runs[activeId] || createRun();
+  const makeInitialRun = useCallback(
+    (id) => (initialRunFor ? initialRunFor(id) : createRun()),
+    [initialRunFor]
+  );
+  const run = runs[activeId] || makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, subs.length - 1);
 
@@ -224,7 +228,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const resetRun = () => {
     clearTransients();
-    setRun(createRun());
+    setRun(makeInitialRun(activeId));
   };
 
   const prevDoneBlocks = prevSub
