@@ -77,7 +77,7 @@ Run state keyed by workflow id, applied via `initialRunFor`.
 
 ## Build, deploy, CI, hygiene
 
-- `.github/workflows/pages.yml`: on push to `main` and manual dispatch; Node 20, `npm ci`, `npm run build -w examples/demo`, `actions/configure-pages` (`enablement: true`), `actions/upload-pages-artifact` from `examples/demo/dist`, `actions/deploy-pages`. If token permissions reject enablement, Pages gets switched on once in repo settings (GitHub Actions source) and the workflow rerun.
+- `.github/workflows/pages.yml`: on push to `main` and manual dispatch; Node 20, `npm ci`, `npm run build -w examples/demo`, `actions/configure-pages` (`enablement: true`), `actions/upload-pages-artifact` from `examples/demo/dist`, `actions/deploy-pages`. The workflow grants `permissions: contents: read, pages: write, id-token: write` (required by `actions/deploy-pages`) and serializes deploys with a `pages` concurrency group. If token permissions reject enablement, Pages gets switched on once in repo settings (GitHub Actions source) and the workflow rerun.
 - `ci.yml`: switch `npm install` to `npm ci`; add the demo build step so pull requests catch demo breakage.
 - Commit `package-lock.json`. Add `.worktrees/` and `.superpowers/` to `.gitignore`.
 - Tests: the bundled-definitions validation test must cover all eight definition files (extend the list if discovery is hardcoded). No React test runner exists in the repo; the new props are exercised by the demo build, and behavior is verified manually before the PR leaves draft.
