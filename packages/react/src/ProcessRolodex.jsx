@@ -27,7 +27,9 @@ import {
  *                              save: async (state) => void }
  *      where state is { activeId, runs: { [workflowId]: run } }.
  *      Omit for in-memory only.
- *  - generateDraft (optional): async (prompt: string) => string.
+ *  - generateDraft (optional): async (prompt, context) => string where
+ *      context is { workflowId, stepId, subject }. The second argument
+ *      is informational; single-argument implementations keep working.
  *      Wire this to any LLM provider. Omit to hide the
  *      "Generate draft" action entirely.
  *  - workflowGroups (optional): array of { label, ids } grouping the
@@ -199,7 +201,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setGenError(null);
     try {
       const prompt = buildDraftPrompt(def, subs, run, idx, step);
-      const text = await generateDraft(prompt);
+      const text = await generateDraft(prompt, {
+        workflowId: def.id,
+        stepId: step.id,
+        subject: subjectName,
+      });
       if (!text) throw new Error("Empty response");
       writeOutput(step.id, target.id, text);
     } catch (e) {

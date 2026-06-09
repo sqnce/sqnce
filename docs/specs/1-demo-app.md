@@ -49,6 +49,10 @@ Two optional props on `ProcessRolodex`. Both are no-ops when omitted; existing c
 
 The demo uses `workflowGroups` for Everyday | Work and `initialRunFor` for seeding. Rejected alternative: injecting seeds through `persistence.load`, which leaves Reset wiping to an empty run and breaks the "reset returns to the seed" behavior.
 
+### Amendment (planning): `generateDraft` context
+
+`generateDraft` receives an optional second argument `{ workflowId, stepId, subject }` so the demo's step-keyed draft map can identify the step; the prompt string alone does not carry the id. Existing single-argument consumers are unaffected.
+
 ## Content: definitions, seeds, drafts
 
 ### Four new everyday definitions in `/definitions`
