@@ -1,0 +1,314 @@
+{
+  "id": "customer-onboarding",
+  "name": "Customer Onboarding",
+  "short": "Onboarding",
+  "subject": {
+    "stepId": "ob-account",
+    "outputId": "facts",
+    "field": "customer",
+    "fallback": "the customer"
+  },
+  "mainStages": [
+    {
+      "id": "ob-kick",
+      "name": "Kickoff",
+      "subStages": [
+        {
+          "id": "ob-setup",
+          "name": "Setup",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Lock the basics so the rest of onboarding has context.",
+          "steps": [
+            {
+              "id": "ob-account",
+              "name": "Account Details",
+              "required": true,
+              "description": "Who they are and what they bought.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Account facts",
+                  "fields": [
+                    {
+                      "key": "customer",
+                      "label": "Customer"
+                    },
+                    {
+                      "key": "plan",
+                      "label": "Plan / tier"
+                    },
+                    {
+                      "key": "csm",
+                      "label": "CSM"
+                    },
+                    {
+                      "key": "goLive",
+                      "label": "Go-live target"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "ob-contract",
+              "name": "Contract on File",
+              "description": "Signed agreement and order form.",
+              "outputs": [
+                {
+                  "id": "doc",
+                  "type": "file",
+                  "label": "Contract"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ob-call",
+          "name": "Kickoff Call",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Set expectations and the plan.",
+          "steps": [
+            {
+              "id": "ob-agenda",
+              "name": "Kickoff Agenda",
+              "required": true,
+              "description": "Agenda, attendees, success framing.",
+              "aiPrompt": "Draft a customer kickoff call agenda: introductions, success criteria framing, timeline, and responsibilities.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Agenda"
+                }
+              ]
+            },
+            {
+              "id": "ob-notes",
+              "name": "Kickoff Notes",
+              "required": true,
+              "description": "Decisions and commitments from the call.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Notes"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ob-discovery",
+      "name": "Discovery",
+      "subStages": [
+        {
+          "id": "ob-current",
+          "name": "Current State",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "How they work today.",
+          "steps": [
+            {
+              "id": "ob-as-is",
+              "name": "Current State Assessment",
+              "required": true,
+              "description": "Processes, systems, and pain today.",
+              "aiPrompt": "Draft a current state assessment outline: processes, systems, data sources, and pain points to validate with the customer.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Assessment"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ob-success",
+          "name": "Success Plan",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "What good looks like.",
+          "steps": [
+            {
+              "id": "ob-criteria",
+              "name": "Success Criteria",
+              "required": true,
+              "description": "Measurable outcomes the customer signs up to.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Success criteria"
+                }
+              ]
+            },
+            {
+              "id": "ob-milestones",
+              "name": "Milestone Plan",
+              "description": "Dated milestones to go-live.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Milestones"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ob-config",
+      "name": "Configuration",
+      "subStages": [
+        {
+          "id": "ob-configure",
+          "name": "Configure",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Stand the solution up.",
+          "steps": [
+            {
+              "id": "ob-config-log",
+              "name": "Configuration Log",
+              "required": true,
+              "description": "What was configured and why.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Config log"
+                }
+              ]
+            },
+            {
+              "id": "ob-integrations",
+              "name": "Integrations",
+              "description": "Connected systems and data flows.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Integrations"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ob-validate",
+          "name": "Validate",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Customer confirms it works.",
+          "steps": [
+            {
+              "id": "ob-uat",
+              "name": "UAT Results",
+              "required": true,
+              "description": "Test outcomes and resolved issues.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "UAT results"
+                }
+              ]
+            },
+            {
+              "id": "ob-signoff",
+              "name": "Customer Sign-off",
+              "required": true,
+              "description": "Written acceptance to proceed to go-live."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ob-golive",
+      "name": "Go-Live",
+      "subStages": [
+        {
+          "id": "ob-launch",
+          "name": "Launch",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Flip the switch.",
+          "steps": [
+            {
+              "id": "ob-checklist",
+              "name": "Go-Live Checklist",
+              "required": true,
+              "description": "Cutover steps, owners, rollback plan.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Checklist"
+                }
+              ]
+            },
+            {
+              "id": "ob-comms",
+              "name": "Launch Comms",
+              "description": "Announcement to customer end users.",
+              "aiPrompt": "Draft a go-live announcement to the customer's end users: what is changing, when, and where to get help.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Comms"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ob-handover",
+          "name": "Handover",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "From onboarding to ongoing success.",
+          "steps": [
+            {
+              "id": "ob-handover-doc",
+              "name": "Handover Summary",
+              "required": true,
+              "description": "State of the account for the ongoing CSM.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Handover"
+                }
+              ]
+            },
+            {
+              "id": "ob-health",
+              "name": "First Health Check",
+              "description": "30-day adoption review scheduled."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

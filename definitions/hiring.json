@@ -1,0 +1,338 @@
+{
+  "id": "hiring-pipeline",
+  "name": "Hiring Pipeline",
+  "short": "Hiring",
+  "subject": {
+    "stepId": "h-intake",
+    "outputId": "facts",
+    "field": "role",
+    "fallback": "the role"
+  },
+  "mainStages": [
+    {
+      "id": "h-open",
+      "name": "Open Role",
+      "subStages": [
+        {
+          "id": "h-define",
+          "name": "Define",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Define the role before anyone sources a single candidate.",
+          "steps": [
+            {
+              "id": "h-intake",
+              "name": "Role Definition",
+              "required": true,
+              "description": "The facts every later stage references.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Role facts",
+                  "fields": [
+                    {
+                      "key": "role",
+                      "label": "Role title"
+                    },
+                    {
+                      "key": "level",
+                      "label": "Level"
+                    },
+                    {
+                      "key": "team",
+                      "label": "Team"
+                    },
+                    {
+                      "key": "location",
+                      "label": "Location"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "h-jd",
+              "name": "Job Description",
+              "required": true,
+              "description": "Responsibilities, qualifications, comp range.",
+              "aiPrompt": "Draft a job description: responsibilities, must-have and nice-to-have qualifications, and what makes the role compelling.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Job description"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "h-approve",
+          "name": "Approve",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Headcount and budget sign-off.",
+          "steps": [
+            {
+              "id": "h-headcount",
+              "name": "Headcount Approval",
+              "required": true,
+              "description": "Budget owner has signed off on the req."
+            },
+            {
+              "id": "h-posting",
+              "name": "Posting Live",
+              "description": "Role published to job boards and careers site.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "link",
+                  "label": "Posting URL"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h-source",
+      "name": "Source & Screen",
+      "subStages": [
+        {
+          "id": "h-sourcing",
+          "name": "Source",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Build the candidate pipeline.",
+          "steps": [
+            {
+              "id": "h-plan",
+              "name": "Sourcing Plan",
+              "required": true,
+              "description": "Channels, search strings, target companies.",
+              "aiPrompt": "Draft a sourcing plan: channels, boolean search strings, and target companies for this role.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Sourcing plan"
+                }
+              ]
+            },
+            {
+              "id": "h-pipeline",
+              "name": "Pipeline Log",
+              "description": "Candidates identified and contacted.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Pipeline"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "h-screen",
+          "name": "Screen",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Filter to a shortlist worth interviewing.",
+          "steps": [
+            {
+              "id": "h-criteria",
+              "name": "Screening Criteria",
+              "required": true,
+              "description": "What passes and what fails at the screen.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Criteria"
+                }
+              ]
+            },
+            {
+              "id": "h-shortlist",
+              "name": "Shortlist",
+              "required": true,
+              "description": "Candidates advancing to the loop.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Shortlist"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h-interview",
+      "name": "Interview",
+      "subStages": [
+        {
+          "id": "h-loop",
+          "name": "Loop Design",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Design the interview loop.",
+          "steps": [
+            {
+              "id": "h-loop-plan",
+              "name": "Interview Loop",
+              "required": true,
+              "description": "Rounds, interviewers, and what each round assesses.",
+              "aiPrompt": "Design an interview loop for this role: rounds, what each assesses, and suggested interviewer profiles.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Loop plan"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "h-debrief",
+          "name": "Debrief",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Decide.",
+          "steps": [
+            {
+              "id": "h-scorecards",
+              "name": "Scorecards",
+              "required": true,
+              "description": "Collected feedback per candidate.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Scorecards"
+                }
+              ]
+            },
+            {
+              "id": "h-decision",
+              "name": "Hire Decision",
+              "required": true,
+              "description": "Who gets the offer and why.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Decision"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h-offer",
+      "name": "Offer",
+      "subStages": [
+        {
+          "id": "h-comp",
+          "name": "Approval",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Build and approve the package.",
+          "steps": [
+            {
+              "id": "h-package",
+              "name": "Comp Package",
+              "required": true,
+              "description": "The numbers.",
+              "outputs": [
+                {
+                  "id": "comp",
+                  "type": "fields",
+                  "label": "Compensation",
+                  "fields": [
+                    {
+                      "key": "base",
+                      "label": "Base"
+                    },
+                    {
+                      "key": "bonus",
+                      "label": "Bonus"
+                    },
+                    {
+                      "key": "equity",
+                      "label": "Equity"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "h-comp-approve",
+              "name": "Approval",
+              "required": true,
+              "description": "Comp approved by the chain.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Approval notes"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "h-close",
+          "name": "Close",
+          "gate": {
+            "type": "strict"
+          },
+          "description": "Get the signature.",
+          "steps": [
+            {
+              "id": "h-letter",
+              "name": "Offer Letter",
+              "required": true,
+              "description": "The formal offer document.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "link",
+                  "label": "Offer letter"
+                }
+              ]
+            },
+            {
+              "id": "h-accept",
+              "name": "Acceptance",
+              "required": true,
+              "description": "Signed acceptance and start date.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Acceptance / start date"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

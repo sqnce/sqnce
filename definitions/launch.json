@@ -1,0 +1,270 @@
+{
+  "id": "product-launch",
+  "name": "Product Launch",
+  "short": "Launch",
+  "subject": {
+    "stepId": "pl-brief",
+    "outputId": "facts",
+    "field": "product",
+    "fallback": "the product"
+  },
+  "mainStages": [
+    {
+      "id": "pl-plan",
+      "name": "Plan",
+      "subStages": [
+        {
+          "id": "pl-define",
+          "name": "Brief",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "What we are launching and for whom.",
+          "steps": [
+            {
+              "id": "pl-brief",
+              "name": "Launch Brief",
+              "required": true,
+              "description": "The facts every later stage references.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Launch facts",
+                  "fields": [
+                    {
+                      "key": "product",
+                      "label": "Product / feature"
+                    },
+                    {
+                      "key": "audience",
+                      "label": "Target audience"
+                    },
+                    {
+                      "key": "date",
+                      "label": "Launch date"
+                    },
+                    {
+                      "key": "tier",
+                      "label": "Launch tier"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "pl-positioning",
+              "name": "Positioning",
+              "required": true,
+              "description": "Category, differentiation, proof.",
+              "aiPrompt": "Draft positioning: category, target customer, differentiation, and proof points.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Positioning"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pl-build",
+      "name": "Build",
+      "subStages": [
+        {
+          "id": "pl-readiness",
+          "name": "Readiness",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Is the product actually ready.",
+          "steps": [
+            {
+              "id": "pl-feature-status",
+              "name": "Feature Readiness",
+              "required": true,
+              "description": "Scope locked, quality bar met.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Readiness status"
+                }
+              ]
+            },
+            {
+              "id": "pl-docs",
+              "name": "Documentation",
+              "description": "Help docs and release notes drafted.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "link",
+                  "label": "Docs link"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pl-gtm",
+      "name": "GTM",
+      "subStages": [
+        {
+          "id": "pl-messaging",
+          "name": "Messaging",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "The story and the price.",
+          "steps": [
+            {
+              "id": "pl-message",
+              "name": "Messaging Framework",
+              "required": true,
+              "description": "Headline, pillars, objection handling.",
+              "aiPrompt": "Draft a messaging framework: headline message, three pillars, and objection handling.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Messaging"
+                }
+              ]
+            },
+            {
+              "id": "pl-pricing",
+              "name": "Pricing & Packaging",
+              "description": "How it is sold.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Pricing"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "pl-enable",
+          "name": "Enablement",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Arm the field.",
+          "steps": [
+            {
+              "id": "pl-sales-enable",
+              "name": "Sales Enablement",
+              "required": true,
+              "description": "Pitch deck, battlecard, demo flow.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Enablement plan"
+                }
+              ]
+            },
+            {
+              "id": "pl-assets",
+              "name": "Launch Assets",
+              "description": "Web, video, social, PR assets.",
+              "outputs": [
+                {
+                  "id": "file",
+                  "type": "file",
+                  "label": "Asset pack"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pl-launch",
+      "name": "Launch",
+      "subStages": [
+        {
+          "id": "pl-go",
+          "name": "Go",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Ship it.",
+          "steps": [
+            {
+              "id": "pl-checklist",
+              "name": "Launch Checklist",
+              "required": true,
+              "description": "Day-of sequence, owners, contingencies.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Checklist"
+                }
+              ]
+            },
+            {
+              "id": "pl-announce",
+              "name": "Announcement",
+              "required": true,
+              "description": "The public post.",
+              "aiPrompt": "Draft the launch announcement: what it is, who it is for, why it matters, and the call to action.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Announcement"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "pl-review",
+          "name": "Review",
+          "gate": {
+            "type": "hybrid"
+          },
+          "description": "Did it work.",
+          "steps": [
+            {
+              "id": "pl-metrics",
+              "name": "Launch Metrics",
+              "description": "Adoption, pipeline, coverage.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Metrics"
+                }
+              ]
+            },
+            {
+              "id": "pl-retro",
+              "name": "Retro",
+              "required": true,
+              "description": "What to repeat and what to fix.",
+              "outputs": [
+                {
+                  "id": "out",
+                  "type": "text",
+                  "label": "Retro"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
