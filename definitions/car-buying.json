@@ -1,0 +1,251 @@
+{
+  "id": "car-buying",
+  "name": "Car Buying",
+  "short": "Car",
+  "subject": { "stepId": "car-needs", "outputId": "facts", "field": "target", "fallback": "the car" },
+  "mainStages": [
+    {
+      "id": "car-scope",
+      "name": "Scope",
+      "subStages": [
+        {
+          "id": "car-frame",
+          "name": "Needs and Budget",
+          "gate": { "type": "hybrid" },
+          "description": "Pin down what you need and what you can spend before falling in love with anything.",
+          "steps": [
+            {
+              "id": "car-needs",
+              "name": "Needs",
+              "required": true,
+              "description": "What the car must do for your life.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Needs",
+                  "fields": [
+                    { "key": "target", "label": "Target car or type" },
+                    { "key": "mustHaves", "label": "Must-haves" },
+                    { "key": "dealBreakers", "label": "Deal-breakers" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "car-budget",
+              "name": "Budget",
+              "required": true,
+              "description": "The number you will not cross, written down before anyone shows you leather seats.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Budget",
+                  "fields": [
+                    { "key": "cap", "label": "All-in cap" },
+                    { "key": "downPayment", "label": "Down payment" },
+                    { "key": "monthlyMax", "label": "Max monthly payment" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "car-household",
+              "name": "Household Sign-off",
+              "description": "Everyone who shares the driveway agrees on the needs and the cap."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "car-search",
+      "name": "Search",
+      "subStages": [
+        {
+          "id": "car-research",
+          "name": "Research",
+          "gate": { "type": "hybrid" },
+          "description": "Learn the market before talking to anyone who is selling.",
+          "steps": [
+            {
+              "id": "car-research-notes",
+              "name": "Market Research",
+              "required": true,
+              "description": "Reliability record, common faults, and fair prices for the target.",
+              "aiPrompt": "Summarize what a careful buyer should know about this car: reliability record, common faults, fair private-party and dealer price ranges, and which model years to prefer or avoid.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Research notes" }]
+            },
+            {
+              "id": "car-listings",
+              "name": "Saved Listings",
+              "required": true,
+              "description": "The live candidates, collected in one place.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Listings search link" }]
+            }
+          ]
+        },
+        {
+          "id": "car-drives",
+          "name": "Test Drives",
+          "gate": { "type": "hybrid" },
+          "description": "Drive the shortlist. Trust what the seat of your pants tells you.",
+          "steps": [
+            {
+              "id": "car-shortlist",
+              "name": "Shortlist",
+              "required": true,
+              "description": "Two or three real candidates with asking prices.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Shortlist",
+                  "fields": [
+                    { "key": "topPick", "label": "Top pick" },
+                    { "key": "runnerUp", "label": "Runner-up" },
+                    { "key": "askingPrices", "label": "Asking prices" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "car-drive-notes",
+              "name": "Drive Notes",
+              "required": true,
+              "description": "What each candidate felt like on the road.",
+              "aiPrompt": "Draft structured test-drive notes for the shortlisted cars: ride, noise, visibility, seating fit, and any warning signs worth a second look.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Drive notes" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "car-deal",
+      "name": "Deal",
+      "subStages": [
+        {
+          "id": "car-financing",
+          "name": "Financing",
+          "gate": { "type": "strict" },
+          "description": "Money lined up before negotiating. Cash buyers mark these done.",
+          "steps": [
+            {
+              "id": "car-preapproval",
+              "name": "Pre-approval",
+              "required": true,
+              "description": "A lender's written offer, or proof of funds.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Pre-approval letter" }]
+            },
+            {
+              "id": "car-financing-pick",
+              "name": "Chosen Financing",
+              "required": true,
+              "description": "The terms you will actually sign.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Financing",
+                  "fields": [
+                    { "key": "lender", "label": "Lender" },
+                    { "key": "rate", "label": "Rate" },
+                    { "key": "termMonths", "label": "Term (months)" }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "car-negotiation",
+          "name": "Negotiation",
+          "gate": { "type": "hybrid" },
+          "description": "Numbers decided before you say them out loud.",
+          "steps": [
+            {
+              "id": "car-price-targets",
+              "name": "Price Targets",
+              "required": true,
+              "description": "Opening offer and walk-away, fixed in advance.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Targets",
+                  "fields": [
+                    { "key": "opening", "label": "Opening offer" },
+                    { "key": "walkAway", "label": "Walk-away price" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "car-negotiation-plan",
+              "name": "Negotiation Plan",
+              "required": true,
+              "description": "Leverage, timing, and the script for the conversation.",
+              "aiPrompt": "Draft a short negotiation plan: leverage points from the research and drive notes, an opening script, and calm responses to common dealer tactics.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Plan" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "car-close",
+      "name": "Close",
+      "subStages": [
+        {
+          "id": "car-inspection",
+          "name": "Inspection",
+          "gate": { "type": "strict" },
+          "description": "A mechanic you pay looks at it before you commit.",
+          "steps": [
+            {
+              "id": "car-inspection-report",
+              "name": "Inspection Report",
+              "required": true,
+              "description": "The independent mechanic's findings.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Report" }]
+            },
+            {
+              "id": "car-go-decision",
+              "name": "Go / No-go",
+              "required": true,
+              "description": "Walking away is still on the table."
+            }
+          ]
+        },
+        {
+          "id": "car-paperwork",
+          "name": "Paperwork and Pickup",
+          "gate": { "type": "strict" },
+          "description": "Sign, insure, drive home.",
+          "steps": [
+            {
+              "id": "car-insurance",
+              "name": "Insurance",
+              "required": true,
+              "description": "Coverage active before the wheels move.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Proof of insurance" }]
+            },
+            {
+              "id": "car-sign",
+              "name": "Sign the Papers",
+              "required": true,
+              "description": "Title, bill of sale, registration."
+            },
+            {
+              "id": "car-pickup",
+              "name": "Pick It Up",
+              "description": "Keys in hand, photos of the odometer."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "id": "meal-planning",
+  "name": "Meal Planning",
+  "short": "Meals",
+  "subject": { "stepId": "meal-week", "outputId": "facts", "field": "week", "fallback": "this week" },
+  "mainStages": [
+    {
+      "id": "meal-plan",
+      "name": "Plan",
+      "subStages": [
+        {
+          "id": "meal-menu",
+          "name": "The Week's Menu",
+          "gate": { "type": "hybrid" },
+          "description": "Decide the dinners once, skip the 5 p.m. scramble all week.",
+          "steps": [
+            {
+              "id": "meal-week",
+              "name": "Week Setup",
+              "required": true,
+              "description": "Who you are feeding and what constrains the cooking.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Setup",
+                  "fields": [
+                    { "key": "week", "label": "Week of" },
+                    { "key": "household", "label": "Cooking for" },
+                    { "key": "constraints", "label": "Constraints" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "meal-dinners",
+              "name": "Dinner Plan",
+              "required": true,
+              "description": "Five weeknight dinners that respect the constraints.",
+              "aiPrompt": "Draft a dinner plan for the week: five weeknight meals matching the constraints, one new recipe, a leftovers night, and a one-line prep note per meal.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Dinner plan" }]
+            }
+          ]
+        },
+        {
+          "id": "meal-list",
+          "name": "Shopping List",
+          "gate": { "type": "hybrid" },
+          "description": "The plan turned into a list the store layout agrees with.",
+          "steps": [
+            {
+              "id": "meal-groceries",
+              "name": "Grocery List",
+              "required": true,
+              "description": "By store section, quantities included.",
+              "aiPrompt": "Turn the dinner plan into a grocery list organized by store section, with quantities, checking pantry staples last.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Grocery list" }]
+            },
+            {
+              "id": "meal-recipes",
+              "name": "Recipe Links",
+              "description": "The recipes the plan leans on.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Recipes" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "meal-shop",
+      "name": "Shop",
+      "subStages": [
+        {
+          "id": "meal-buy",
+          "name": "Groceries",
+          "gate": { "type": "strict" },
+          "description": "One trip, the whole list, nothing extra that is not chocolate.",
+          "steps": [
+            {
+              "id": "meal-shopping-done",
+              "name": "Shopping Done",
+              "required": true,
+              "description": "Everything on the list is in the kitchen."
+            },
+            {
+              "id": "meal-receipt",
+              "name": "Receipt",
+              "description": "For the budget ledger.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Receipt" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "meal-prep",
+      "name": "Prep",
+      "subStages": [
+        {
+          "id": "meal-ahead",
+          "name": "Cook Ahead",
+          "gate": { "type": "hybrid" },
+          "description": "An hour on Sunday that buys five calm evenings.",
+          "steps": [
+            {
+              "id": "meal-prep-notes",
+              "name": "Prep Notes",
+              "description": "What to chop, marinate, or batch-cook ahead.",
+              "aiPrompt": "Draft Sunday prep notes from the dinner plan: what to chop, marinate, or batch-cook ahead, and what stays fresh until the day it is needed.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Prep notes" }]
+            },
+            {
+              "id": "meal-prep-done",
+              "name": "Sunday Prep",
+              "description": "Containers filled, fridge organized."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

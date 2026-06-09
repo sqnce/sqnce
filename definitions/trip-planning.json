@@ -1,0 +1,170 @@
+{
+  "id": "trip-planning",
+  "name": "Trip Planning",
+  "short": "Trip",
+  "subject": { "stepId": "trip-destination", "outputId": "facts", "field": "destination", "fallback": "the destination" },
+  "mainStages": [
+    {
+      "id": "trip-dream",
+      "name": "Dream",
+      "subStages": [
+        {
+          "id": "trip-frame",
+          "name": "Destination and Dates",
+          "gate": { "type": "hybrid" },
+          "description": "Agree on where, when, and what it can cost.",
+          "steps": [
+            {
+              "id": "trip-destination",
+              "name": "Destination",
+              "required": true,
+              "description": "The place, the dates, and who is coming.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Trip",
+                  "fields": [
+                    { "key": "destination", "label": "Destination" },
+                    { "key": "dates", "label": "Dates" },
+                    { "key": "travelers", "label": "Travelers" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "trip-budget",
+              "name": "Budget",
+              "required": true,
+              "description": "Total and per-day, agreed before booking anything.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Budget",
+                  "fields": [
+                    { "key": "total", "label": "Total budget" },
+                    { "key": "perDay", "label": "Per-day target" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "trip-timeoff",
+              "name": "Time Off Approved",
+              "description": "Calendars blocked before money moves."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trip-book",
+      "name": "Book",
+      "subStages": [
+        {
+          "id": "trip-transport",
+          "name": "Transport",
+          "gate": { "type": "hybrid" },
+          "description": "Getting there, locked in.",
+          "steps": [
+            {
+              "id": "trip-flights",
+              "name": "Flights",
+              "required": true,
+              "description": "Booked, or a fare watch with a trigger price.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Flight booking or watch link" }]
+            },
+            {
+              "id": "trip-ground",
+              "name": "Ground Transport",
+              "description": "From the airport, and getting around once there.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Ground",
+                  "fields": [
+                    { "key": "arrival", "label": "From the airport" },
+                    { "key": "local", "label": "Getting around" }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "trip-lodging",
+          "name": "Lodging",
+          "gate": { "type": "strict" },
+          "description": "A confirmed bed for every night of the trip.",
+          "steps": [
+            {
+              "id": "trip-stay",
+              "name": "Where You're Staying",
+              "required": true,
+              "description": "The booking, neighborhood checked.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Booking link" }]
+            },
+            {
+              "id": "trip-confirmations",
+              "name": "Confirmations",
+              "required": true,
+              "description": "Every confirmation saved in one place, offline-readable.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Booking confirmations" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trip-plan",
+      "name": "Plan",
+      "subStages": [
+        {
+          "id": "trip-itinerary",
+          "name": "Itinerary",
+          "gate": { "type": "hybrid" },
+          "description": "Enough plan to relax, not enough to need a vacation after.",
+          "steps": [
+            {
+              "id": "trip-days",
+              "name": "Day-by-day Plan",
+              "required": true,
+              "description": "One anchor per day, slack built in.",
+              "aiPrompt": "Draft a relaxed day-by-day itinerary for the destination and dates: one anchor activity per day, one food idea, and slack time built in.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Itinerary" }]
+            },
+            {
+              "id": "trip-reservations",
+              "name": "Reservations",
+              "description": "Restaurants and timed entries that sell out.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Bookings list" }]
+            }
+          ]
+        },
+        {
+          "id": "trip-pack",
+          "name": "Packing and Papers",
+          "gate": { "type": "hybrid" },
+          "description": "Out the door without the 2 a.m. drugstore run.",
+          "steps": [
+            {
+              "id": "trip-packing",
+              "name": "Packing List",
+              "required": true,
+              "description": "By category, documents and chargers called out.",
+              "aiPrompt": "Draft a packing list for this destination, dates, and travelers, organized by category, with documents, medications, and chargers called out explicitly.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Packing list" }]
+            },
+            {
+              "id": "trip-documents",
+              "name": "Passports and Documents Checked",
+              "description": "Validity dates, visas, insurance cards."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
