@@ -28,7 +28,16 @@ const load = (name) => JSON.parse(readFileSync(join(defsDir, name), "utf8"));
 const PRESALES = load("presales.json");
 
 test("all bundled definitions validate", () => {
-  for (const name of ["presales.json", "hiring.json", "onboarding.json", "launch.json"]) {
+  for (const name of [
+    "presales.json",
+    "hiring.json",
+    "onboarding.json",
+    "launch.json",
+    "car-buying.json",
+    "moving.json",
+    "trip-planning.json",
+    "meal-planning.json",
+  ]) {
     const problems = validateDefinition(load(name));
     assert.deepEqual(problems, [], `${name}: ${problems.join("; ")}`);
   }

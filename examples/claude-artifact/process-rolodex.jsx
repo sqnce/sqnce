@@ -603,6 +603,77 @@ const flattenSubs = (def) => {
 const emptyRun = () => ({ idx: 0, frontier: 0, stepState: {} });
 const emptyStep = () => ({ checkedDone: false, outputs: {} });
 
+/* Optional UI behaviors, kept in sync with @sqnce/react:
+   WORKFLOW_GROUPS groups the switcher ([{ label, ids }] or null for flat);
+   SEED_RUNS pre-populates runs by workflow id (used when no stored run
+   exists and by Reset). Both default to off in this artifact. */
+const WORKFLOW_GROUPS = null;
+const SEED_RUNS = {};
+const initialRunFor = (workflowId) =>
+  SEED_RUNS[workflowId] ? structuredClone(SEED_RUNS[workflowId]) : emptyRun();
+
+/* Mirrors the @sqnce/react generateDraft signature: (prompt, context)
+   where context is { workflowId, stepId, subject }. This artifact's
+   implementation calls the Anthropic API and does not need the context. */
+const generateDraft = async (prompt, context = {}) => {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const data = await res.json();
+  return (data.content || [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+};
+
+function SwitcherButtons({ workflows, activeId, onSwitch }) {
+  return (
+    <div className="pf-switch">
+      {workflows.map((w) => (
+        <button
+          key={w.id}
+          className={`pf-switch-btn ${w.id === activeId ? "pf-switch-active" : ""}`}
+          onClick={() => onSwitch(w.id)}
+        >
+          {w.short || w.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
+  if (!groups || !groups.length) {
+    return <SwitcherButtons workflows={workflows} activeId={activeId} onSwitch={onSwitch} />;
+  }
+  const byId = new Map(workflows.map((w) => [w.id, w]));
+  const sections = groups
+    .map((g) => ({
+      label: g.label,
+      workflows: (g.ids || []).map((id) => byId.get(id)).filter(Boolean),
+    }))
+    .filter((s) => s.workflows.length);
+  const grouped = new Set(sections.flatMap((s) => s.workflows.map((w) => w.id)));
+  const rest = workflows.filter((w) => !grouped.has(w.id));
+  if (rest.length) sections.push({ label: "", workflows: rest });
+  return (
+    <div className="pf-switch-groups">
+      {sections.map((s, i) => (
+        <div key={s.label || `rest-${i}`} className="pf-switch-group">
+          <span className="pf-switch-label">{s.label || " "}</span>
+          <SwitcherButtons workflows={s.workflows} activeId={activeId} onSwitch={onSwitch} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const hasValue = (spec, val) => {
   if (val == null) return false;
   if (spec.type === "text" || spec.type === "link") return String(val).trim().length > 0;
@@ -633,7 +704,7 @@ export default function ProcessRolodex() {
 
   const def = useMemo(() => WORKFLOWS.find((w) => w.id === activeId) || WORKFLOWS[0], [activeId]);
   const subs = useMemo(() => flattenSubs(def), [def]);
-  const run = runs[activeId] || emptyRun();
+  const run = runs[activeId] || initialRunFor(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, subs.length - 1);
   const stepState = run.stepState;
@@ -783,20 +854,11 @@ export default function ProcessRolodex() {
         `Task: ${step.aiPrompt || `Draft the output for the step "${step.name}".`}`,
         `Refer to ${subjectName} by name where natural. Respond with the draft output only, concise and usable. No preamble.`,
       ].join("\n\n");
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
+      const text = await generateDraft(prompt, {
+        workflowId: def.id,
+        stepId: step.id,
+        subject: subjectName,
       });
-      const data = await res.json();
-      const text = (data.content || [])
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
       if (!text) throw new Error("Empty response");
       setOutput(step.id, target.id, text);
     } catch (e) {
@@ -824,7 +886,7 @@ export default function ProcessRolodex() {
 
   const resetRun = () => {
     clearTransients();
-    setRuns((prev) => ({ ...prev, [activeId]: emptyRun() }));
+    setRuns((prev) => ({ ...prev, [activeId]: initialRunFor(activeId) }));
   };
 
   /* ---------- derived for render ---------- */
@@ -877,17 +939,12 @@ export default function ProcessRolodex() {
           })}
         </div>
         <div className="pf-header-right">
-          <div className="pf-switch">
-            {WORKFLOWS.map((w) => (
-              <button
-                key={w.id}
-                className={`pf-switch-btn ${w.id === activeId ? "pf-switch-active" : ""}`}
-                onClick={() => switchWorkflow(w.id)}
-              >
-                {w.short}
-              </button>
-            ))}
-          </div>
+          <WorkflowSwitcher
+            workflows={WORKFLOWS}
+            groups={WORKFLOW_GROUPS}
+            activeId={activeId}
+            onSwitch={switchWorkflow}
+          />
           <button className="pf-reset" onClick={resetRun} title="Clear this workflow's run">
             Reset run
           </button>
@@ -1152,6 +1209,9 @@ const CSS = `
 .pf-switch-btn:hover { color: #EDEAE0; }
 .pf-switch-active { background: #D9A441; color: #23282F; font-weight: 600; }
 .pf-switch-active:hover { color: #23282F; }
+.pf-switch-groups { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.pf-switch-group { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.pf-switch-label { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #5E6772; min-height: 12px; }
 .pf-reset { background: none; border: 1px solid #3A434E; color: #8A919B; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: 'IBM Plex Mono', monospace; }
 .pf-reset:hover { color: #EDEAE0; border-color: #5E6772; }
 

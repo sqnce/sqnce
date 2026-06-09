@@ -29,6 +29,7 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 
 ## Commands
 
-- `npm install` (workspaces: packages/*)
+- `npm install` (workspaces: packages/*, examples/demo)
 - `npm test` (runs packages/core/test/engine.test.js)
+- `npm run build -w examples/demo` (build the demo app; CI runs this on every PR)
 - Syntax check for JSX: `npx esbuild <file> --bundle --format=esm --external:react --external:@sqnce/core --outfile=/dev/null`

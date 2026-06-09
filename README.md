@@ -2,11 +2,13 @@
 
 A reusable framework for staged, gated workflows. Define a process as data, run it through a small pure engine, and visualize it as a rolodex that keeps the active sub-stage in focus while feeding each stage's outputs into the next.
 
+**[Live demo](https://sqnce.github.io/sqnce/)**: all eight bundled workflows, seeded mid-run, drafts simulated, state in your browser's localStorage.
+
 > "Let's create a sqnce for that."
 >
 > Pronounced "sequence". Spelled without the vowels so the name is actually yours.
 
-A sqnce is a workflow definition: main stages, sub-stages within them, steps within those, and typed outputs per step. The engine and UI know nothing about any particular domain. The presales pursuit, hiring pipeline, customer onboarding, and product launch definitions bundled in `/definitions` are examples, not special cases.
+A sqnce is a workflow definition: main stages, sub-stages within them, steps within those, and typed outputs per step. The engine and UI know nothing about any particular domain. The definitions bundled in `/definitions` are examples, not special cases: four from work (presales pursuit, hiring, customer onboarding, product launch) and four from life (car buying, moving, trip planning, meal planning).
 
 ## Architecture
 
@@ -46,6 +48,7 @@ Core concepts:
 | `@sqnce/react` | The rolodex component. React 18+, brings its own styles. |
 | `/definitions` | Example workflow definitions as plain JSON. |
 | `/examples/claude-artifact` | A fully self-contained version that runs as a claude.ai artifact, with Claude-powered draft generation and artifact storage persistence. |
+| `/examples/demo` | The live demo app (Vite). Builds from workspace source. |
 
 ## Quickstart
 

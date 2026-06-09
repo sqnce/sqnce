@@ -1,7 +1,7 @@
 {
   "name": "sqnce-monorepo",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "examples/demo"],
   "scripts": {
     "test": "node --test packages/core/test/engine.test.js"
   }

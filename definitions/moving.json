@@ -1,0 +1,234 @@
+{
+  "id": "moving",
+  "name": "Moving",
+  "short": "Move",
+  "subject": { "stepId": "move-needs", "outputId": "facts", "field": "place", "fallback": "the new place" },
+  "mainStages": [
+    {
+      "id": "move-decide",
+      "name": "Decide",
+      "subStages": [
+        {
+          "id": "move-frame",
+          "name": "Needs and Budget",
+          "gate": { "type": "hybrid" },
+          "description": "Know what you are looking for and what it can cost before the first viewing.",
+          "steps": [
+            {
+              "id": "move-needs",
+              "name": "Needs",
+              "required": true,
+              "description": "Where, how big, by when.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Needs",
+                  "fields": [
+                    { "key": "place", "label": "Target area or building" },
+                    { "key": "space", "label": "Space needed" },
+                    { "key": "moveBy", "label": "Move-by date" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "move-budget",
+              "name": "Budget",
+              "required": true,
+              "description": "Rent ceiling plus the cash a move actually takes.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Budget",
+                  "fields": [
+                    { "key": "rentMax", "label": "Max rent" },
+                    { "key": "deposit", "label": "Deposit available" },
+                    { "key": "overlap", "label": "Overlap budget" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "move-notice",
+              "name": "Check Your Notice Period",
+              "description": "Know the date you must give notice at the current place. Do not give it yet."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "move-hunt",
+      "name": "Hunt",
+      "subStages": [
+        {
+          "id": "move-search",
+          "name": "Search",
+          "gate": { "type": "hybrid" },
+          "description": "Cast the net and look at places with clear eyes.",
+          "steps": [
+            {
+              "id": "move-listings",
+              "name": "Saved Searches",
+              "required": true,
+              "description": "Alerts set on the portals that matter.",
+              "outputs": [{ "id": "url", "type": "link", "label": "Search link" }]
+            },
+            {
+              "id": "move-viewing-notes",
+              "name": "Viewing Notes",
+              "required": true,
+              "description": "What to check at every viewing, and what you found.",
+              "aiPrompt": "Draft a viewing checklist and notes template: light, noise, water pressure, storage, phone signal, commute timing, and red flags to check at each viewing.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Notes" }]
+            }
+          ]
+        },
+        {
+          "id": "move-pick",
+          "name": "Shortlist",
+          "gate": { "type": "hybrid" },
+          "description": "Two places you would genuinely sign for.",
+          "steps": [
+            {
+              "id": "move-shortlist",
+              "name": "Shortlist",
+              "required": true,
+              "description": "Ranked, with the true monthly cost of each.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Shortlist",
+                  "fields": [
+                    { "key": "first", "label": "First choice" },
+                    { "key": "second", "label": "Second choice" },
+                    { "key": "monthly", "label": "True monthly cost" }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "move-commit",
+      "name": "Commit",
+      "subStages": [
+        {
+          "id": "move-apply",
+          "name": "Application",
+          "gate": { "type": "hybrid" },
+          "description": "Paperwork ready the moment the right place appears.",
+          "steps": [
+            {
+              "id": "move-packet",
+              "name": "Application Packet",
+              "required": true,
+              "description": "Pay stubs, references, ID, all in one file.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Packet" }]
+            },
+            {
+              "id": "move-apply-sent",
+              "name": "Applications Sent",
+              "required": true,
+              "description": "Submitted for the shortlist, follow-ups noted."
+            }
+          ]
+        },
+        {
+          "id": "move-lease",
+          "name": "Lease",
+          "gate": { "type": "strict" },
+          "description": "Read it, then sign it, in that order.",
+          "steps": [
+            {
+              "id": "move-lease-review",
+              "name": "Lease Review",
+              "required": true,
+              "description": "Key terms, in your own words.",
+              "aiPrompt": "Summarize the lease's key terms and flag anything unusual: break clause, rent increases, deposit conditions, maintenance responsibilities, and guest or sublet rules.",
+              "outputs": [{ "id": "out", "type": "text", "label": "Review" }]
+            },
+            {
+              "id": "move-lease-signed",
+              "name": "Lease Signed",
+              "required": true,
+              "description": "Countersigned copy in hand."
+            },
+            {
+              "id": "move-give-notice",
+              "name": "Give Notice",
+              "description": "Only after the new lease is signed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "move-move",
+      "name": "Move",
+      "subStages": [
+        {
+          "id": "move-logistics",
+          "name": "Logistics",
+          "gate": { "type": "hybrid" },
+          "description": "The week where lists beat willpower.",
+          "steps": [
+            {
+              "id": "move-movers",
+              "name": "Movers",
+              "required": true,
+              "description": "Booked, confirmed, and quoted in writing.",
+              "outputs": [
+                {
+                  "id": "facts",
+                  "type": "fields",
+                  "label": "Movers",
+                  "fields": [
+                    { "key": "company", "label": "Company" },
+                    { "key": "date", "label": "Date" },
+                    { "key": "quote", "label": "Quote" }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "move-utilities",
+              "name": "Utilities Switched",
+              "description": "Power, internet, water on at the new place for day one."
+            },
+            {
+              "id": "move-address",
+              "name": "Address Changes",
+              "description": "Bank, employer, subscriptions, mail forwarding."
+            }
+          ]
+        },
+        {
+          "id": "move-settle",
+          "name": "Settle In",
+          "gate": { "type": "hybrid" },
+          "description": "Make it yours, and protect the deposit.",
+          "steps": [
+            {
+              "id": "move-walkthrough",
+              "name": "Walkthrough Photos",
+              "required": true,
+              "description": "Move-in condition, documented before the boxes open.",
+              "outputs": [{ "id": "doc", "type": "file", "label": "Move-in condition photos" }]
+            },
+            {
+              "id": "move-unpack",
+              "name": "Essentials Unpacked",
+              "description": "Bed made, kitchen working, shower curtain up."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

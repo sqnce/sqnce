@@ -27,11 +27,63 @@ import {
  *                              save: async (state) => void }
  *      where state is { activeId, runs: { [workflowId]: run } }.
  *      Omit for in-memory only.
- *  - generateDraft (optional): async (prompt: string) => string.
+ *  - generateDraft (optional): async (prompt, context) => string where
+ *      context is { workflowId, stepId, subject }. The second argument
+ *      is informational; single-argument implementations keep working.
  *      Wire this to any LLM provider. Omit to hide the
  *      "Generate draft" action entirely.
+ *  - workflowGroups (optional): array of { label, ids } grouping the
+ *      switcher. Ids not matching a workflow are ignored; workflows in
+ *      no group render in a trailing unlabeled section. Omit for the
+ *      flat switcher.
+ *  - initialRunFor (optional): (workflowId) => run, used when a
+ *      workflow has no stored run and by Reset. Defaults to createRun.
+ *      Must be side-effect free; it can be called on every render.
  */
-export default function ProcessRolodex({ workflows, persistence, generateDraft }) {
+
+function SwitcherButtons({ workflows, activeId, onSwitch }) {
+  return (
+    <div className="pf-switch">
+      {workflows.map((w) => (
+        <button
+          key={w.id}
+          className={`pf-switch-btn ${w.id === activeId ? "pf-switch-active" : ""}`}
+          onClick={() => onSwitch(w.id)}
+        >
+          {w.short || w.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
+  if (!groups || !groups.length) {
+    return <SwitcherButtons workflows={workflows} activeId={activeId} onSwitch={onSwitch} />;
+  }
+  const byId = new Map(workflows.map((w) => [w.id, w]));
+  const sections = groups
+    .map((g) => ({
+      label: g.label,
+      workflows: (g.ids || []).map((id) => byId.get(id)).filter(Boolean),
+    }))
+    .filter((s) => s.workflows.length);
+  const grouped = new Set(sections.flatMap((s) => s.workflows.map((w) => w.id)));
+  const rest = workflows.filter((w) => !grouped.has(w.id));
+  if (rest.length) sections.push({ label: "", workflows: rest });
+  return (
+    <div className="pf-switch-groups">
+      {sections.map((s, i) => (
+        <div key={s.label || `rest-${i}`} className="pf-switch-group">
+          <span className="pf-switch-label">{s.label || " "}</span>
+          <SwitcherButtons workflows={s.workflows} activeId={activeId} onSwitch={onSwitch} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor }) {
   const [activeId, setActiveId] = useState(workflows[0].id);
   const [runs, setRuns] = useState({});
   const [expanded, setExpanded] = useState(null);
@@ -48,7 +100,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft }
     [workflows, activeId]
   );
   const subs = useMemo(() => flattenSubStages(def), [def]);
-  const run = runs[activeId] || createRun();
+  const makeInitialRun = useCallback(
+    (id) => (initialRunFor ? initialRunFor(id) : createRun()),
+    [initialRunFor]
+  );
+  const run = runs[activeId] || makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, subs.length - 1);
 
@@ -145,7 +201,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft }
     setGenError(null);
     try {
       const prompt = buildDraftPrompt(def, subs, run, idx, step);
-      const text = await generateDraft(prompt);
+      const text = await generateDraft(prompt, {
+        workflowId: def.id,
+        stepId: step.id,
+        subject: subjectName,
+      });
       if (!text) throw new Error("Empty response");
       writeOutput(step.id, target.id, text);
     } catch (e) {
@@ -174,7 +234,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft }
 
   const resetRun = () => {
     clearTransients();
-    setRun(createRun());
+    setRun(makeInitialRun(activeId));
   };
 
   const prevDoneBlocks = prevSub
@@ -223,17 +283,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft }
         </div>
         <div className="pf-header-right">
           {workflows.length > 1 && (
-            <div className="pf-switch">
-              {workflows.map((w) => (
-                <button
-                  key={w.id}
-                  className={`pf-switch-btn ${w.id === activeId ? "pf-switch-active" : ""}`}
-                  onClick={() => switchWorkflow(w.id)}
-                >
-                  {w.short || w.name}
-                </button>
-              ))}
-            </div>
+            <WorkflowSwitcher
+              workflows={workflows}
+              groups={workflowGroups}
+              activeId={activeId}
+              onSwitch={switchWorkflow}
+            />
           )}
           <button className="pf-reset" onClick={resetRun} title="Clear this workflow's run">
             Reset run
@@ -515,6 +570,9 @@ const CSS = `
 .pf-switch-btn:hover { color: #EDEAE0; }
 .pf-switch-active { background: #D9A441; color: #23282F; font-weight: 600; }
 .pf-switch-active:hover { color: #23282F; }
+.pf-switch-groups { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.pf-switch-group { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.pf-switch-label { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #5E6772; min-height: 12px; }
 .pf-reset { background: none; border: 1px solid #3A434E; color: #8A919B; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: 'IBM Plex Mono', monospace; }
 .pf-reset:hover { color: #EDEAE0; border-color: #5E6772; }
 
