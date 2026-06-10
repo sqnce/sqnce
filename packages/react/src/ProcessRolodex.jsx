@@ -141,6 +141,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const [expanded, setExpanded] = useState(null);
   const [generating, setGenerating] = useState(null);
   const [genError, setGenError] = useState(null);
+  const [manualEdit, setManualEdit] = useState([]);
   const [loaded, setLoaded] = useState(!persistence);
   const [showInputs, setShowInputs] = useState(false);
   const [view, setView] = useState("rolodex");
@@ -253,6 +254,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setExpanded(null);
     setGenError(null);
     setShowInputs(false);
+    setManualEdit([]);
   };
 
   const doBrowse = (dir) => {
@@ -569,21 +571,60 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                         <div className="pf-step-body">
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
-                          {(step.outputs || []).map((spec) => (
-                            <OutputView
-                              key={spec.id}
-                              spec={spec}
-                              value={(entry.outputs || {})[spec.id]}
-                              onChange={(v) => writeOutput(step.id, spec.id, v)}
-                              onAttach={() => {
-                                attachFor.current = { stepId: step.id, outputId: spec.id };
-                                fileRef.current && fileRef.current.click();
-                              }}
-                              renderers={renderers}
-                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
-                              generated={isOutputGenerated(run, step.id, spec.id)}
-                            />
-                          ))}
+                          {(step.outputs || []).map((spec) => {
+                            const target = (step.outputs || []).find((o) => o.type === "text");
+                            const isGenTarget = !!generateDraft && spec === target;
+                            if (
+                              isGenTarget &&
+                              !hasValue(spec, (entry.outputs || {})[spec.id]) &&
+                              !manualEdit.includes(step.id)
+                            ) {
+                              return (
+                                <div key={spec.id} className="pf-out">
+                                  <div className="pf-out-head">
+                                    <div className="pf-out-label">{spec.label}</div>
+                                  </div>
+                                  <div className="pf-gen-invite">
+                                    {generating === step.id ? (
+                                      <span className="pf-spinner" aria-label="Generating" />
+                                    ) : (
+                                      <>
+                                        <button
+                                          className="pf-btn pf-btn-primary"
+                                          disabled={readOnly}
+                                          onClick={() => generate(sub, step)}
+                                        >
+                                          Generate draft
+                                        </button>
+                                        <button
+                                          className="pf-gen-manual"
+                                          disabled={readOnly}
+                                          onClick={() => setManualEdit([...manualEdit, step.id])}
+                                        >
+                                          or write it yourself
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <OutputView
+                                key={spec.id}
+                                spec={spec}
+                                value={(entry.outputs || {})[spec.id]}
+                                onChange={(v) => writeOutput(step.id, spec.id, v)}
+                                onAttach={() => {
+                                  attachFor.current = { stepId: step.id, outputId: spec.id };
+                                  fileRef.current && fileRef.current.click();
+                                }}
+                                renderers={renderers}
+                                context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
+                                generated={isOutputGenerated(run, step.id, spec.id)}
+                              />
+                            );
+                          })}
 
                           {genError === step.id && (
                             <div className="pf-error">Generation failed. Check the connection and try again.</div>
@@ -596,7 +637,18 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 disabled={generating === step.id || readOnly}
                                 onClick={() => generate(sub, step)}
                               >
-                                {generating === step.id ? "Generating…" : "Generate draft"}
+                                {generating === step.id ? (
+                                  <>
+                                    <span className="pf-spinner pf-spinner-sm" aria-hidden="true" /> Generating…
+                                  </>
+                                ) : hasValue(
+                                    (step.outputs || []).find((o) => o.type === "text"),
+                                    (entry.outputs || {})[(step.outputs || []).find((o) => o.type === "text").id]
+                                  ) ? (
+                                  "Regenerate"
+                                ) : (
+                                  "Generate draft"
+                                )}
                               </button>
                             )}
                             <button
@@ -934,6 +986,23 @@ const CSS = `
 }
 .pf-gate-state { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #8A8E96; }
 .pf-gate-met { color: #2E8F62; }
+.pf-gen-invite {
+  border: 1.5px dashed #C9C3B0; border-radius: 8px; padding: 18px;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  background: #FCFBF5; min-height: 46px;
+}
+.pf-gen-manual {
+  background: none; border: none; color: #7A6A3C; cursor: pointer;
+  font-size: 12px; text-decoration: underline; font-family: 'IBM Plex Mono', monospace;
+}
+.pf-spinner {
+  width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+  border: 2px solid #D9A441; border-top-color: transparent;
+  animation: pf-spin 0.8s linear infinite; vertical-align: -2px;
+}
+.pf-spinner-sm { width: 11px; height: 11px; }
+@keyframes pf-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pf-spinner { animation: none; border-top-color: #D9A441; opacity: 0.5; } }
 .pf-advance {
   background: #D9A441; color: #23282F; border: none; border-radius: 8px;
   padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
