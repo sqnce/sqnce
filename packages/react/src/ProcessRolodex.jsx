@@ -601,6 +601,31 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                 })}
               </div>
 
+              {center && (
+                <div className="pf-card-foot">
+                  {p.met ? (
+                    <span className="pf-gate-state pf-gate-met">
+                      ✓ Gate met{atFrontier && nextSub ? ", ready to advance" : ""}
+                    </span>
+                  ) : (
+                    <span className="pf-gate-state">
+                      🔒 {p.total - p.done} required {p.total - p.done === 1 ? "step" : "steps"} left
+                      · Gate unmet: {p.missing.join(", ")}
+                    </span>
+                  )}
+                  {atFrontier && nextSub &&
+                    (p.met ? (
+                      <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
+                        Advance to {nextSub.name} →
+                      </button>
+                    ) : (
+                      <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
+                        Advance anyway
+                      </button>
+                    ))}
+                </div>
+              )}
+
               {locked && (
                 <div className="pf-lock">
                   <span className="pf-lock-icon">🔒</span>
@@ -627,22 +652,6 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             ))}
           </div>
 
-          {atFrontier && nextSub && (
-            <div className="pf-advance-zone">
-              {prog.met ? (
-                <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
-                  Advance to {nextSub.name} →
-                </button>
-              ) : (
-                <>
-                  <div className="pf-gate-hint">Gate unmet: {prog.missing.join(", ")}</div>
-                  <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
-                    Advance anyway
-                  </button>
-                </>
-              )}
-            </div>
-          )}
           {!atFrontier && (
             <div className="pf-gate-hint">Browsing history · frontier is {subs[frontier].name}</div>
           )}
@@ -891,7 +900,13 @@ const CSS = `
 .pf-pip { width: 9px; height: 9px; border-radius: 50%; background: #4A535E; cursor: pointer; }
 .pf-pip-active { background: #D9A441; transform: scale(1.25); }
 .pf-pip-locked { background: #343C45; cursor: default; }
-.pf-advance-zone { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.pf-card-foot {
+  margin: 12px 14px 0; padding: 10px 2px 0;
+  border-top: 1px solid #DCD7C7;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+.pf-gate-state { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #8A8E96; }
+.pf-gate-met { color: #2E8F62; }
 .pf-advance {
   background: #D9A441; color: #23282F; border: none; border-radius: 8px;
   padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
