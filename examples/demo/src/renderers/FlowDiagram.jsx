@@ -42,7 +42,12 @@ function useElkLayout(value) {
     const nodes = (value && value.nodes) || [];
     const ids = new Set(nodes.map((n) => n.id));
     const edges = ((value && value.edges) || []).filter((e) => ids.has(e.from) && ids.has(e.to));
-    if (!nodes.length) return undefined;
+    if (!nodes.length) {
+      /* Fail soft on an empty graph: an empty positions map renders the
+         empty state instead of spinning on "Laying out…" forever. */
+      setPositions(new Map());
+      return undefined;
+    }
     elk
       .layout({
         id: "root",
@@ -80,6 +85,7 @@ function Diagram({ value, context }) {
   }, [positions, expanded, fitView]);
   if (error) return <div style={{ padding: 10, color: "#B3402A", fontSize: 13 }}>Layout failed: {error}</div>;
   if (!positions) return <div style={{ padding: 10, fontSize: 13 }}>Laying out…</div>;
+  if (!positions.size) return <div style={{ padding: 10, fontSize: 13 }}>No flow nodes to show.</div>;
   const ids = new Set(((value && value.nodes) || []).map((n) => n.id));
   const nodes = ((value && value.nodes) || []).map((n) => ({
     id: n.id,
