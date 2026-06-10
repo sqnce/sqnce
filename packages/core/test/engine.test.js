@@ -19,6 +19,7 @@ import {
   buildContext,
   buildDraftPrompt,
   hasValue,
+  serializeStep,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -187,4 +188,14 @@ test("validateDefinition catches structural problems", () => {
   assert.ok(problems.some((p) => p.includes("gate.type")));
   assert.ok(problems.some((p) => p.includes("unknown output type")));
   assert.ok(problems.some((p) => p.includes("duplicate step id")));
+});
+
+test("validateDefinition accepts the data output type", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [{ id: "m", subStages: [{ id: "s", steps: [
+      { id: "st", outputs: [{ id: "o", type: "data", label: "Payload" }] },
+    ] }] }],
+  };
+  assert.deepEqual(validateDefinition(def), []);
 });

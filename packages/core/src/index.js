@@ -7,8 +7,11 @@
  *
  * 1) DEFINITION (a plain JSON-compatible object, see /definitions)
  *    MainStage -> SubStage -> Step -> Output spec[]
- *    - Output spec types: "text" | "fields" | "file" | "link"
+ *    - Output spec types: "text" | "fields" | "file" | "link" | "data"
  *      (steps with no outputs are checklist steps)
+ *    - Any output spec may carry an optional render hint:
+ *      render: { kind, options }. kind is a free string resolved by the
+ *      UI layer's renderer registry; the engine never interprets it.
  *    - SubStage gate: { type: "hybrid" | "strict" }
  *      hybrid: a step is complete when it has any output OR is marked
  *      done. strict: it must be explicitly marked done.
@@ -68,7 +71,7 @@ export function validateDefinition(definition) {
         if (st.id && stepIds.has(st.id)) problems.push(`duplicate step id "${st.id}"`);
         stepIds.add(st.id);
         (st.outputs || []).forEach((o) => {
-          if (!["text", "fields", "file", "link"].includes(o.type))
+          if (!["text", "fields", "file", "link", "data"].includes(o.type))
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);
           if (o.type === "fields" && (!Array.isArray(o.fields) || !o.fields.length))
             problems.push(`step "${st.id}": fields output requires a fields array`);
