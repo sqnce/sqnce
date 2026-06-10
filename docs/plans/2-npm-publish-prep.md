@@ -392,17 +392,34 @@ Directly above the `export default function ProcessRolodex(...)` line:
 
 ```js
 /**
+ * @typedef {Object} RendererContext
+ * @property {string} workflowId
+ * @property {string} stepId
+ * @property {string} subject
+ * @property {boolean} readOnly
+ * @property {boolean} [expanded]
+ */
+/**
+ * @typedef {Object} RendererProps
+ * @property {import("@sqnce/core").OutputSpec} spec
+ * @property {any} value
+ * @property {(value: any) => void} onChange
+ * @property {RendererContext} context
+ */
+/**
  * @typedef {Object} ProcessRolodexProps
  * @property {import("@sqnce/core").Definition[]} workflows
  * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
  * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string }) => Promise<string>} [generateDraft]
  * @property {{ label: string, ids: string[] }[]} [workflowGroups]
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
- * @property {Object<string, import("react").ComponentType<any>>} [renderers]
+ * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  */
 
 /** @param {ProcessRolodexProps} props */
 ```
+
+(`RendererProps` mirrors the renderer contract `OutputView` actually invokes, so a TS consumer's renderer map is validated against `{ spec, value, onChange, context }` instead of being erased by `any`.)
 
 - [ ] **Step 2: Re-emit and verify**
 
@@ -422,11 +439,14 @@ Manual, nothing committed; results recorded in the PR conversation.
 
 - [ ] **Step 1: Pack both and inspect file lists**
 
+All verification steps define their directories from `TMPDIR` with a `/tmp` fallback, so they work on shells where `TMP` is unset; each snippet re-declares `PACK` so steps can run in separate shell sessions.
+
 ```bash
-mkdir -p "$TMP/sqnce-pack"
-npm pack -w @sqnce/core -w @sqnce/react --pack-destination "$TMP/sqnce-pack"
-tar -tzf "$TMP/sqnce-pack/sqnce-core-0.1.0.tgz"
-tar -tzf "$TMP/sqnce-pack/sqnce-react-0.1.0.tgz"
+PACK="${TMPDIR:-/tmp}/sqnce-pack"
+mkdir -p "$PACK"
+npm pack -w @sqnce/core -w @sqnce/react --pack-destination "$PACK"
+tar -tzf "$PACK/sqnce-core-0.1.0.tgz"
+tar -tzf "$PACK/sqnce-react-0.1.0.tgz"
 ```
 
 Expected contents, both: `package/package.json`, `package/README.md`, `package/LICENSE`, `package/src/**`, `package/types/**`. Nothing else (no `test/`, no tsconfig).
@@ -434,9 +454,10 @@ Expected contents, both: `package/package.json`, `package/README.md`, `package/L
 - [ ] **Step 2: Node smoke test of the core tarball**
 
 ```bash
-mkdir -p "$TMP/sqnce-scratch-node" && cd "$TMP/sqnce-scratch-node"
+PACK="${TMPDIR:-/tmp}/sqnce-pack"
+mkdir -p "${TMPDIR:-/tmp}/sqnce-scratch-node" && cd "${TMPDIR:-/tmp}/sqnce-scratch-node"
 npm init -y >/dev/null && npm pkg set type=module
-npm install "$TMP/sqnce-pack/sqnce-core-0.1.0.tgz"
+npm install "$PACK/sqnce-core-0.1.0.tgz"
 node -e "
 import('@sqnce/core').then((core) => {
   const def = { id: 'x', name: 'X', mainStages: [{ id: 'm', name: 'M', subStages: [
@@ -459,9 +480,10 @@ Expected: `core tarball OK`.
 - [ ] **Step 3: Vite scratch app renders ProcessRolodex from the tarballs**
 
 ```bash
-cd "$TMP" && npm create vite@latest sqnce-scratch-vite -- --template react
+PACK="${TMPDIR:-/tmp}/sqnce-pack"
+cd "${TMPDIR:-/tmp}" && npm create vite@latest sqnce-scratch-vite -- --template react
 cd sqnce-scratch-vite && npm install
-npm install "$TMP/sqnce-pack/sqnce-core-0.1.0.tgz" "$TMP/sqnce-pack/sqnce-react-0.1.0.tgz"
+npm install "$PACK/sqnce-core-0.1.0.tgz" "$PACK/sqnce-react-0.1.0.tgz"
 ```
 
 Replace `src/App.jsx` with:
