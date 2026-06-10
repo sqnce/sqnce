@@ -1,7 +1,8 @@
-/* Seeded runs for the everyday workflows, so a first-time visitor lands
-   mid-flight instead of on an empty form. Returned through the
-   component's initialRunFor prop: used when no stored run exists and by
-   Reset, so Reset returns here, not to a blank run. */
+/* Seeded runs, so a first-time visitor lands mid-flight instead of on
+   an empty form: all four everyday workflows plus the presales pursuit.
+   Returned through the component's initialRunFor prop: used when no
+   stored run exists and by Reset, so Reset returns here, not to a
+   blank run. */
 import { createRun } from "@sqnce/core";
 
 const done = { checkedDone: true, outputs: {} };
@@ -134,6 +135,135 @@ const SEEDS = {
         outputs: {
           out: "Mon: sheet-pan chicken fajitas (marinate Sunday). Tue: pesto pasta with white beans, vegetarian. Wed: smash burgers, quick pickles from Sunday. Thu: leftovers night. Fri: new recipe, gochujang salmon bowls (sauce keeps all week). Sat: out or freezer backup.",
         },
+      },
+    },
+  },
+
+  /* Deep seed: frontier at "Demonstration" (index 4), every step through
+     Demo Data filled. Demo Build, a required checklist step, stays
+     undone, so the unmet hybrid gate hint and the override are visible. */
+  "presales-pursuit": {
+    idx: 4,
+    frontier: 4,
+    stepState: {
+      intake: {
+        checkedDone: false,
+        outputs: {
+          facts: {
+            client: "Pacific Ridge Steel Products, Inc.",
+            industry: "Western U.S. steel pipe manufacturing: carbon, stainless, and alloy pipe",
+            dealSize: "18 territory-aligned direct sales reps; Phase 1 direct-sales replacement system",
+            responseDue: "90-day target from vendor selection to cloud go-live",
+          },
+        },
+      },
+      "rfp-upload": {
+        checkedDone: false,
+        outputs: {
+          doc: {
+            name: "pacific-ridge-steel-sales-requirements.md",
+            content:
+              "Sales System Requirements Document v1.0, April 13, 2026, prepared by the Sales Operations & IT Steering Committee. Pacific Ridge is replacing spreadsheets, email, and an aging on-premises contact database with a sales system covering account/contact, lead, opportunity, quoting, territory, reporting, integration, security, and usability requirements. ERP remains the system of record. Phase 1 is the direct sales team only.",
+          },
+        },
+      },
+      qualify: {
+        checkedDone: false,
+        outputs: {
+          out: "Go. Pacific Ridge is a strong fit for a configured Dynamics 365 Sales and Power Platform demo. The real Stage 4 brief frames the demo around four proof points: Pacific Ridge's selling motion is recognizable in the system, margin is protected and the CFO is in control, leadership gets real-time pipeline truth, and the 90-day timeline is credible. Keep ERP, email, website, and identity integrations at capability level.",
+        },
+      },
+      "pain-points": {
+        checkedDone: false,
+        outputs: {
+          out: "Stage 1 findings: sales process is fragmented across spreadsheets, email, and an aging on-premises contact database. There is no centralized account/contact master, activity history is inconsistent, leads from web forms/trade shows/phone are not consolidated or systematically routed, opportunity stages and forecast are not standardized, quoting lacks pipe-specific structure and approval governance, territory assignment is not automated or auditable, leadership lacks real-time reporting, ERP/email/website data is not visible in the sales workflow, role-based security and audit controls are missing, and reps need mobile/offline support for job sites and the mill floor.",
+        },
+      },
+      requirements: {
+        checkedDone: false,
+        outputs: {
+          out: "Stage 1 objectives: unify accounts, contacts, leads, opportunities, and quotes; support GC/sub/end-user account relationships; capture leads from web, trade show, phone, and manual entry; route leads by territory or product line; convert qualified leads into account/contact/opportunity in one action; operate pipeline stages Inquiry, Specification Review, Quote Submitted, Negotiation, Won, Lost; produce pipe-spec quotes with grade, diameter, wall thickness, length, quantity, UoM, unit price, freight/surcharge lines, versioning, cloning, PDF output, and discount/margin approvals; support territory assignment and audit; provide dashboards, win/loss, quote-to-order, time-to-close, ad-hoc reporting, and weighted forecast vs quota; integrate ERP, email, website inquiry forms, SSO, and future APIs; enforce role security, audit, field-level security, retention/deletion policies; provide web, mobile, and offline/degraded connectivity.",
+        },
+      },
+      "customer-research": {
+        checkedDone: false,
+        outputs: {
+          out: "Pacific Ridge Steel Products, Inc. is a Western U.S. steel pipe manufacturer producing carbon, stainless, and alloy pipe from a single mill with an adjacent distribution yard. Its 18-person direct sales force is territory aligned and sells to industrial, construction, and municipal infrastructure customers. The demo audience includes VP Sales, Director of IT, CFO, Project Sponsor, Sales Managers, and Territory Reps.",
+        },
+      },
+      "industry-research": {
+        checkedDone: false,
+        outputs: {
+          out: "The selling motion is project-based pipe sales: GC, subcontractor, and end-user municipality relationships matter; quote lines need pipe grade, diameter, wall thickness, length, quantity, UoM in feet or tons, unit price, surcharges, freight, and versioning; ERP owns customer master, product catalog, credit, orders, inventory, and financials; territory routing and forecast credibility are central to leadership confidence.",
+        },
+      },
+      "product-alignment": {
+        checkedDone: false,
+        outputs: {
+          out: "Stage 4 platform direction: Dynamics 365 Sales Enterprise on Microsoft Dataverse, surfaced through standard Sales Hub re-titled on stage as Pacific Ridge Sales. Supporting surfaces: Power Apps mobile model-driven offline for Scene 7, Power Pages as the thin Scene 1 inquiry intake, Power Automate for post-lead-create routing and quote approval, Microsoft Entra ID for SSO, Dataverse-native dashboards plus D365 Sales Forecast, one embedded Power BI tile and Power BI subscription for Scene 9, and selected Copilot / Sales Qualification Agent moments.",
+        },
+      },
+      "functional-arch": {
+        checkedDone: false,
+        outputs: {
+          out: "Stage 5 inventory: use standard Sales/Dataverse tables; no new tables. Core tables include Account, Contact, Lead, Opportunity, Quote, Quote Detail, Product, Price List, Territory, System User, Team, Activities, Audit, and Field Security Profile. The app is Sales Hub re-titled Pacific Ridge Sales with a customized site map. The Business Process Flow is Pacific Ridge Pipe Sale on Opportunity with stages Inquiry, Specification Review, Quote Submitted, Negotiation, Won, Lost.",
+        },
+      },
+      "technical-arch": {
+        checkedDone: false,
+        outputs: {
+          out: "Technical architecture from the Claude agents: one managed solution named PacificRidgeSales, Dev/Test/Prod environments, ERP account/credit/order-history lookup, product catalog refresh from ERP, Server-Side Sync for email, public Power Pages lead intake, Dataverse row-added flow for web lead territory routing, quote approval flow, Generate PDF -> Email Quote platform command, Dataverse audit, Field Security Profile for margin/cost, Microsoft Entra ID SSO capability, and Power Apps mobile offline support for the Opportunity BPF/site-visit scene.",
+        },
+      },
+      "fit-gap": {
+        checkedDone: false,
+        outputs: {
+          out: "Configuration-first fit. Strong fit: lead intake, lead routing, conversion, opportunity stages, standard Sales quoting, dashboards, forecast, security roles, audit, mobile access, and approvals. Lightweight illustrative additions: pipe attributes, surcharge fields, discount justification, secured margin/cost fields, ERP customer id, credit hold flag, consent field, dashboards, and flows. Explicitly out of scope: rules-based CPQ, customer self-service/e-commerce portal, marketing automation, inventory/WMS, AR/invoicing, field service/dispatch, and channel/distributor sales.",
+        },
+      },
+      "win-themes": {
+        checkedDone: false,
+        outputs: {
+          out: "1. Pacific Ridge's real selling motion is recognizable in the system out of the box. 2. Margin is protected through discount justification, approval routing, and field security. 3. Leadership gets real-time pipeline, forecast, win/loss, quote-to-order, and territory visibility. 4. The 90-day Phase 1 rollout is credible because the solution is configuration-first and direct-sales-only.",
+        },
+      },
+      "exec-summary": {
+        checkedDone: false,
+        outputs: {
+          out: "Pacific Ridge can replace spreadsheet, email, and on-premises sales tracking with a cloud sales workspace that follows a rep's day from web inquiry to lead conversion, account hierarchy, ERP-informed opportunity work, pipe-spec quoting, manager approval, mobile site visit, and executive forecast. The demo proves Phase 1 for the direct sales team while keeping ERP, identity, email, website, and production-adjacent scope at the right level.",
+        },
+      },
+      "solution-narrative": {
+        checkedDone: false,
+        outputs: {
+          out: "The proposed solution centers on Pacific Ridge Sales, a re-titled Sales Hub app backed by Dataverse. Power Pages creates web inquiry leads, Power Automate routes them by territory, reps convert qualified leads into Accounts, Contacts, and Opportunities, the Opportunity BPF mirrors Pacific Ridge's pipeline stages, Quote and Quote Detail support pipe-spec line items and surcharges, managers approve discount exceptions, mobile offline supports field activity capture, and leadership dashboards expose pipeline, forecast, win/loss, quote-to-order, territory, and subscription reporting.",
+        },
+      },
+      "pricing-approach": {
+        checkedDone: false,
+        outputs: {
+          out: "Scope positioning: Phase 1 is direct sales only and cloud hosted. ERP remains system of record for orders, inventory, financials, product catalog, credit, and customer master. The demo should avoid implying production delivery of CPQ, portal self-service, marketing automation, WMS, invoicing, field service, or channel sales.",
+        },
+      },
+      "demo-script": {
+        checkedDone: false,
+        outputs: {
+          out: "Stage 2 demo arc: Act I - The Inbound: 1. Web inquiry lands and routes itself. 2. One-click lead conversion. Act II - The Account & The Project: 3. GC, subcontractor, and end-user project hierarchy. 4. ERP-sourced customer truth inside the sales record. Act III - The Quote: 5. Pipe-spec quoting with surcharges, clone, and version. 6. Discount override, justification, approval, masked margin, and branded PDF. Act IV - The Field: 7. Mobile/offline site visit. Act V - The View from the Top: 8. Manager territory view and role-aware visibility. 9. VP pipeline, weighted forecast vs quota, ad-hoc reporting, and scheduled subscription. Act VI - The 90-Day Reality: 10. SSO, security posture, and speed-to-value close.",
+        },
+      },
+      "demo-data": {
+        checkedDone: false,
+        outputs: {
+          file: {
+            name: "pacific-ridge-stage5-inventory-summary.md",
+            content:
+              "Compact Stage 5 inventory from the real Claude Managed Agent run: 23 standard Dataverse/Sales tables; 18 illustrative custom columns; 16 automation moments; 10 demo scenes; 19 AI moments; 6 demo security roles; 2 owner teams; 1 root business unit; 1 Field Security Profile; 4 dashboards; 12 KPIs; 1 embedded Power BI tile; 1 Power BI subscription. Hero app: Pacific Ridge Sales, Sales Hub re-titled. Hero opportunity: Cascade Civil - Astoria Water Main Replacement, Phase 2. Quote: Q-2026-0142. Dashboards: Sales Rep Home, Western Region Pipeline, Company Pipeline, Sales Admin. BPF: Pacific Ridge Pipe Sale with stages Inquiry, Specification Review, Quote Submitted, Negotiation, Won, Lost.",
+          },
+        },
+      },
+      "demo-build": {
+        checkedDone: false,
+        outputs: {},
       },
     },
   },
