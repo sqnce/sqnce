@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from "react";
+import { createPortal } from "react-dom";
 
 /* ============================================================
    PROCESS FRAMEWORK v3 (multi-workflow)
@@ -7,8 +8,11 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
    1) CONFIGS (the WORKFLOWS array)
       Pure data trees the engine knows nothing special about.
       MainStage -> SubStage -> Step -> Output spec[]
-      - Output spec types: "text" | "fields" | "file" | "link"
+      - Output spec types: "text" | "fields" | "file" | "link" | "data"
         (steps with no outputs are checklist steps)
+      - Any output spec may carry render: { kind, options }. Kinds
+        resolve against built-ins (markdown, table, cards, keyvalue),
+        then fall back: JSON tree for data, default editor otherwise.
       - SubStage gate: { type: "hybrid" | "strict" }
       - Each workflow declares a `subject` (which field names the
         thing the process is about) so AI drafts reference it.
@@ -113,7 +117,7 @@ const PRESALES = {
             { id: "solution-narrative", name: "Solution Narrative", required: true,
               description: "The full response body mapped to RFP sections.",
               aiPrompt: "Draft the solution narrative mapped to the RFP's requirement areas.",
-              outputs: [{ id: "out", type: "text", label: "Narrative" }] },
+              outputs: [{ id: "out", type: "text", label: "Narrative", render: { kind: "markdown" } }] },
             { id: "pricing-approach", name: "Pricing Approach",
               description: "Commercial structure and rationale.",
               outputs: [{ id: "out", type: "text", label: "Pricing approach" }] },
@@ -126,10 +130,16 @@ const PRESALES = {
             { id: "demo-script", name: "Demo Script", required: true,
               description: "Scenario, personas, talk track, wow moments.",
               aiPrompt: "Draft a demo script: scenario, personas, click path beats, and two wow moments tied to the win themes.",
-              outputs: [{ id: "out", type: "text", label: "Demo script" }] },
+              outputs: [{ id: "out", type: "text", label: "Demo script", render: { kind: "markdown" } }] },
             { id: "demo-data", name: "Demo Data",
               description: "Realistic records that mirror the customer's world.",
-              outputs: [{ id: "file", type: "file", label: "Data set" }] },
+              outputs: [
+                { id: "file", type: "file", label: "Data set" },
+                { id: "inventory", type: "data", label: "Build inventory",
+                  render: { kind: "cards", options: { title: "name", subtitle: "purpose" } } },
+                { id: "automations", type: "data", label: "Automation map",
+                  render: { kind: "flow" } },
+              ] },
             { id: "demo-build", name: "Demo Build", required: true,
               description: "Environment configured and dry run complete." },
           ],
@@ -609,6 +619,11 @@ const emptyStep = () => ({ checkedDone: false, outputs: {} });
    exists and by Reset). Both default to off in this artifact. */
 const WORKFLOW_GROUPS = null;
 const SEED_RUNS = {};
+/* Custom renderer registry, kept in sync with the @sqnce/react
+   renderers prop. Defaults to off in this artifact: built-in kinds
+   (markdown, table, cards, keyvalue) and the JSON tree fallback still
+   apply, same as omitting the prop. */
+const RENDERERS = null;
 const initialRunFor = (workflowId) =>
   SEED_RUNS[workflowId] ? structuredClone(SEED_RUNS[workflowId]) : emptyRun();
 
@@ -679,6 +694,11 @@ const hasValue = (spec, val) => {
   if (spec.type === "text" || spec.type === "link") return String(val).trim().length > 0;
   if (spec.type === "fields") return Object.values(val).some((v) => String(v || "").trim().length > 0);
   if (spec.type === "file") return !!val.name;
+  if (spec.type === "data") {
+    if (Array.isArray(val)) return val.length > 0;
+    if (typeof val === "object") return Object.keys(val).length > 0;
+    return String(val).trim().length > 0;
+  }
   return false;
 };
 
@@ -689,6 +709,436 @@ const stepComplete = (step, st, gateType) => {
   if (gateType === "strict") return !!st.checkedDone;
   return !!st.checkedDone || stepHasAnyOutput(step, st);
 };
+
+/* ---------------- output rendering, kept in sync with @sqnce/react ----
+   Renderer contract: a renderer is a pure presentation component
+   receiving { spec, value, onChange, context }. onChange carries value
+   mutations only; renderer view state stays internal, because
+   serializeStep feeds values into LLM draft prompts.
+   context = { workflowId, stepId, subject, readOnly, expanded }. */
+
+function JtNode({ k, v, depth }) {
+  const label = k != null ? <span className="pf-jt-key">{k}: </span> : null;
+  if (v === null || typeof v !== "object") {
+    return (
+      <div className="pf-jt-leaf">
+        {label}
+        <span className={`pf-jt-${v === null ? "null" : typeof v}`}>{JSON.stringify(v)}</span>
+      </div>
+    );
+  }
+  const entries = Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
+  return (
+    <details className="pf-jt-node" open={depth < 1}>
+      <summary>
+        {label}
+        <span className="pf-jt-meta">{Array.isArray(v) ? `[${entries.length}]` : `{${entries.length}}`}</span>
+      </summary>
+      <div className="pf-jt-children">
+        {entries.map(([ck, cv]) => (
+          <JtNode key={String(ck)} k={String(ck)} v={cv} depth={depth + 1} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function JsonTree({ value }) {
+  return (
+    <div className="pf-jt">
+      <JtNode v={value === undefined ? null : value} depth={0} />
+    </div>
+  );
+}
+
+function KeyValue({ value }) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return <JsonTree value={value} />;
+  }
+  return (
+    <div className="pf-kv">
+      {Object.entries(value).map(([k, v]) => (
+        <div key={k} className="pf-kv-row">
+          <div className="pf-kv-key">{k}</div>
+          <div className="pf-kv-val">{v == null || typeof v !== "object" ? String(v) : JSON.stringify(v)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DataTable({ value }) {
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    value.some((r) => r == null || typeof r !== "object" || Array.isArray(r))
+  ) {
+    return <JsonTree value={value} />;
+  }
+  const cols = [];
+  value.slice(0, 50).forEach((row) =>
+    Object.keys(row).forEach((k) => {
+      if (!cols.includes(k)) cols.push(k);
+    })
+  );
+  const cell = (v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v));
+  return (
+    <table className="pf-table">
+      <thead>
+        <tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
+      </thead>
+      <tbody>
+        {value.map((row, i) => (
+          <tr key={i}>{cols.map((c) => <td key={c}>{cell(row[c])}</td>)}</tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Cards({ spec, value }) {
+  const [sel, setSel] = useState(0);
+  if (!Array.isArray(value) || !value.length) return <JsonTree value={value} />;
+  const opts = (spec && spec.render && spec.render.options) || {};
+  const titleOf = (item, i) => {
+    if (item == null || typeof item !== "object") return String(item);
+    return String((opts.title && item[opts.title]) || item.name || item.title || item.id || `Item ${i + 1}`);
+  };
+  const subOf = (item) => {
+    if (item == null || typeof item !== "object") return "";
+    return String((opts.subtitle && item[opts.subtitle]) || item.purpose || item.description || "");
+  };
+  const idx = Math.min(sel, value.length - 1);
+  const current = value[idx];
+  return (
+    <div className="pf-cards">
+      <div className="pf-cards-list">
+        {value.map((item, i) => (
+          <button key={i} className={`pf-cards-item ${i === idx ? "pf-cards-active" : ""}`} onClick={() => setSel(i)}>
+            <div className="pf-cards-title">{titleOf(item, i)}</div>
+            {subOf(item) && <div className="pf-cards-sub">{subOf(item).slice(0, 90)}</div>}
+          </button>
+        ))}
+      </div>
+      <div className="pf-cards-detail">
+        {current != null && typeof current === "object" && !Array.isArray(current) ? (
+          <KeyValue value={current} />
+        ) : (
+          <JsonTree value={current} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const MD_TOKEN = /(`[^`]+`)|(\*\*[^*]+?\*\*)|(\*[^*]+?\*)|(\[[^\]]+\]\([^)\s]+\))/;
+
+function mdInline(text) {
+  const out = [];
+  let rest = String(text);
+  let i = 0;
+  while (rest.length) {
+    const m = rest.match(MD_TOKEN);
+    if (!m) {
+      out.push(rest);
+      break;
+    }
+    if (m.index > 0) out.push(rest.slice(0, m.index));
+    const tok = m[0];
+    if (tok.startsWith("`")) out.push(<code key={i}>{tok.slice(1, -1)}</code>);
+    else if (tok.startsWith("**")) out.push(<strong key={i}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith("*")) out.push(<em key={i}>{tok.slice(1, -1)}</em>);
+    else {
+      const mm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+      const safe = /^(https?:|mailto:|#)/i.test(mm[2]);
+      out.push(
+        safe ? (
+          <a key={i} href={mm[2]} target="_blank" rel="noreferrer">
+            {mm[1]}
+          </a>
+        ) : (
+          `${mm[1]} (${mm[2]})`
+        )
+      );
+    }
+    rest = rest.slice(m.index + tok.length);
+    i++;
+  }
+  return out;
+}
+
+const MD_BLOCK_START = /^(#{1,6}\s|```|>|\s*[-*]\s+|\s*\d+\.\s+|(-{3,}|\*{3,})\s*$)/;
+
+function Markdown({ value }) {
+  const lines = String(value || "").replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let i = 0;
+  let key = 0;
+  const splitRow = (l) =>
+    l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    if (line.startsWith("```")) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]);
+      i++;
+      blocks.push(
+        <pre key={key++} className="pf-md-pre">
+          <code>{buf.join("\n")}</code>
+        </pre>
+      );
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const Tag = `h${h[1].length}`;
+      blocks.push(<Tag key={key++}>{mdInline(h[2])}</Tag>);
+      i++;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,})\s*$/.test(line)) {
+      blocks.push(<hr key={key++} />);
+      i++;
+      continue;
+    }
+    if (line.startsWith(">")) {
+      const buf = [];
+      while (i < lines.length && lines[i].startsWith(">")) buf.push(lines[i++].replace(/^>\s?/, ""));
+      blocks.push(<blockquote key={key++}>{mdInline(buf.join(" "))}</blockquote>);
+      continue;
+    }
+    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+      const ordered = /^\s*\d+\./.test(line);
+      const items = [];
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i]))
+        items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ""));
+      const Tag = ordered ? "ol" : "ul";
+      blocks.push(
+        <Tag key={key++}>
+          {items.map((t, j) => (
+            <li key={j}>{mdInline(t)}</li>
+          ))}
+        </Tag>
+      );
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1])) {
+      const head = splitRow(line);
+      i += 2;
+      const body = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes("|")) body.push(splitRow(lines[i++]));
+      blocks.push(
+        <table key={key++} className="pf-table">
+          <thead>
+            <tr>{head.map((c, j) => <th key={j}>{mdInline(c)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {body.map((r, ri) => (
+              <tr key={ri}>{r.map((c, ci) => <td key={ci}>{mdInline(c)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      );
+      continue;
+    }
+    const buf = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !MD_BLOCK_START.test(lines[i])) buf.push(lines[i++]);
+    blocks.push(<p key={key++}>{mdInline(buf.join(" "))}</p>);
+  }
+  return <div className="pf-md">{blocks}</div>;
+}
+
+const BUILTIN_RENDERERS = {
+  markdown: Markdown,
+  table: DataTable,
+  cards: Cards,
+  keyvalue: KeyValue,
+};
+
+function RenderOverlay({ label, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  /* Portal to body: the rolodex cards are CSS-transformed, which would
+     trap position: fixed overlays inside the card. */
+  return createPortal(
+    <div className="pf-overlay" role="dialog" aria-modal="true">
+      <div className="pf-overlay-head">
+        <span className="pf-overlay-title">{label}</span>
+        <button className="pf-btn pf-btn-sm" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <div className="pf-overlay-body">{children}</div>
+    </div>,
+    document.body
+  );
+}
+
+function RenderView({ Renderer, spec, value, onChange, context }) {
+  return (
+    <Suspense fallback={<div className="pf-render-loading">Loading view…</div>}>
+      <Renderer spec={spec} value={value} onChange={onChange} context={context} />
+    </Suspense>
+  );
+}
+
+function RawJsonEditor({ value, onChange, onDone }) {
+  const [draft, setDraft] = useState(() => JSON.stringify(value === undefined ? null : value, null, 2));
+  const [error, setError] = useState(null);
+  const apply = () => {
+    try {
+      onChange(JSON.parse(draft));
+      setError(null);
+      onDone();
+    } catch (e) {
+      setError("Invalid JSON: " + e.message);
+    }
+  };
+  return (
+    <div>
+      <textarea className="pf-ta pf-ta-mono" value={draft} onChange={(e) => setDraft(e.target.value)} />
+      {error && <div className="pf-error">{error}</div>}
+      <div className="pf-actions">
+        <button className="pf-btn pf-btn-sm" onClick={apply}>
+          Apply
+        </button>
+        <button className="pf-btn pf-btn-sm" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DefaultEditor({ spec, value, onChange, onAttach }) {
+  if (spec.type === "text")
+    return (
+      <textarea
+        className="pf-ta"
+        placeholder="Write the output or generate a draft."
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  if (spec.type === "link")
+    return (
+      <input
+        className="pf-field-input pf-link-input"
+        placeholder="https://"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  if (spec.type === "fields")
+    return (
+      <div className="pf-fields">
+        {spec.fields.map((f) => (
+          <label key={f.key} className="pf-field">
+            <span>{f.label}</span>
+            <input
+              className="pf-field-input"
+              value={(value && value[f.key]) || ""}
+              onChange={(e) => onChange({ ...(value || {}), [f.key]: e.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+    );
+  if (spec.type === "file")
+    return (
+      <>
+        {value && value.name ? (
+          <div className="pf-filechip">📎 {value.name}</div>
+        ) : (
+          <div className="pf-filechip pf-filechip-empty">No file attached</div>
+        )}
+        <button className="pf-btn pf-btn-sm" onClick={onAttach}>
+          {value && value.name ? "Replace file" : "Attach file"}
+        </button>
+      </>
+    );
+  return null;
+}
+
+function OutputView({ spec, value, onChange, onAttach, renderers, context }) {
+  const kind = spec.render && spec.render.kind;
+  const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
+  const isData = spec.type === "data";
+  const Renderer = Custom || (isData ? JsonTree : null);
+  const filled = hasValue(spec, value);
+  const viewValue = spec.type === "file" ? (value && value.content) || "" : value;
+  /* Mode is initialized once at mount; deriving it per render would flip
+     an empty hinted output from edit to view on the first keystroke. */
+  const [mode, setMode] = useState(() => (isData ? "view" : Renderer && filled ? "view" : "edit"));
+  const [big, setBig] = useState(false);
+
+  const body =
+    Renderer && mode === "view" ? (
+      filled ? (
+        <div className="pf-render">
+          <button className="pf-render-expand" title="Expand" onClick={() => setBig(true)}>
+            ⛶
+          </button>
+          <RenderView
+            Renderer={Renderer}
+            spec={spec}
+            value={viewValue}
+            onChange={onChange}
+            context={{ ...context, expanded: false }}
+          />
+        </div>
+      ) : (
+        <div className="pf-filechip pf-filechip-empty">{isData ? "No data yet" : "Nothing to show yet"}</div>
+      )
+    ) : isData ? (
+      <RawJsonEditor value={value} onChange={onChange} onDone={() => setMode("view")} />
+    ) : (
+      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} />
+    );
+
+  const toggle =
+    Renderer && mode === "view" && spec.type !== "file" ? (
+      <button className="pf-render-toggle" onClick={() => setMode("edit")}>
+        {isData ? "Edit JSON" : "Edit"}
+      </button>
+    ) : Renderer && mode === "edit" && !isData && filled ? (
+      <button className="pf-render-toggle" onClick={() => setMode("view")}>
+        View
+      </button>
+    ) : null;
+
+  return (
+    <div className="pf-out">
+      <div className="pf-out-head">
+        <div className="pf-out-label">{spec.label}</div>
+        {toggle}
+      </div>
+      {body}
+      {big && Renderer && (
+        <RenderOverlay label={spec.label} onClose={() => setBig(false)}>
+          <RenderView
+            Renderer={Renderer}
+            spec={spec}
+            value={viewValue}
+            onChange={onChange}
+            context={{ ...context, expanded: true }}
+          />
+        </RenderOverlay>
+      )}
+    </div>
+  );
+}
 
 export default function ProcessRolodex() {
   const [activeId, setActiveId] = useState(WORKFLOWS[0].id);
@@ -822,6 +1272,7 @@ export default function ProcessRolodex() {
       if (spec.type === "fields")
         parts.push(spec.fields.map((f) => `${f.label}: ${val[f.key] || ""}`).filter((l) => !l.endsWith(": ")).join("\n"));
       if (spec.type === "file") parts.push(`Attached file: ${val.name}\n${(val.content || "").slice(0, 2000)}`);
+      if (spec.type === "data") parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val).slice(0, 2000)}`);
     });
     if (!parts.length) return null;
     return `### ${sub.mainName} / ${sub.name} / ${step.name}\n${parts.join("\n").slice(0, 2500)}`;
@@ -1022,74 +1473,20 @@ export default function ProcessRolodex() {
                         <div className="pf-step-body">
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
-                          {(step.outputs || []).map((spec) => {
-                            const val = (st.outputs || {})[spec.id];
-                            if (spec.type === "text")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <textarea
-                                    className="pf-ta"
-                                    placeholder="Write the output or generate a draft."
-                                    value={val || ""}
-                                    onChange={(e) => setOutput(step.id, spec.id, e.target.value)}
-                                  />
-                                </div>
-                              );
-                            if (spec.type === "link")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <input
-                                    className="pf-field-input pf-link-input"
-                                    placeholder="https://"
-                                    value={val || ""}
-                                    onChange={(e) => setOutput(step.id, spec.id, e.target.value)}
-                                  />
-                                </div>
-                              );
-                            if (spec.type === "fields")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <div className="pf-fields">
-                                    {spec.fields.map((f) => (
-                                      <label key={f.key} className="pf-field">
-                                        <span>{f.label}</span>
-                                        <input
-                                          className="pf-field-input"
-                                          value={(val && val[f.key]) || ""}
-                                          onChange={(e) =>
-                                            setOutput(step.id, spec.id, { ...(val || {}), [f.key]: e.target.value })
-                                          }
-                                        />
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            if (spec.type === "file")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  {val && val.name ? (
-                                    <div className="pf-filechip">📎 {val.name}</div>
-                                  ) : (
-                                    <div className="pf-filechip pf-filechip-empty">No file attached</div>
-                                  )}
-                                  <button
-                                    className="pf-btn pf-btn-sm"
-                                    onClick={() => {
-                                      attachFor.current = { stepId: step.id, outputId: spec.id };
-                                      fileRef.current && fileRef.current.click();
-                                    }}
-                                  >
-                                    {val && val.name ? "Replace file" : "Attach file"}
-                                  </button>
-                                </div>
-                              );
-                            return null;
-                          })}
+                          {(step.outputs || []).map((spec) => (
+                            <OutputView
+                              key={spec.id}
+                              spec={spec}
+                              value={(st.outputs || {})[spec.id]}
+                              onChange={(v) => setOutput(step.id, spec.id, v)}
+                              onAttach={() => {
+                                attachFor.current = { stepId: step.id, outputId: spec.id };
+                                fileRef.current && fileRef.current.click();
+                              }}
+                              renderers={RENDERERS}
+                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: false }}
+                            />
+                          ))}
 
                           {genError === step.id && (
                             <div className="pf-error">Generation failed. Check the connection and try again.</div>
@@ -1334,6 +1731,50 @@ const CSS = `
 .pf-override:hover { color: #D9A441; }
 .pf-gate-hint { font-size: 11.5px; color: #8A919B; font-family: 'IBM Plex Mono', monospace; text-align: center; }
 .pf-legend { font-size: 11px; color: #5E6772; margin: 2px 0 0; text-align: center; }
+
+.pf-out-head { display: flex; align-items: center; justify-content: space-between; }
+.pf-render-toggle { background: none; border: none; color: #7A6A3C; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; text-decoration: underline; padding: 0; }
+.pf-render { position: relative; border: 1px solid #D8D3C2; border-radius: 6px; background: #FFFFFF; max-height: 280px; overflow: auto; padding: 10px; }
+.pf-render-expand { position: absolute; top: 6px; right: 6px; z-index: 2; background: #F1EEE3; border: 1px solid #C9C3B0; border-radius: 5px; cursor: pointer; font-size: 12px; padding: 2px 6px; }
+.pf-render-expand:hover { border-color: #23282F; }
+.pf-render-loading { font-size: 12px; color: #8A8E96; padding: 8px; }
+.pf-ta-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-height: 180px; }
+.pf-overlay { position: fixed; inset: 0; z-index: 1000; background: #F1EEE3; display: flex; flex-direction: column; }
+.pf-overlay-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #23282F; color: #EDEAE0; }
+.pf-overlay-title { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.pf-overlay-body { flex: 1; overflow: auto; padding: 18px 22px; }
+.pf-jt { font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.55; }
+.pf-jt-children { padding-left: 16px; }
+.pf-jt-node > summary { cursor: pointer; }
+.pf-jt-leaf { padding-left: 16px; }
+.pf-jt-key { color: #7A6A3C; }
+.pf-jt-string { color: #2E6E8F; } .pf-jt-number { color: #8F4E2E; } .pf-jt-boolean, .pf-jt-null { color: #6B4E8F; }
+.pf-jt-meta { color: #9A9EA6; }
+.pf-kv { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
+.pf-kv-row { display: contents; }
+.pf-kv-key { font-family: 'IBM Plex Mono', monospace; color: #7A6A3C; word-break: break-word; }
+.pf-kv-val { color: #23282F; white-space: pre-wrap; word-break: break-word; }
+.pf-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.pf-table th, .pf-table td { border: 1px solid #DCD7C7; padding: 5px 8px; text-align: left; vertical-align: top; }
+.pf-table th { background: #EFEBDD; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; }
+.pf-cards { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 12px; min-height: 120px; }
+.pf-cards-list { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; max-height: 420px; }
+.pf-cards-item { text-align: left; background: #FAF8F0; border: 1px solid #DCD7C7; border-radius: 6px; padding: 7px 9px; cursor: pointer; font-family: inherit; }
+.pf-cards-item:hover { border-color: #23282F; }
+.pf-cards-active { border-color: #D9A441; background: #FBF3DD; }
+.pf-cards-title { font-size: 12.5px; font-weight: 600; color: #23282F; }
+.pf-cards-sub { font-size: 11px; color: #6B6F76; }
+.pf-cards-detail { border-left: 2px solid #D9A441; padding-left: 12px; overflow: auto; }
+.pf-md { font-size: 13.5px; line-height: 1.6; }
+.pf-md h1, .pf-md h2, .pf-md h3, .pf-md h4, .pf-md h5, .pf-md h6 { margin: 12px 0 6px; line-height: 1.25; }
+.pf-md h1 { font-size: 19px; } .pf-md h2 { font-size: 16.5px; } .pf-md h3 { font-size: 14.5px; }
+.pf-md p { margin: 6px 0; }
+.pf-md ul, .pf-md ol { margin: 6px 0; padding-left: 22px; }
+.pf-md blockquote { margin: 8px 0; border-left: 3px solid #D9A441; padding-left: 10px; color: #5C6068; }
+.pf-md-pre { background: #23282F; color: #EDEAE0; border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12px; }
+.pf-md code { background: #EFEBDD; border-radius: 3px; padding: 0 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.92em; }
+.pf-md-pre code { background: none; padding: 0; }
+.pf-md table { margin: 8px 0; }
 
 @media (max-width: 720px) {
   .pf-card-side { display: none; }
