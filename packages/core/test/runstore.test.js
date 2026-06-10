@@ -10,6 +10,10 @@ import {
   renameRun,
   archiveRun,
   unarchiveRun,
+  setActiveRun,
+  updateRunState,
+  runsForWorkflow,
+  activeRunEntry,
 } from "../src/index.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
@@ -104,4 +108,49 @@ test("unarchiveRun restores status active", () => {
   const s2 = unarchiveRun(s, "r1", 300);
   assert.equal(s2.entries.r1.status, "active");
   assert.equal(s2.entries.r1.updatedAt, 300);
+});
+
+test("setActiveRun activates the run and its workflow", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("h1", "hiring", 200));
+  const s2 = setActiveRun(s, "r1");
+  assert.equal(s2.activeWorkflowId, "wf");
+  assert.equal(s2.activeRunByWorkflow.wf, "r1");
+  assert.equal(s2.activeRunByWorkflow.hiring, "h1");
+});
+
+test("setActiveRun works for archived entries and ignores unknown ids", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 200));
+  s = archiveRun(s, "r1", 300);
+  const s2 = setActiveRun(s, "r1");
+  assert.equal(s2.activeRunByWorkflow.wf, "r1");
+  assert.equal(setActiveRun(s, "nope"), s);
+});
+
+test("updateRunState replaces the inner run and bumps updatedAt", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  const run = setOutput(createRun(), "s1", "facts", { client: "Acme" });
+  const s2 = updateRunState(s, "r1", run, 200);
+  assert.equal(s2.entries.r1.run, run);
+  assert.equal(s2.entries.r1.updatedAt, 200);
+  assert.equal(updateRunState(s, "nope", run, 200), s);
+});
+
+test("runsForWorkflow filters by workflow and orders by createdAt then id", () => {
+  let s = addRun(createRunStore(), entryAt("b2", "wf", 200));
+  s = addRun(s, entryAt("a1", "wf", 100));
+  s = addRun(s, entryAt("a2", "wf", 200));
+  s = addRun(s, entryAt("h1", "hiring", 50));
+  s = archiveRun(s, "a1", 300);
+  assert.deepEqual(
+    runsForWorkflow(s, "wf").map((e) => e.id),
+    ["a1", "a2", "b2"]
+  );
+});
+
+test("activeRunEntry returns the active entry or null", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.equal(activeRunEntry(s, "wf").id, "r1");
+  assert.equal(activeRunEntry(s, "hiring"), null);
 });

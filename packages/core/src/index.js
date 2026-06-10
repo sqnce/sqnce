@@ -358,3 +358,35 @@ export function unarchiveRun(store, runId, now) {
   if (!entry) return store;
   return withEntry(store, { ...entry, status: "active", updatedAt: now });
 }
+
+export function setActiveRun(store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return {
+    ...store,
+    activeWorkflowId: entry.workflowId,
+    activeRunByWorkflow: { ...store.activeRunByWorkflow, [entry.workflowId]: runId },
+  };
+}
+
+export function updateRunState(store, runId, run, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, run, updatedAt: now });
+}
+
+function compareIds(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** All of a workflow's entries, live and archived, oldest first. */
+export function runsForWorkflow(store, workflowId) {
+  return Object.values(store.entries)
+    .filter((e) => e.workflowId === workflowId)
+    .sort((a, b) => a.createdAt - b.createdAt || compareIds(a.id, b.id));
+}
+
+export function activeRunEntry(store, workflowId) {
+  const id = store.activeRunByWorkflow[workflowId];
+  return (id && store.entries[id]) || null;
+}
