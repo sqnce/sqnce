@@ -299,3 +299,144 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
     `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`,
   ].join("\n\n");
 }
+
+/* ------------------------------------------------------------------ */
+/* Run store: multiple named runs per workflow                         */
+/* ------------------------------------------------------------------ */
+/*
+ * A run entry wraps an engine run with identity:
+ *   { id, workflowId, name, status: "active" | "archived",
+ *     createdAt, updatedAt, run }
+ * The store is the versioned persisted shape:
+ *   { version: 2, activeWorkflowId, activeRunByWorkflow, entries }
+ * Ids and timestamps are supplied by the caller; nothing here reads
+ * the clock or generates randomness. "Live" means status "active";
+ * entry.name holds manual renames only (display names are derived by
+ * runDisplayName). Every function taking a runId returns the store
+ * unchanged when the id is unknown.
+ */
+
+export function createRunStore() {
+  return { version: 2, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
+}
+
+export function createRunEntry({ id, workflowId, run, now }) {
+  return { id, workflowId, name: "", status: "active", createdAt: now, updatedAt: now, run };
+}
+
+function withEntry(store, entry) {
+  return { ...store, entries: { ...store.entries, [entry.id]: entry } };
+}
+
+/** Insert an entry and make it the active run of its workflow. */
+export function addRun(store, entry) {
+  return {
+    ...withEntry(store, entry),
+    activeWorkflowId: entry.workflowId,
+    activeRunByWorkflow: { ...store.activeRunByWorkflow, [entry.workflowId]: entry.id },
+  };
+}
+
+export function renameRun(store, runId, name, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, name: String(name || "").trim(), updatedAt: now });
+}
+
+/*
+ * Archiving is manual only and does not touch active-run mappings: an
+ * archived active run stays open and renders read-only in the UI.
+ */
+export function archiveRun(store, runId, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, status: "archived", updatedAt: now });
+}
+
+export function unarchiveRun(store, runId, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, status: "active", updatedAt: now });
+}
+
+export function setActiveRun(store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return {
+    ...store,
+    activeWorkflowId: entry.workflowId,
+    activeRunByWorkflow: { ...store.activeRunByWorkflow, [entry.workflowId]: runId },
+  };
+}
+
+export function updateRunState(store, runId, run, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, run, updatedAt: now });
+}
+
+function compareIds(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** All of a workflow's entries, live and archived, oldest first. */
+export function runsForWorkflow(store, workflowId) {
+  return Object.values(store.entries)
+    .filter((e) => e.workflowId === workflowId)
+    .sort((a, b) => a.createdAt - b.createdAt || compareIds(a.id, b.id));
+}
+
+export function activeRunEntry(store, workflowId) {
+  const id = store.activeRunByWorkflow[workflowId];
+  return (id && store.entries[id]) || null;
+}
+
+/*
+ * Delete an entry. If it was its workflow's active run, fall back to
+ * the workflow's most recently updated live run; with none left, the
+ * workflow loses its active-run mapping (the UI creates a fresh entry
+ * on demand).
+ */
+export function deleteRun(store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  const entries = { ...store.entries };
+  delete entries[runId];
+  const next = { ...store, entries };
+  if (store.activeRunByWorkflow[entry.workflowId] !== runId) return next;
+  const live = Object.values(entries)
+    .filter((e) => e.workflowId === entry.workflowId && e.status === "active")
+    .sort((a, b) => b.updatedAt - a.updatedAt || compareIds(a.id, b.id));
+  const map = { ...next.activeRunByWorkflow };
+  if (live.length) map[entry.workflowId] = live[0].id;
+  else delete map[entry.workflowId];
+  return { ...next, activeRunByWorkflow: map };
+}
+
+/** Progress over a definition: how many flattened sub-stage gates are met. */
+export function runSummary(definition, run) {
+  const subs = flattenSubStages(definition);
+  return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
+}
+
+/*
+ * Display name: manual name, else the resolved subject (only when the
+ * subject output field actually holds a value; the configured fallback
+ * string never becomes a display name), else "Run N" by creation order
+ * among the workflow's entries. N can shift after deletions; accepted
+ * pre-launch.
+ */
+export function runDisplayName(definition, store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return "";
+  if (entry.name) return entry.name;
+  const s = definition.subject;
+  if (s) {
+    const se = entry.run.stepState[s.stepId];
+    const val = se && se.outputs && se.outputs[s.outputId];
+    const subject = val && String(val[s.field] || "").trim();
+    if (subject) return subject;
+  }
+  const n = runsForWorkflow(store, entry.workflowId).findIndex((e) => e.id === runId) + 1;
+  return `Run ${n}`;
+}

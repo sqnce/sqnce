@@ -17,7 +17,7 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 - Advancing past an unmet gate must always remain possible via the explicit override (guide, never hard-block).
 - Browsing history never moves the frontier; advancing from a non-frontier position is a no-op.
 - Completed prior outputs are serialized into draft prompts (fields as labeled lines, files as name plus extracted text, data as capped JSON).
-- Per-workflow run state is namespaced by workflow id; switching workflows is non-destructive.
+- Run state lives in a versioned run store (multiple named runs per workflow); switching workflows or runs is non-destructive. Archiving is manual only and archived runs open read-only; nothing archives a run automatically.
 - Unknown render kinds never render blank: JSON tree fallback for data outputs, default editor otherwise.
 - Renderer onChange carries value mutations only; renderer view state (selection, pan, zoom) never enters the value, because serializeStep leaks values into LLM draft prompts.
 

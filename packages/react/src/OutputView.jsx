@@ -72,13 +72,14 @@ function RawJsonEditor({ value, onChange, onDone }) {
   );
 }
 
-function DefaultEditor({ spec, value, onChange, onAttach }) {
+function DefaultEditor({ spec, value, onChange, onAttach, readOnly }) {
   if (spec.type === "text")
     return (
       <textarea
         className="pf-ta"
         placeholder="Write the output or generate a draft."
         value={value || ""}
+        readOnly={readOnly}
         onChange={(e) => onChange(e.target.value)}
       />
     );
@@ -88,6 +89,7 @@ function DefaultEditor({ spec, value, onChange, onAttach }) {
         className="pf-field-input pf-link-input"
         placeholder="https://"
         value={value || ""}
+        readOnly={readOnly}
         onChange={(e) => onChange(e.target.value)}
       />
     );
@@ -100,6 +102,7 @@ function DefaultEditor({ spec, value, onChange, onAttach }) {
             <input
               className="pf-field-input"
               value={(value && value[f.key]) || ""}
+              readOnly={readOnly}
               onChange={(e) => onChange({ ...(value || {}), [f.key]: e.target.value })}
             />
           </label>
@@ -114,7 +117,7 @@ function DefaultEditor({ spec, value, onChange, onAttach }) {
         ) : (
           <div className="pf-filechip pf-filechip-empty">No file attached</div>
         )}
-        <button className="pf-btn pf-btn-sm" onClick={onAttach}>
+        <button className="pf-btn pf-btn-sm" disabled={readOnly} onClick={onAttach}>
           {value && value.name ? "Replace file" : "Attach file"}
         </button>
       </>
@@ -138,9 +141,13 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
      an empty hinted output from edit to view on the first keystroke. */
   const [mode, setMode] = useState(() => (isData ? "view" : Renderer && filled ? "view" : "edit"));
   const [big, setBig] = useState(false);
+  const readOnly = !!(context && context.readOnly);
+  /* Read-only forces renderer-backed outputs into view mode; the raw
+     JSON editor and the edit toggles become unreachable. */
+  const shownMode = readOnly && Renderer ? "view" : mode;
 
   const body =
-    Renderer && mode === "view" ? (
+    Renderer && shownMode === "view" ? (
       filled ? (
         <div className="pf-render">
           <button className="pf-render-expand" title="Expand" onClick={() => setBig(true)}>
@@ -160,19 +167,18 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     ) : isData ? (
       <RawJsonEditor value={value} onChange={onChange} onDone={() => setMode("view")} />
     ) : (
-      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} />
+      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} />
     );
 
-  const toggle =
-    Renderer && mode === "view" ? (
-      <button className="pf-render-toggle" onClick={() => setMode("edit")}>
-        {isData ? "Edit JSON" : spec.type === "file" ? "Replace file" : "Edit"}
-      </button>
-    ) : Renderer && mode === "edit" && !isData && filled ? (
-      <button className="pf-render-toggle" onClick={() => setMode("view")}>
-        View
-      </button>
-    ) : null;
+  const toggle = readOnly ? null : Renderer && shownMode === "view" ? (
+    <button className="pf-render-toggle" onClick={() => setMode("edit")}>
+      {isData ? "Edit JSON" : spec.type === "file" ? "Replace file" : "Edit"}
+    </button>
+  ) : Renderer && shownMode === "edit" && !isData && filled ? (
+    <button className="pf-render-toggle" onClick={() => setMode("view")}>
+      View
+    </button>
+  ) : null;
 
   return (
     <div className="pf-out">
