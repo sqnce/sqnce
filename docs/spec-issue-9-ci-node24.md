@@ -29,7 +29,11 @@ Exact tags are confirmed during the plan phase by inspecting each action's relea
 
 ### Composite action: `actions/upload-pages-artifact`
 
-`upload-pages-artifact` uses `runs.using: composite` and does not declare a Node runtime directly. Its Node 20 warning comes from the nested `actions/upload-artifact` it invokes. The plan phase must confirm whether a released tag of `upload-pages-artifact` already references a `node24`-native `upload-artifact`. If no such released tag exists, replace `upload-pages-artifact` with a direct call to `actions/upload-artifact` at a `node24`-native tag, passing `name: github-pages` and `path: <artifact path>`.
+`upload-pages-artifact` uses `runs.using: composite` and does not declare a Node runtime directly. Its Node 20 warning comes from the nested `actions/upload-artifact` it invokes.
+
+**Primary path:** find and pin the released tag of `upload-pages-artifact` that references a node24-native `upload-artifact`. Confirm during the plan phase.
+
+**Fallback (only if no such released tag exists before the deadline):** manually produce the Pages-compatible artifact format in a shell step, then call `actions/upload-artifact` at a node24-native tag. The format required by `deploy-pages` is: artifact named `github-pages`, structured as a gzip archive containing a single tar file. The plan phase documents the exact `tar`/`gzip` shell commands if this path is taken.
 
 ### Node version for build steps
 
