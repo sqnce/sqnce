@@ -299,3 +299,40 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
     `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`,
   ].join("\n\n");
 }
+
+/* ------------------------------------------------------------------ */
+/* Run store: multiple named runs per workflow                         */
+/* ------------------------------------------------------------------ */
+/*
+ * A run entry wraps an engine run with identity:
+ *   { id, workflowId, name, status: "active" | "archived",
+ *     createdAt, updatedAt, run }
+ * The store is the versioned persisted shape:
+ *   { version: 2, activeWorkflowId, activeRunByWorkflow, entries }
+ * Ids and timestamps are supplied by the caller; nothing here reads
+ * the clock or generates randomness. "Live" means status "active";
+ * entry.name holds manual renames only (display names are derived by
+ * runDisplayName). Every function taking a runId returns the store
+ * unchanged when the id is unknown.
+ */
+
+export function createRunStore() {
+  return { version: 2, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
+}
+
+export function createRunEntry({ id, workflowId, run, now }) {
+  return { id, workflowId, name: "", status: "active", createdAt: now, updatedAt: now, run };
+}
+
+function withEntry(store, entry) {
+  return { ...store, entries: { ...store.entries, [entry.id]: entry } };
+}
+
+/** Insert an entry and make it the active run of its workflow. */
+export function addRun(store, entry) {
+  return {
+    ...withEntry(store, entry),
+    activeWorkflowId: entry.workflowId,
+    activeRunByWorkflow: { ...store.activeRunByWorkflow, [entry.workflowId]: entry.id },
+  };
+}
