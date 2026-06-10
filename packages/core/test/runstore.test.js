@@ -14,6 +14,7 @@ import {
   updateRunState,
   runsForWorkflow,
   activeRunEntry,
+  deleteRun,
 } from "../src/index.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
@@ -153,4 +154,39 @@ test("activeRunEntry returns the active entry or null", () => {
   const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
   assert.equal(activeRunEntry(s, "wf").id, "r1");
   assert.equal(activeRunEntry(s, "hiring"), null);
+});
+
+test("deleteRun removes a non-active entry without touching mappings", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 200));
+  const s2 = deleteRun(s, "r1");
+  assert.equal(s2.entries.r1, undefined);
+  assert.equal(s2.activeRunByWorkflow.wf, "r2");
+});
+
+test("deleteRun on the active run falls back to the most recently updated live run", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 300));
+  s = addRun(s, entryAt("r3", "wf", 200));
+  const s2 = deleteRun(s, "r3");
+  assert.equal(s2.activeRunByWorkflow.wf, "r2");
+});
+
+test("deleteRun ignores archived runs when picking the fallback", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 200));
+  s = addRun(s, entryAt("r3", "wf", 300));
+  s = archiveRun(s, "r2", 400);
+  const s2 = deleteRun(s, "r3");
+  assert.equal(s2.activeRunByWorkflow.wf, "r1");
+});
+
+test("deleteRun on the last live run removes the workflow mapping", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 200));
+  s = archiveRun(s, "r1", 300);
+  const s2 = deleteRun(s, "r2");
+  assert.equal(s2.activeRunByWorkflow.wf, undefined);
+  assert.equal(s2.entries.r1.status, "archived");
+  assert.equal(deleteRun(s2, "nope"), s2);
 });

@@ -390,3 +390,25 @@ export function activeRunEntry(store, workflowId) {
   const id = store.activeRunByWorkflow[workflowId];
   return (id && store.entries[id]) || null;
 }
+
+/*
+ * Delete an entry. If it was its workflow's active run, fall back to
+ * the workflow's most recently updated live run; with none left, the
+ * workflow loses its active-run mapping (the UI creates a fresh entry
+ * on demand).
+ */
+export function deleteRun(store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  const entries = { ...store.entries };
+  delete entries[runId];
+  const next = { ...store, entries };
+  if (store.activeRunByWorkflow[entry.workflowId] !== runId) return next;
+  const live = Object.values(entries)
+    .filter((e) => e.workflowId === entry.workflowId && e.status === "active")
+    .sort((a, b) => b.updatedAt - a.updatedAt || compareIds(a.id, b.id));
+  const map = { ...next.activeRunByWorkflow };
+  if (live.length) map[entry.workflowId] = live[0].id;
+  else delete map[entry.workflowId];
+  return { ...next, activeRunByWorkflow: map };
+}
