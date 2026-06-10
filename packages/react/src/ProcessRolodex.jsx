@@ -163,15 +163,26 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, subs.length - 1);
 
-  /* A loaded store can lack an active entry for the active workflow
-     (last live run deleted, foreign activeWorkflowId). Create one,
-     but only when the rolodex view actually needs it: on the runs
-     screen a confirmed delete of the final run must not appear to
-     recreate a blank run in the table. */
+  /* Repair a loaded store whose active pointers do not match the
+     rendered state. Two cases: a foreign activeWorkflowId (workflow no
+     longer in the props) is normalized to the rendered fallback so the
+     sidebar highlight and saves agree; a missing active entry (last
+     live run deleted) gets a fresh entry, but only when the rolodex
+     view actually needs it: on the runs screen a confirmed delete of
+     the final run must not appear to recreate a blank run. */
+  const staleActiveId = store.activeWorkflowId !== activeId;
   useEffect(() => {
-    if (!loaded || entry || view !== "rolodex") return;
+    if (!loaded) return;
+    if (entry && staleActiveId) {
+      setStore((s) => {
+        const e = activeRunEntry(s, activeId);
+        return e ? coreSetActiveRun(s, e.id) : s;
+      });
+      return;
+    }
+    if (entry || view !== "rolodex") return;
     setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
-  }, [loaded, entry, activeId, view, newEntryFor]);
+  }, [loaded, entry, staleActiveId, activeId, view, newEntryFor]);
 
   /* Content mutations bump updatedAt and are blocked on archived runs.
      The status is re-checked inside the updater with current state:
