@@ -19,9 +19,13 @@
  *      the process is about, so generated drafts can reference it.
  *
  * 2) RUN (runtime state, also JSON-compatible)
- *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs } } }
+ *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
+ *      reopened?, generated? } } }
  *    `frontier` is the furthest committed sub-stage. Browsing moves
  *    within [0, frontier]; advancing commits the frontier forward.
+ *    `reopened` suppresses hybrid content-completion until the step is
+ *    touched again. `generated` maps outputId -> true for values
+ *    written by draft generation; any hand edit clears the mark.
  *
  * Every function here is pure: state in, new state out.
  */
@@ -119,22 +123,40 @@ export function getStepEntry(run, stepId) {
   return run.stepState[stepId] || emptyStepEntry();
 }
 
-/** Set one output value on a step. Returns a new run. */
+/**
+ * Set one output value on a step. Returns a new run.
+ * Any write counts as touching the step and clears `reopened`.
+ */
 export function setOutput(run, stepId, outputId, value) {
+  const cur = run.stepState[stepId] || emptyStepEntry();
+  const next = { ...cur, outputs: { ...cur.outputs, [outputId]: value } };
+  delete next.reopened;
+  return { ...run, stepState: { ...run.stepState, [stepId]: next } };
+}
+
+/**
+ * Set or clear a step's explicit done flag. Returns a new run.
+ * Re-marking done clears `reopened`.
+ */
+export function setCheckedDone(run, stepId, checkedDone) {
+  const cur = run.stepState[stepId] || emptyStepEntry();
+  const next = { ...cur, checkedDone };
+  if (checkedDone) delete next.reopened;
+  return { ...run, stepState: { ...run.stepState, [stepId]: next } };
+}
+
+/**
+ * Explicitly reopen a step. Clears the done flag and sets `reopened`,
+ * which suppresses hybrid content-completion until the step is touched
+ * again (an output write or a re-mark done). Strict gates ignore the
+ * flag; they already require explicit done.
+ */
+export function reopenStep(run, stepId) {
   const cur = run.stepState[stepId] || emptyStepEntry();
   return {
     ...run,
-    stepState: {
-      ...run.stepState,
-      [stepId]: { ...cur, outputs: { ...cur.outputs, [outputId]: value } },
-    },
+    stepState: { ...run.stepState, [stepId]: { ...cur, checkedDone: false, reopened: true } },
   };
-}
-
-/** Set or clear a step's explicit done flag. Returns a new run. */
-export function setCheckedDone(run, stepId, checkedDone) {
-  const cur = run.stepState[stepId] || emptyStepEntry();
-  return { ...run, stepState: { ...run.stepState, [stepId]: { ...cur, checkedDone } } };
 }
 
 /* ------------------------------------------------------------------ */
@@ -162,11 +184,13 @@ export function stepHasAnyOutput(step, entry) {
 
 /**
  * Is a step complete under a gate type?
- * hybrid: explicit done OR any output value. strict: explicit done only.
+ * hybrid: explicit done OR (not reopened AND any output value).
+ * strict: explicit done only.
  */
 export function isStepComplete(step, entry, gateType = "hybrid") {
   if (gateType === "strict") return !!entry.checkedDone;
-  return !!entry.checkedDone || stepHasAnyOutput(step, entry);
+  if (entry.checkedDone) return true;
+  return !entry.reopened && stepHasAnyOutput(step, entry);
 }
 
 export function gateTypeOf(subStage) {

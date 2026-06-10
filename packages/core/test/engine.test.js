@@ -20,6 +20,7 @@ import {
   buildDraftPrompt,
   hasValue,
   serializeStep,
+  reopenStep,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 
@@ -243,4 +244,95 @@ test("serializeStep serializes data outputs as capped JSON", () => {
   run = setOutput(run, "st", "o", { big: "x".repeat(5000) });
   const capped = serializeStep(sub, step, run);
   assert.ok(capped.length < 2700);
+});
+
+test("reopenStep suppresses content completion under a hybrid gate", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const collect = subs.find((s) => s.id === "collect");
+  const summary = collect.steps.find((s) => s.id === "summary");
+
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "A summary.");
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
+
+  run = reopenStep(run, "summary");
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), false);
+});
+
+test("editing an output clears the reopened flag", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const summary = subs.find((s) => s.id === "collect").steps.find((s) => s.id === "summary");
+
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "A summary.");
+  run = reopenStep(run, "summary");
+  run = setOutput(run, "summary", "out", "A better summary.");
+  assert.equal(getStepEntry(run, "summary").reopened, undefined);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
+});
+
+test("re-marking done clears the reopened flag", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const summary = subs.find((s) => s.id === "collect").steps.find((s) => s.id === "summary");
+
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "A summary.");
+  run = reopenStep(run, "summary");
+  run = setCheckedDone(run, "summary", true);
+  assert.equal(getStepEntry(run, "summary").reopened, undefined);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "strict"), true);
+});
+
+test("strict gates ignore the reopened flag", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const approve = subs.find((s) => s.id === "signoff").steps.find((s) => s.id === "approve");
+
+  let run = createRun();
+  run = setOutput(run, "approve", "memo", "Looks good.");
+  assert.equal(isStepComplete(approve, getStepEntry(run, "approve"), "strict"), false);
+
+  run = reopenStep(run, "approve");
+  assert.equal(isStepComplete(approve, getStepEntry(run, "approve"), "strict"), false);
+
+  run = setCheckedDone(run, "approve", true);
+  assert.equal(isStepComplete(approve, getStepEntry(run, "approve"), "strict"), true);
+});
+
+test("gateProgress counts a reopened required step as missing", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const collect = subs.find((s) => s.id === "collect");
+
+  let run = createRun();
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  assert.equal(gateProgress(collect, run).met, true);
+
+  run = reopenStep(run, "evidence");
+  const p = gateProgress(collect, run);
+  assert.equal(p.met, false);
+  assert.ok(p.missing.includes("Evidence"));
+});
+
+test("buildContext excludes a reopened step's outputs", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = advance(run, subs).run;
+  assert.match(buildContext(subs, run, run.idx), /Vexel Tools/);
+
+  run = reopenStep(run, "intake");
+  assert.doesNotMatch(buildContext(subs, run, run.idx), /Vexel Tools/);
+});
+
+test("reopenStep on an untouched step creates a safe entry", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const summary = subs.find((s) => s.id === "collect").steps.find((s) => s.id === "summary");
+
+  const run = reopenStep(createRun(), "summary");
+  const entry = getStepEntry(run, "summary");
+  assert.equal(entry.checkedDone, false);
+  assert.equal(entry.reopened, true);
+  assert.deepEqual(entry.outputs, {});
+  assert.equal(isStepComplete(summary, entry, "hybrid"), false);
 });
