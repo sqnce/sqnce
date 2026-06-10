@@ -599,6 +599,34 @@ const LAUNCH = {
 const WORKFLOWS = [PRESALES, HIRING, ONBOARDING, LAUNCH];
 const STORAGE_KEY = "procflow-suite-v1";
 
+/* The presales Deal facts field keys were renamed to display-ready
+   strings ("dealSize" -> "Deal size"); runs saved before the rename
+   still hold the old keys, so remap them on load or returning users
+   would see blank Deal facts and a fallback subject. */
+const FACT_KEY_RENAMES = {
+  client: "Client",
+  industry: "Industry",
+  dealSize: "Deal size",
+  responseDue: "Response due",
+};
+
+function migrateLegacyFactKeys(state) {
+  const facts =
+    state && state.runs && state.runs["presales-pursuit"] &&
+    state.runs["presales-pursuit"].stepState &&
+    state.runs["presales-pursuit"].stepState.intake &&
+    state.runs["presales-pursuit"].stepState.intake.outputs &&
+    state.runs["presales-pursuit"].stepState.intake.outputs.facts;
+  if (!facts) return state;
+  for (const [from, to] of Object.entries(FACT_KEY_RENAMES)) {
+    if (from in facts && !(to in facts)) {
+      facts[to] = facts[from];
+      delete facts[from];
+    }
+  }
+  return state;
+}
+
 /* ---------- engine helpers ---------- */
 const flattenSubs = (def) => {
   const out = [];
@@ -1168,7 +1196,7 @@ export default function ProcessRolodex() {
       try {
         const res = await window.storage.get(STORAGE_KEY);
         if (res && res.value) {
-          const saved = JSON.parse(res.value);
+          const saved = migrateLegacyFactKeys(JSON.parse(res.value));
           if (saved.runs) setRuns(saved.runs);
           if (saved.activeId && WORKFLOWS.some((w) => w.id === saved.activeId)) setActiveId(saved.activeId);
         }
