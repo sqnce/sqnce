@@ -539,21 +539,31 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   const open = center && expanded === step.id;
                   return (
                     <div key={step.id} className={`pf-step pf-step-${status}`}>
-                      <button
-                        className="pf-step-row"
-                        disabled={!center}
-                        onClick={() => setExpanded(open ? null : step.id)}
-                      >
-                        <span className={`pf-dot pf-dot-${status}`} />
-                        <span className="pf-step-name">
-                          {step.name}
-                          {step.required && <span className="pf-req">*</span>}
-                        </span>
-                        <span className="pf-step-state">
-                          {status === "done" ? "Done" : status === "draft" ? "Draft" : ""}
-                        </span>
-                        {center && <span className="pf-chev">{open ? "−" : "+"}</span>}
-                      </button>
+                      <div className="pf-step-row">
+                        <button
+                          className={`pf-dot-btn pf-dot-${status}`}
+                          disabled={!center || readOnly}
+                          title={status === "done" ? "Reopen" : "Mark done"}
+                          aria-label={status === "done" ? `Reopen ${step.name}` : `Mark ${step.name} done`}
+                          onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
+                        >
+                          {status === "done" ? "✓" : ""}
+                        </button>
+                        <button
+                          className="pf-step-expand"
+                          disabled={!center}
+                          onClick={() => setExpanded(open ? null : step.id)}
+                        >
+                          <span className="pf-step-name">
+                            {step.name}
+                            {step.required && <span className="pf-req">*</span>}
+                          </span>
+                          <span className="pf-step-state">
+                            {status === "done" ? "Done" : status === "draft" ? "Draft" : ""}
+                          </span>
+                          {center && <span className="pf-chev">{open ? "−" : "+"}</span>}
+                        </button>
+                      </div>
 
                       {open && (
                         <div className="pf-step-body">
@@ -841,19 +851,28 @@ const CSS = `
 .pf-steps-side { pointer-events: none; }
 .pf-step { border: 1px solid #DCD7C7; border-radius: 8px; background: #FAF8F0; }
 .pf-step-done { border-color: #BCD9C9; background: #F2F8F3; }
-.pf-step-row {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  background: none; border: none; padding: 11px 14px; cursor: pointer;
+.pf-step-row { display: flex; align-items: center; gap: 10px; padding-right: 14px; }
+.pf-dot-btn {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-left: 14px;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  background: #FFFFFF; border: 1.5px solid #B6BAC1; cursor: pointer;
+  font-size: 11px; line-height: 1; color: transparent;
+}
+.pf-dot-btn:hover:not(:disabled) { border-color: #2E8F62; color: #2E8F62; }
+.pf-dot-btn:disabled { cursor: default; }
+.pf-dot-draft { border-color: #D9A441; background: #F4DFAE; }
+.pf-dot-done { border-color: #2E8F62; background: #2E8F62; color: #FFFFFF; }
+.pf-step-expand {
+  flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
+  background: none; border: none; padding: 11px 0; cursor: pointer;
   font-family: inherit; font-size: 14.5px; color: #23282F; text-align: left;
 }
+.pf-step-expand:disabled { cursor: default; }
 .pf-step-name { flex: 1; font-weight: 500; }
 .pf-req { color: #C9542D; margin-left: 3px; }
 .pf-step-state { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8A8E96; }
 .pf-step-done .pf-step-state { color: #2E8F62; }
 .pf-chev { color: #8A8E96; font-size: 16px; width: 14px; text-align: center; }
-.pf-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #B6BAC1; flex-shrink: 0; }
-.pf-dot-draft { border-color: #D9A441; background: #F4DFAE; }
-.pf-dot-done { border-color: #2E8F62; background: #2E8F62; }
 
 .pf-step-body { padding: 0 14px 14px; }
 .pf-step-desc { font-size: 12.5px; color: #6B6F76; margin-bottom: 8px; }
