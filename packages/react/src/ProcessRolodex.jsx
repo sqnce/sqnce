@@ -29,6 +29,7 @@ import {
   activeRunEntry,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import RunSidebar from "./RunSidebar.jsx";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -421,6 +422,20 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
       )}
 
+      <div className="pf-body">
+      <RunSidebar
+        workflows={workflows}
+        store={store}
+        collapsed={!sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onOpenRun={openRun}
+        onNewRun={newRun}
+        onRename={doRename}
+        onArchive={doArchive}
+        onDelete={doDelete}
+      />
+      <div className="pf-main">
+
       <div className="pf-deck">
         {subs.map((sub, i) => {
           const pos = i - idx;
@@ -599,6 +614,9 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           {idx < frontier && nextSub ? nextSub.name : "Forward"} →
         </button>
       </div>
+
+      </div>
+      </div>
     </div>
   );
 }
@@ -653,6 +671,55 @@ const CSS = `
   font-family: 'IBM Plex Mono', monospace;
 }
 .pf-ta[readonly], .pf-field-input[readonly] { background: #F3F1E8; color: #6B6F76; }
+
+.pf-body { display: flex; flex: 1; min-height: 0; align-items: stretch; }
+.pf-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.pf-side {
+  width: 232px; flex-shrink: 0; margin: 8px 0 22px 16px;
+  border: 1px solid #3A434E; border-radius: 10px; padding: 10px;
+  overflow-y: auto; color: #C9CDD3;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.pf-side-collapsed { width: 36px; align-items: center; padding: 10px 4px; }
+.pf-side-head { display: flex; justify-content: space-between; align-items: center; }
+.pf-side-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8A919B; }
+.pf-side-toggle { background: none; border: 1px solid #3A434E; color: #8A919B; border-radius: 6px; cursor: pointer; padding: 2px 8px; }
+.pf-side-toggle:hover { color: #EDEAE0; border-color: #5E6772; }
+.pf-side-group { display: flex; flex-direction: column; gap: 4px; }
+.pf-side-label { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #5E6772; }
+.pf-side-run { position: relative; display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: 7px; }
+.pf-side-run:hover { border-color: #3A434E; }
+.pf-side-run-active { border-color: #D9A441; }
+.pf-side-run-open {
+  flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0;
+  background: none; border: none; color: #C9CDD3; cursor: pointer;
+  padding: 7px 8px; text-align: left; font-family: inherit; font-size: 12.5px;
+}
+.pf-side-run-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 92px; }
+.pf-side-meter { flex: 1; height: 4px; border-radius: 2px; background: #3A434E; overflow: hidden; }
+.pf-side-meter-fill { display: block; height: 100%; background: #D9A441; }
+.pf-side-count { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8A919B; }
+.pf-side-menu-btn { background: none; border: none; color: #5E6772; cursor: pointer; font-size: 14px; padding: 2px 6px; }
+.pf-side-menu-btn:hover { color: #EDEAE0; }
+.pf-side-menu {
+  position: absolute; right: 4px; top: 100%; z-index: 30; min-width: 130px;
+  background: #23282F; border: 1px solid #3A434E; border-radius: 7px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.pf-side-menu button { background: none; border: none; color: #C9CDD3; text-align: left; padding: 7px 12px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.pf-side-menu button:hover { background: #3A434E; }
+.pf-danger { color: #E08A6D; }
+.pf-side-new {
+  background: none; border: 1px dashed #3A434E; color: #8A919B;
+  border-radius: 7px; padding: 6px; cursor: pointer;
+  font-size: 11.5px; font-family: 'IBM Plex Mono', monospace;
+}
+.pf-side-new:hover { color: #D9A441; border-color: #D9A441; }
+.pf-side-rename {
+  flex: 1; min-width: 0; background: #1B2129; border: 1px solid #D9A441;
+  color: #EDEAE0; border-radius: 6px; padding: 6px 8px;
+  font-size: 12.5px; font-family: inherit;
+}
 
 .pf-deck { position: relative; flex: 1; min-height: 540px; perspective: 1400px; margin-top: 8px; }
 .pf-card {
@@ -817,6 +884,7 @@ const CSS = `
 
 @media (max-width: 720px) {
   .pf-card-side { display: none; }
+  .pf-side { display: none; }
   .pf-deck { min-height: 600px; }
   .pf-nav-btn { min-width: 0; }
   .pf-fields { grid-template-columns: 1fr; }
