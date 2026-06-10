@@ -4,6 +4,8 @@ import {
   createRun,
   setOutput as coreSetOutput,
   setCheckedDone,
+  reopenStep,
+  isOutputGenerated,
   getStepEntry,
   isStepComplete,
   stepHasAnyOutput,
@@ -306,13 +308,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   });
 
   /* ---------- mutations ---------- */
-  const writeOutput = (stepId, outputId, value) => {
+  const writeOutput = (stepId, outputId, value, opts) => {
     if (readOnly) return;
-    setRun(coreSetOutput(run, stepId, outputId, value));
+    setRun(coreSetOutput(run, stepId, outputId, value, opts));
   };
   const toggleDone = (stepId, checked) => {
     if (readOnly) return;
     setRun(setCheckedDone(run, stepId, checked));
+  };
+  const reopen = (stepId) => {
+    if (readOnly) return;
+    setRun(reopenStep(run, stepId));
   };
 
   /* ---------- draft generation ---------- */
@@ -330,7 +336,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         subject: subjectName,
       });
       if (!text) throw new Error("Empty response");
-      writeOutput(step.id, target.id, text);
+      writeOutput(step.id, target.id, text, { generated: true });
     } catch (e) {
       setGenError(step.id);
     }
@@ -562,6 +568,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                               }}
                               renderers={renderers}
                               context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
+                              generated={isOutputGenerated(run, step.id, spec.id)}
                             />
                           ))}
 
@@ -580,11 +587,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                               </button>
                             )}
                             <button
-                              className={`pf-btn ${entry.checkedDone ? "" : "pf-btn-primary"}`}
+                              className={`pf-btn ${status === "done" ? "" : "pf-btn-primary"}`}
                               disabled={readOnly}
-                              onClick={() => toggleDone(step.id, !entry.checkedDone)}
+                              onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
                             >
-                              {entry.checkedDone ? "Reopen" : "Mark done"}
+                              {status === "done" ? "Reopen" : "Mark done"}
                             </button>
                           </div>
                         </div>
@@ -916,6 +923,15 @@ const CSS = `
 .pf-jt-leaf { padding-left: 16px; }
 .pf-jt-key { color: #7A6A3C; }
 .pf-jt-string { color: #2E6E8F; } .pf-jt-number { color: #8F4E2E; } .pf-jt-boolean, .pf-jt-null { color: #6B4E8F; }
+
+.pf-ta-wrap { position: relative; }
+.pf-gen-badge {
+  position: absolute; top: 6px; right: 10px; z-index: 2; pointer-events: none;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: #7A6A3C; background: #F4DFAE; border-radius: 4px; padding: 1px 6px;
+}
+.pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
 .pf-jt-meta { color: #9A9EA6; }
 .pf-kv { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
 .pf-kv-row { display: contents; }

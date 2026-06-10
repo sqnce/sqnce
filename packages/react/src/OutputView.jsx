@@ -72,16 +72,19 @@ function RawJsonEditor({ value, onChange, onDone }) {
   );
 }
 
-function DefaultEditor({ spec, value, onChange, onAttach, readOnly }) {
+function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated }) {
   if (spec.type === "text")
     return (
-      <textarea
-        className="pf-ta"
-        placeholder="Write the output or generate a draft."
-        value={value || ""}
-        readOnly={readOnly}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <div className="pf-ta-wrap">
+        {generated && <span className="pf-gen-badge">AI draft</span>}
+        <textarea
+          className={`pf-ta ${generated ? "pf-ta-generated" : ""}`}
+          placeholder="Write the output or generate a draft."
+          value={value || ""}
+          readOnly={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
     );
   if (spec.type === "link")
     return (
@@ -130,7 +133,7 @@ function DefaultEditor({ spec, value, onChange, onAttach, readOnly }) {
  * renderers map, then built-ins, then falls back (JSON tree for data,
  * the default editor otherwise). Unknown kinds never render blank.
  */
-export default function OutputView({ spec, value, onChange, onAttach, renderers, context }) {
+export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated }) {
   const kind = spec.render && spec.render.kind;
   const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
   const isData = spec.type === "data";
@@ -167,7 +170,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     ) : isData ? (
       <RawJsonEditor value={value} onChange={onChange} onDone={() => setMode("view")} />
     ) : (
-      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} />
+      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} generated={generated} />
     );
 
   const toggle = readOnly ? null : Renderer && shownMode === "view" ? (
