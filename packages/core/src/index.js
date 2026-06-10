@@ -336,3 +336,25 @@ export function addRun(store, entry) {
     activeRunByWorkflow: { ...store.activeRunByWorkflow, [entry.workflowId]: entry.id },
   };
 }
+
+export function renameRun(store, runId, name, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, name: String(name || "").trim(), updatedAt: now });
+}
+
+/*
+ * Archiving is manual only and does not touch active-run mappings: an
+ * archived active run stays open and renders read-only in the UI.
+ */
+export function archiveRun(store, runId, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, status: "archived", updatedAt: now });
+}
+
+export function unarchiveRun(store, runId, now) {
+  const entry = store.entries[runId];
+  if (!entry) return store;
+  return withEntry(store, { ...entry, status: "active", updatedAt: now });
+}

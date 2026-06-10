@@ -7,6 +7,9 @@ import {
   createRunStore,
   createRunEntry,
   addRun,
+  renameRun,
+  archiveRun,
+  unarchiveRun,
 } from "../src/index.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
@@ -72,4 +75,33 @@ test("addRun inserts the entry and activates it without mutating the input", () 
   assert.equal(s1.activeRunByWorkflow.wf, "r1");
   assert.equal(s1.entries.r1.id, "r1");
   assert.deepEqual(s0, createRunStore());
+});
+
+test("renameRun sets a trimmed name and bumps updatedAt", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  const s2 = renameRun(s, "r1", "  Acme pursuit  ", 200);
+  assert.equal(s2.entries.r1.name, "Acme pursuit");
+  assert.equal(s2.entries.r1.updatedAt, 200);
+  assert.equal(s.entries.r1.name, "");
+});
+
+test("renameRun with an unknown id returns the store unchanged", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.equal(renameRun(s, "nope", "X", 200), s);
+});
+
+test("archiveRun flips status and keeps active mappings", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  const s2 = archiveRun(s, "r1", 200);
+  assert.equal(s2.entries.r1.status, "archived");
+  assert.equal(s2.entries.r1.updatedAt, 200);
+  assert.equal(s2.activeRunByWorkflow.wf, "r1");
+  assert.equal(s2.activeWorkflowId, "wf");
+});
+
+test("unarchiveRun restores status active", () => {
+  const s = archiveRun(addRun(createRunStore(), entryAt("r1", "wf", 100)), "r1", 200);
+  const s2 = unarchiveRun(s, "r1", 300);
+  assert.equal(s2.entries.r1.status, "active");
+  assert.equal(s2.entries.r1.updatedAt, 300);
 });
