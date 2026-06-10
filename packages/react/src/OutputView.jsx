@@ -164,9 +164,9 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     );
 
   const toggle =
-    Renderer && mode === "view" && spec.type !== "file" ? (
+    Renderer && mode === "view" ? (
       <button className="pf-render-toggle" onClick={() => setMode("edit")}>
-        {isData ? "Edit JSON" : "Edit"}
+        {isData ? "Edit JSON" : spec.type === "file" ? "Replace file" : "Edit"}
       </button>
     ) : Renderer && mode === "edit" && !isData && filled ? (
       <button className="pf-render-toggle" onClick={() => setMode("view")}>
