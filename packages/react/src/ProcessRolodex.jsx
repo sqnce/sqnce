@@ -115,6 +115,32 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
   );
 }
 
+/**
+ * @typedef {Object} RendererContext
+ * @property {string} workflowId
+ * @property {string} stepId
+ * @property {string} subject
+ * @property {boolean} readOnly
+ * @property {boolean} [expanded]
+ */
+/**
+ * @typedef {Object} RendererProps
+ * @property {import("@sqnce/core").OutputSpec} spec
+ * @property {any} value
+ * @property {(value: any) => void} onChange
+ * @property {RendererContext} context
+ */
+/**
+ * @typedef {Object} ProcessRolodexProps
+ * @property {import("@sqnce/core").Definition[]} workflows
+ * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
+ * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string }) => Promise<string>} [generateDraft]
+ * @property {{ label: string, ids: string[] }[]} [workflowGroups]
+ * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
+ * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
+ */
+
+/** @param {ProcessRolodexProps} props */
 export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),

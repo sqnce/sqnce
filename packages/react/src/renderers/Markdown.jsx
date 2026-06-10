@@ -73,7 +73,7 @@ export default function Markdown({ value }) {
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
-      const Tag = `h${h[1].length}`;
+      const Tag = /** @type {keyof React.JSX.IntrinsicElements} */ (`h${h[1].length}`);
       blocks.push(<Tag key={key++}>{inline(h[2])}</Tag>);
       i++;
       continue;

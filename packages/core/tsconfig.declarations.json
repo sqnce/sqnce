@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "types",
+    "rootDir": "src",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.js"]
+}
