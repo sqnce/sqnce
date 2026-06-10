@@ -5,7 +5,7 @@
   "subject": {
     "stepId": "intake",
     "outputId": "facts",
-    "field": "Client",
+    "field": "client",
     "fallback": "the client"
   },
   "mainStages": [
@@ -36,19 +36,19 @@
                   },
                   "fields": [
                     {
-                      "key": "Client",
+                      "key": "client",
                       "label": "Client"
                     },
                     {
-                      "key": "Industry",
+                      "key": "industry",
                       "label": "Industry"
                     },
                     {
-                      "key": "Deal size",
+                      "key": "dealSize",
                       "label": "Deal size"
                     },
                     {
-                      "key": "Response due",
+                      "key": "responseDue",
                       "label": "Response due"
                     }
                   ]

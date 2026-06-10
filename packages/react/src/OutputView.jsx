@@ -141,6 +141,9 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
   const Renderer = Custom || (isData ? JsonTree : null);
   const filled = hasValue(spec, value);
   const viewValue = spec.type === "file" ? (value && value.content) || "" : value;
+  /* A file value with no extracted text has nothing for a renderer to
+     show; fall back to the attachment display instead of a blank panel. */
+  const fileNoText = spec.type === "file" && !(value && value.content && value.content.trim());
   /* Mode is initialized once at mount; deriving it per render would flip
      an empty hinted output from edit to view on the first keystroke. */
   const [mode, setMode] = useState(() => (isData ? "view" : Renderer && filled ? "view" : "edit"));
@@ -151,7 +154,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
   const shownMode = readOnly && Renderer ? "view" : mode;
 
   const body =
-    Renderer && shownMode === "view" ? (
+    Renderer && shownMode === "view" && !fileNoText ? (
       filled ? (
         <div className="pf-render">
           {generated && spec.type === "text" && <span className="pf-gen-badge">AI draft</span>}
@@ -175,7 +178,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
       <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} generated={generated} />
     );
 
-  const toggle = readOnly ? null : Renderer && shownMode === "view" ? (
+  const toggle = readOnly || fileNoText ? null : Renderer && shownMode === "view" ? (
     <button className="pf-render-toggle" onClick={() => setMode("edit")}>
       {isData ? "Edit JSON" : spec.type === "file" ? "Replace file" : "Edit"}
     </button>
