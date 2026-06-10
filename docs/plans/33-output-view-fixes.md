@@ -161,6 +161,8 @@ In the presales seed's intake `facts` value, rename the same four object keys: `
 
 - [ ] **Step 3: Verify**
 
+Core tests are fixture-based since #38 and reference no presales content (`grep -ri presales packages/core/test/` is empty), so the rename can only surface through the bundled-definitions validation, which checks shape, not key names.
+
 Run: `npm test` (the bundled-definitions validation covers presales) and `npm run build -w examples/demo`.
 In the demo: the presales intake card renders "Client", "Industry", "Deal size", "Response due" row labels via the keyvalue hint's automatic `spec.fields` mapping (identical to before the revert); the seeded run's display name still resolves to the client subject; the header subject line still shows the client name.
 
