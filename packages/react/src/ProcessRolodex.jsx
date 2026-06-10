@@ -412,6 +412,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
       </div>
 
+      {readOnly && view === "rolodex" && (
+        <div className="pf-archived">
+          <span>This run is archived and read-only.</span>
+          <button className="pf-btn pf-btn-sm" onClick={() => doUnarchive(entry.id)}>
+            Unarchive
+          </button>
+        </div>
+      )}
+
       <div className="pf-deck">
         {subs.map((sub, i) => {
           const pos = i - idx;
@@ -637,6 +646,13 @@ const CSS = `
 .pf-reset:hover:not(:disabled) { color: #EDEAE0; border-color: #5E6772; }
 .pf-reset:disabled { opacity: 0.4; cursor: default; }
 .pf-advance:disabled, .pf-override:disabled { opacity: 0.4; cursor: default; }
+.pf-archived {
+  display: flex; align-items: center; gap: 12px; margin: 6px 28px 0;
+  padding: 8px 14px; border: 1px solid #D9A441; border-radius: 8px;
+  background: #3A3424; color: #EDD9A8; font-size: 12.5px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.pf-ta[readonly], .pf-field-input[readonly] { background: #F3F1E8; color: #6B6F76; }
 
 .pf-deck { position: relative; flex: 1; min-height: 540px; perspective: 1400px; margin-top: 8px; }
 .pf-card {
