@@ -16,8 +16,26 @@ import {
   serializeStep,
   buildDraftPrompt,
   hasValue,
+  createRunStore,
+  createRunEntry,
+  addRun,
+  renameRun,
+  archiveRun,
+  unarchiveRun,
+  deleteRun as coreDeleteRun,
+  setActiveRun as coreSetActiveRun,
+  updateRunState,
+  runsForWorkflow,
+  activeRunEntry,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+
+/* Ids and timestamps are generated here, never inside @sqnce/core. */
+function newId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+    return crypto.randomUUID();
+  return `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * <ProcessRolodex />
@@ -26,7 +44,9 @@ import OutputView from "./OutputView.jsx";
  *  - workflows: array of sqnce definitions (see /definitions for examples)
  *  - persistence (optional): { load: async () => state | null,
  *                              save: async (state) => void }
- *      where state is { activeId, runs: { [workflowId]: run } }.
+ *      where state is the versioned run store
+ *      { version: 2, activeWorkflowId, activeRunByWorkflow, entries }.
+ *      Anything that is not a version 2 store is discarded on load.
  *      Omit for in-memory only.
  *  - generateDraft (optional): async (prompt, context) => string where
  *      context is { workflowId, stepId, subject }. The second argument
@@ -37,9 +57,10 @@ import OutputView from "./OutputView.jsx";
  *      switcher. Ids not matching a workflow are ignored; workflows in
  *      no group render in a trailing unlabeled section. Omit for the
  *      flat switcher.
- *  - initialRunFor (optional): (workflowId) => run, used when a
- *      workflow has no stored run and by Reset. Defaults to createRun.
- *      Must be side-effect free; it can be called on every render.
+ *  - initialRunFor (optional): (workflowId) => run, seeds the inner run
+ *      of a workflow's first entry and backs Reset; every later
+ *      "+ New run" starts blank. Defaults to createRun. Must be
+ *      side-effect free; it can be called on every render.
  *  - renderers (optional): map of render kind -> React component, the
  *      registry for definition render hints. Resolution order: this map,
  *      then built-ins (markdown, table, cards, keyvalue), then fallback
@@ -91,33 +112,90 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
 }
 
 export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers }) {
-  const [activeId, setActiveId] = useState(workflows[0].id);
-  const [runs, setRuns] = useState({});
+  const makeInitialRun = useCallback(
+    (id) => (initialRunFor ? initialRunFor(id) : createRun()),
+    [initialRunFor]
+  );
+  /* A workflow's first entry seeds from initialRunFor; later runs start blank. */
+  const newEntryFor = useCallback(
+    (s, workflowId) => {
+      const first = runsForWorkflow(s, workflowId).length === 0;
+      return createRunEntry({
+        id: newId(),
+        workflowId,
+        run: first ? makeInitialRun(workflowId) : createRun(),
+        now: Date.now(),
+      });
+    },
+    [makeInitialRun]
+  );
+
+  const [store, setStore] = useState(() => {
+    const empty = createRunStore();
+    return addRun(empty, newEntryFor(empty, workflows[0].id));
+  });
   const [expanded, setExpanded] = useState(null);
   const [generating, setGenerating] = useState(null);
   const [genError, setGenError] = useState(null);
   const [loaded, setLoaded] = useState(!persistence);
   const [showInputs, setShowInputs] = useState(false);
+  const [view, setView] = useState("rolodex");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const fileRef = useRef(null);
   const attachFor = useRef(null);
   const saveTimer = useRef(null);
 
+  const activeId =
+    store.activeWorkflowId && workflows.some((w) => w.id === store.activeWorkflowId)
+      ? store.activeWorkflowId
+      : workflows[0].id;
   const def = useMemo(
     () => workflows.find((w) => w.id === activeId) || workflows[0],
     [workflows, activeId]
   );
   const subs = useMemo(() => flattenSubStages(def), [def]);
-  const makeInitialRun = useCallback(
-    (id) => (initialRunFor ? initialRunFor(id) : createRun()),
-    [initialRunFor]
-  );
-  const run = runs[activeId] || makeInitialRun(activeId);
+  const entry = activeRunEntry(store, activeId);
+  const readOnly = !!entry && entry.status === "archived";
+  /* One-frame fallback while the ensure effect below creates an entry. */
+  const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, subs.length - 1);
 
+  /* A loaded store can lack an active entry for the active workflow
+     (last live run deleted, foreign activeWorkflowId). Create one,
+     but only when the rolodex view actually needs it: on the runs
+     screen a confirmed delete of the final run must not appear to
+     recreate a blank run in the table. */
+  useEffect(() => {
+    if (!loaded || entry || view !== "rolodex") return;
+    setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
+  }, [loaded, entry, activeId, view, newEntryFor]);
+
+  /* Content mutations bump updatedAt and are blocked on archived runs.
+     The status is re-checked inside the updater with current state:
+     an async writer (draft generation, file read) that started while
+     the run was live must not land after it is archived or deleted. */
   const setRun = useCallback(
-    (next) => setRuns((prev) => ({ ...prev, [activeId]: next })),
-    [activeId]
+    (next) => {
+      if (!entry || readOnly) return;
+      setStore((s) => {
+        const e = s.entries[entry.id];
+        return e && e.status === "active" ? updateRunState(s, entry.id, next, Date.now()) : s;
+      });
+    },
+    [entry, readOnly]
+  );
+  /* Navigation stays available on archived runs and must not disturb
+     updatedAt ordering, so it writes with the entry's own timestamp. */
+  const setNav = useCallback(
+    (next) => {
+      if (!entry) return;
+      setStore((s) => {
+        const e = s.entries[entry.id];
+        return e ? updateRunState(s, entry.id, next, e.updatedAt) : s;
+      });
+    },
+    [entry]
   );
 
   /* ---------- persistence ---------- */
@@ -126,10 +204,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     (async () => {
       try {
         const saved = await persistence.load();
-        if (saved) {
-          if (saved.runs) setRuns(saved.runs);
-          if (saved.activeId && workflows.some((w) => w.id === saved.activeId))
-            setActiveId(saved.activeId);
+        /* Version 2 stores only; anything else (including the old
+           { activeId, runs } shape) is discarded. Pre-launch, no users. */
+        if (saved && saved.version === 2 && saved.entries && saved.activeRunByWorkflow) {
+          setStore(saved);
         }
       } catch (e) {
         /* nothing saved yet */
@@ -143,10 +221,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     if (!persistence || !loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      persistence.save({ activeId, runs }).catch((e) => console.error("save failed", e));
+      persistence.save(store).catch((e) => console.error("save failed", e));
     }, 500);
     return () => clearTimeout(saveTimer.current);
-  }, [activeId, runs, loaded, persistence]);
+  }, [store, loaded, persistence]);
 
   /* ---------- derived ---------- */
   const current = subs[idx];
@@ -166,11 +244,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     const next = coreBrowse(run, subs, dir);
     if (next !== run) {
       clearTransients();
-      setRun(next);
+      setNav(next);
     }
   };
 
   const doAdvance = (force) => {
+    if (readOnly) return;
     const result = coreAdvance(run, subs, { force });
     if (result.advanced) {
       clearTransients();
@@ -181,8 +260,27 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const switchWorkflow = (id) => {
     if (id === activeId) return;
     clearTransients();
-    setActiveId(id);
+    setStore((s) => {
+      const existing = activeRunEntry(s, id);
+      return existing ? coreSetActiveRun(s, existing.id) : addRun(s, newEntryFor(s, id));
+    });
   };
+
+  /* ---------- run management ---------- */
+  const openRun = (runId) => {
+    clearTransients();
+    setView("rolodex");
+    setStore((s) => coreSetActiveRun(s, runId));
+  };
+  const newRun = (workflowId) => {
+    clearTransients();
+    setView("rolodex");
+    setStore((s) => addRun(s, newEntryFor(s, workflowId)));
+  };
+  const doRename = (runId, name) => setStore((s) => renameRun(s, runId, name, Date.now()));
+  const doArchive = (runId) => setStore((s) => archiveRun(s, runId, Date.now()));
+  const doUnarchive = (runId) => setStore((s) => unarchiveRun(s, runId, Date.now()));
+  const doDelete = (runId) => setStore((s) => coreDeleteRun(s, runId));
 
   useEffect(() => {
     const onKey = (e) => {
@@ -195,13 +293,18 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   });
 
   /* ---------- mutations ---------- */
-  const writeOutput = (stepId, outputId, value) =>
+  const writeOutput = (stepId, outputId, value) => {
+    if (readOnly) return;
     setRun(coreSetOutput(run, stepId, outputId, value));
-  const toggleDone = (stepId, checked) => setRun(setCheckedDone(run, stepId, checked));
+  };
+  const toggleDone = (stepId, checked) => {
+    if (readOnly) return;
+    setRun(setCheckedDone(run, stepId, checked));
+  };
 
   /* ---------- draft generation ---------- */
   const generate = async (sub, step) => {
-    if (!generateDraft) return;
+    if (!generateDraft || readOnly) return;
     const target = (step.outputs || []).find((o) => o.type === "text");
     if (!target) return;
     setGenerating(step.id);
@@ -240,6 +343,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   };
 
   const resetRun = () => {
+    if (readOnly) return;
     clearTransients();
     setRun(makeInitialRun(activeId));
   };
@@ -297,7 +401,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               onSwitch={switchWorkflow}
             />
           )}
-          <button className="pf-reset" onClick={resetRun} title="Clear this workflow's run">
+          <button
+            className="pf-reset"
+            onClick={resetRun}
+            disabled={readOnly}
+            title="Clear this workflow's run"
+          >
             Reset run
           </button>
         </div>
@@ -394,7 +503,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 fileRef.current && fileRef.current.click();
                               }}
                               renderers={renderers}
-                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: false }}
+                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
                             />
                           ))}
 
@@ -406,7 +515,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             {generateDraft && (step.outputs || []).some((o) => o.type === "text") && (
                               <button
                                 className="pf-btn"
-                                disabled={generating === step.id}
+                                disabled={generating === step.id || readOnly}
                                 onClick={() => generate(sub, step)}
                               >
                                 {generating === step.id ? "Generating…" : "Generate draft"}
@@ -414,6 +523,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             )}
                             <button
                               className={`pf-btn ${entry.checkedDone ? "" : "pf-btn-primary"}`}
+                              disabled={readOnly}
                               onClick={() => toggleDone(step.id, !entry.checkedDone)}
                             >
                               {entry.checkedDone ? "Reopen" : "Mark done"}
@@ -447,7 +557,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               <span
                 key={s.id}
                 className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${i > frontier ? "pf-pip-locked" : ""}`}
-                onClick={() => setRun(jumpTo(run, subs, i))}
+                onClick={() => setNav(jumpTo(run, subs, i))}
               />
             ))}
           </div>
@@ -455,13 +565,13 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           {atFrontier && nextSub && (
             <div className="pf-advance-zone">
               {prog.met ? (
-                <button className="pf-advance" onClick={() => doAdvance(false)}>
+                <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
                   Advance to {nextSub.name} →
                 </button>
               ) : (
                 <>
                   <div className="pf-gate-hint">Gate unmet: {prog.missing.join(", ")}</div>
-                  <button className="pf-override" onClick={() => doAdvance(true)}>
+                  <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
                     Advance anyway
                   </button>
                 </>
@@ -524,7 +634,9 @@ const CSS = `
 .pf-switch-group { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 .pf-switch-label { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #5E6772; min-height: 12px; }
 .pf-reset { background: none; border: 1px solid #3A434E; color: #8A919B; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: 'IBM Plex Mono', monospace; }
-.pf-reset:hover { color: #EDEAE0; border-color: #5E6772; }
+.pf-reset:hover:not(:disabled) { color: #EDEAE0; border-color: #5E6772; }
+.pf-reset:disabled { opacity: 0.4; cursor: default; }
+.pf-advance:disabled, .pf-override:disabled { opacity: 0.4; cursor: default; }
 
 .pf-deck { position: relative; flex: 1; min-height: 540px; perspective: 1400px; margin-top: 8px; }
 .pf-card {
