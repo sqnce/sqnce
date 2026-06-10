@@ -257,7 +257,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Narrative"
+                  "label": "Narrative",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -293,7 +296,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Demo script"
+                  "label": "Demo script",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -306,6 +312,26 @@
                   "id": "file",
                   "type": "file",
                   "label": "Data set"
+                },
+                {
+                  "id": "inventory",
+                  "type": "data",
+                  "label": "Build inventory",
+                  "render": {
+                    "kind": "cards",
+                    "options": {
+                      "title": "name",
+                      "subtitle": "purpose"
+                    }
+                  }
+                },
+                {
+                  "id": "automations",
+                  "type": "data",
+                  "label": "Automation map",
+                  "render": {
+                    "kind": "flow"
+                  }
                 }
               ]
             },
