@@ -15,6 +15,8 @@ import {
   runsForWorkflow,
   activeRunEntry,
   deleteRun,
+  runSummary,
+  runDisplayName,
 } from "../src/index.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
@@ -189,4 +191,40 @@ test("deleteRun on the last live run removes the workflow mapping", () => {
   assert.equal(s2.activeRunByWorkflow.wf, undefined);
   assert.equal(s2.entries.r1.status, "archived");
   assert.equal(deleteRun(s2, "nope"), s2);
+});
+
+test("runSummary counts met sub-stage gates over the flattened total", () => {
+  let run = createRun();
+  assert.deepEqual(runSummary(DEF, run), { met: 0, total: 2 });
+  run = setOutput(run, "s1", "facts", { client: "Acme" });
+  assert.deepEqual(runSummary(DEF, run), { met: 1, total: 2 });
+  run = setCheckedDone(run, "s2", true);
+  assert.deepEqual(runSummary(DEF, run), { met: 2, total: 2 });
+});
+
+test("runDisplayName prefers the manual name", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = renameRun(s, "r1", "Named", 200);
+  s = updateRunState(s, "r1", setOutput(createRun(), "s1", "facts", { client: "Acme" }), 300);
+  assert.equal(runDisplayName(DEF, s, "r1"), "Named");
+});
+
+test("runDisplayName falls back to the resolved subject", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = updateRunState(s, "r1", setOutput(createRun(), "s1", "facts", { client: " Acme Logistics " }), 200);
+  assert.equal(runDisplayName(DEF, s, "r1"), "Acme Logistics");
+});
+
+test("runDisplayName never uses the subject fallback string", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.equal(runDisplayName(DEF, s, "r1"), "Run 1");
+});
+
+test("runDisplayName numbers unnamed runs by creation order and ignores unknown ids", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 200));
+  assert.equal(runDisplayName(DEF, s, "r2"), "Run 2");
+  const s2 = deleteRun(s, "r1");
+  assert.equal(runDisplayName(DEF, s2, "r2"), "Run 1");
+  assert.equal(runDisplayName(DEF, s, "nope"), "");
 });

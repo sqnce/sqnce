@@ -412,3 +412,31 @@ export function deleteRun(store, runId) {
   else delete map[entry.workflowId];
   return { ...next, activeRunByWorkflow: map };
 }
+
+/** Progress over a definition: how many flattened sub-stage gates are met. */
+export function runSummary(definition, run) {
+  const subs = flattenSubStages(definition);
+  return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
+}
+
+/*
+ * Display name: manual name, else the resolved subject (only when the
+ * subject output field actually holds a value; the configured fallback
+ * string never becomes a display name), else "Run N" by creation order
+ * among the workflow's entries. N can shift after deletions; accepted
+ * pre-launch.
+ */
+export function runDisplayName(definition, store, runId) {
+  const entry = store.entries[runId];
+  if (!entry) return "";
+  if (entry.name) return entry.name;
+  const s = definition.subject;
+  if (s) {
+    const se = entry.run.stepState[s.stepId];
+    const val = se && se.outputs && se.outputs[s.outputId];
+    const subject = val && String(val[s.field] || "").trim();
+    if (subject) return subject;
+  }
+  const n = runsForWorkflow(store, entry.workflowId).findIndex((e) => e.id === runId) + 1;
+  return `Run ${n}`;
+}
