@@ -2,9 +2,9 @@
 
 ## Problem
 
-GitHub Actions will force all actions to Node 24 by default starting 2026-06-16 and remove Node 20 support on 2026-09-16. The Pages deploy workflow currently produces a deprecation warning from `actions/deploy-pages@v4` running on Node 20.
+GitHub Actions will force all actions to Node 24 by default starting 2026-06-16 and remove Node 20 support on 2026-09-16. The Pages deploy workflow produces deprecation warnings from actions running on Node 20.
 
-GitHub populates the deprecation warning from the `using: node20` declaration in each action's `action.yml`, not from execution. Setting `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` does not remove these warnings; the only fix is bumping to action tags that declare `using: node24`.
+GitHub populates the deprecation warning from the `using: node20` declaration in each action's `action.yml`, not from execution. The only fix is bumping to action tags that declare `using: node24` (or in the composite case, that reference nested actions declaring `using: node24`).
 
 ## Acceptance criteria
 
@@ -16,15 +16,24 @@ Two workflow files: `.github/workflows/pages.yml` and `.github/workflows/ci.yml`
 
 ## Proposed changes
 
-Pin each action to the latest stable tag that declares `using: node24` in its `action.yml`. Exact tags are confirmed during the plan phase by checking each action's releases. The actions to audit:
+### Direct actions (declare `using: nodeXX` themselves)
+
+Pin each to the latest stable tag that declares `using: node24`:
 
 - `actions/checkout` (currently `@v4`)
 - `actions/setup-node` (currently `@v4`)
 - `actions/configure-pages` (currently `@v5`)
-- `actions/upload-pages-artifact` (currently `@v3`)
 - `actions/deploy-pages` (currently `@v4`)
 
-In addition, bump `node-version: 20` to `node-version: 24` in both workflows so the build and test environment stays aligned with the action runtime.
+Exact tags are confirmed during the plan phase by inspecting each action's releases.
+
+### Composite action: `actions/upload-pages-artifact`
+
+`upload-pages-artifact` uses `runs.using: composite` and does not declare a Node runtime directly. Its Node 20 warning comes from the nested `actions/upload-artifact` it invokes. The plan phase must confirm whether a released tag of `upload-pages-artifact` already references a `node24`-native `upload-artifact`. If no such released tag exists, replace `upload-pages-artifact` with a direct call to `actions/upload-artifact` at a `node24`-native tag, passing `name: github-pages` and `path: <artifact path>`.
+
+### Node version for build steps
+
+Bump `node-version: 20` to `node-version: 24` in both workflows so the build and test environment stays aligned with the action runtime.
 
 ## Out of scope
 
