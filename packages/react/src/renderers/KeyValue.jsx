@@ -7,7 +7,7 @@ import JsonTree from "./JsonTree.jsx";
  * fields spec's declared { key, label } pairs, then the raw key. Labels
  * are a lookup, never a filter or reorder; unmapped keys show as-is.
  */
-export default function KeyValue({ spec, value }) {
+export default function KeyValue({ spec = null, value }) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return <JsonTree value={value} />;
   }

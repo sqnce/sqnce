@@ -31,6 +31,7 @@ import {
   activeRunEntry,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
 
@@ -404,6 +405,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         )
     : [];
 
+  const typesWithValue = (step) => {
+    const entry = getStepEntry(run, step.id);
+    const types = [];
+    (step.outputs || []).forEach((spec) => {
+      if (hasValue(spec, (entry.outputs || {})[spec.id]) && !types.includes(spec.type)) types.push(spec.type);
+    });
+    return types;
+  };
+
   const statusOf = (sub, step) => {
     const entry = getStepEntry(run, step.id);
     if (isStepComplete(step, entry, gateTypeOf(sub))) return "done";
@@ -442,6 +452,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             );
           })}
         </div>
+        {view === "rolodex" && (
+          <span className="pf-counter">
+            {idx + 1} / {subs.length}
+          </span>
+        )}
         <div className="pf-header-right">
           {workflows.length > 1 && (
             <WorkflowSwitcher
@@ -540,6 +555,9 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   : undefined
               }
             >
+              {!center && Math.abs(pos) === 1 && (
+                <div className="pf-card-eyebrow">{pos < 0 ? "Back" : "Next"}</div>
+              )}
               <div className="pf-card-strip">
                 <span className="pf-card-code">
                   {sub.mainName.toUpperCase()} · S{sub.subIndex + 1}
@@ -560,7 +578,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                     <div className="pf-inputs-body">
                       {prevDoneBlocks.map(({ step }) => (
                         <div key={step.id} className="pf-input-item">
-                          <div className="pf-input-name">{step.name}</div>
+                          <div className="pf-input-name">
+                            {step.name}
+                            <span className="pf-input-chips">
+                              {typesWithValue(step).map((t) => (
+                                <span key={t} className="pf-chip">
+                                  <OutputTypeIcon type={t} />
+                                  {t}
+                                </span>
+                              ))}
+                            </span>
+                          </div>
                           <div className="pf-input-preview">
                             {(serializeStep(prevSub, step, run) || "")
                               .split("\n")
@@ -973,7 +1001,7 @@ const CSS = `
 .pf-step-body { padding: 0 14px 14px; }
 .pf-step-desc { font-size: 12.5px; color: #6B6F76; margin-bottom: 8px; }
 .pf-out { margin-bottom: 10px; }
-.pf-out-label { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #7A6A3C; margin-bottom: 4px; }
+.pf-out-label { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #7A6A3C; margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
 .pf-ta {
   width: 100%; min-height: 130px; resize: vertical;
   border: 1px solid #D8D3C2; border-radius: 6px; padding: 10px;
@@ -1088,6 +1116,24 @@ const CSS = `
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
+
+.pf-oticon { display: inline-flex; vertical-align: -1px; }
+.pf-counter {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: #8A919B; letter-spacing: 0.05em; white-space: nowrap;
+}
+.pf-card-eyebrow {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: #8A8E96; padding: 6px 16px 3px;
+}
+.pf-input-chips { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: 1px; }
+.pf-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #7A6A3C; background: #F1E8CE;
+  border-radius: 4px; padding: 1px 5px;
+}
 .pf-jt-meta { color: #9A9EA6; }
 .pf-kv { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
 .pf-kv-row { display: contents; }
