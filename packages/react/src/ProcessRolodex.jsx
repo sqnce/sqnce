@@ -315,7 +315,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               key={sub.id}
               className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""}`}
               style={{
-                transform: `translateX(calc(-50% + ${pos * 56}%)) rotateY(${pos * -28}deg) scale(${center ? 1 : 0.82})`,
+                transform: `translateX(calc(-50% + ${pos * 420}px)) rotateY(${pos * -24}deg) scale(${center ? 1 : 0.82})`,
                 opacity: Math.abs(pos) === 2 ? 0 : center ? 1 : 0.38,
                 zIndex: 10 - Math.abs(pos),
                 pointerEvents: center ? "auto" : "none",
@@ -529,15 +529,17 @@ const CSS = `
 .pf-deck { position: relative; flex: 1; min-height: 540px; perspective: 1400px; margin-top: 8px; }
 .pf-card {
   position: absolute; left: 50%; top: 12px;
-  width: min(560px, 88vw); max-height: calc(100% - 24px);
+  max-height: calc(100% - 24px);
   background: #F1EEE3; border-radius: 10px; border: 1px solid #D8D3C2;
   box-shadow: 0 18px 50px rgba(0,0,0,0.45);
   padding: 0 0 18px;
-  transition: transform 0.45s cubic-bezier(.3,.9,.3,1), opacity 0.45s;
+  transition: transform 0.45s cubic-bezier(.3,.9,.3,1), width 0.45s cubic-bezier(.3,.9,.3,1), opacity 0.45s;
   transform-style: preserve-3d;
   display: flex; flex-direction: column; overflow: hidden;
 }
 @media (prefers-reduced-motion: reduce) { .pf-card { transition: none; } }
+.pf-card-center { width: min(800px, 92vw); }
+.pf-card-side { width: min(400px, 44vw); }
 .pf-card-strip {
   display: flex; justify-content: space-between; align-items: center;
   background: #23282F; color: #EDEAE0; padding: 8px 16px;
