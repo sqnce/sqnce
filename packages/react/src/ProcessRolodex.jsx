@@ -30,6 +30,7 @@ import {
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
 import RunSidebar from "./RunSidebar.jsx";
+import RunsScreen from "./RunsScreen.jsx";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -404,6 +405,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           )}
           <button
             className="pf-reset"
+            onClick={() => {
+              clearTransients();
+              setView(view === "runs" ? "rolodex" : "runs");
+            }}
+          >
+            {view === "runs" ? "Back to run" : "Runs"}
+          </button>
+          <button
+            className="pf-reset"
             onClick={resetRun}
             disabled={readOnly}
             title="Clear this workflow's run"
@@ -435,6 +445,19 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         onDelete={doDelete}
       />
       <div className="pf-main">
+
+      {view === "runs" ? (
+        <RunsScreen
+          workflows={workflows}
+          store={store}
+          onOpenRun={openRun}
+          onRename={doRename}
+          onArchive={doArchive}
+          onUnarchive={doUnarchive}
+          onDelete={doDelete}
+        />
+      ) : (
+        <>
 
       <div className="pf-deck">
         {subs.map((sub, i) => {
@@ -615,6 +638,9 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </button>
       </div>
 
+        </>
+      )}
+
       </div>
       </div>
     </div>
@@ -719,6 +745,30 @@ const CSS = `
   flex: 1; min-width: 0; background: #1B2129; border: 1px solid #D9A441;
   color: #EDEAE0; border-radius: 6px; padding: 6px 8px;
   font-size: 12.5px; font-family: inherit;
+}
+
+.pf-runs {
+  flex: 1; margin: 8px 28px 22px; padding: 18px; overflow: auto;
+  background: #F1EEE3; border: 1px solid #D8D3C2; border-radius: 10px;
+}
+.pf-runs-table { width: 100%; }
+.pf-runs-open {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: #23282F; font-weight: 600; font-family: inherit; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.pf-runs-open:hover { text-decoration: underline; }
+.pf-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  background: #DCD7C7; color: #5C6068; border-radius: 4px; padding: 1px 6px;
+}
+.pf-runs-archived td { color: #8A8E96; }
+.pf-runs-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pf-runs-empty { color: #6B6F76; font-size: 13px; padding: 8px; }
+.pf-runs-rename {
+  border: 1px solid #D9A441; border-radius: 6px; padding: 5px 8px;
+  font-size: 13px; font-family: inherit; background: #FFFFFF; color: #23282F;
 }
 
 .pf-deck { position: relative; flex: 1; min-height: 540px; perspective: 1400px; margin-top: 8px; }
