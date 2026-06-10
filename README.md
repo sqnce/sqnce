@@ -47,7 +47,6 @@ Core concepts:
 | `@sqnce/core` | The engine. Pure functions, no dependencies, no UI. |
 | `@sqnce/react` | The rolodex component. React 18+, brings its own styles. |
 | `/definitions` | Example workflow definitions as plain JSON. |
-| `/examples/claude-artifact` | A fully self-contained version that runs as a claude.ai artifact, with Claude-powered draft generation and artifact storage persistence. |
 | `/examples/demo` | The live demo app (Vite). Builds from workspace source. |
 
 ## Quickstart
