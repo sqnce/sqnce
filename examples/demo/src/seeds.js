@@ -150,10 +150,10 @@ const SEEDS = {
         checkedDone: false,
         outputs: {
           facts: {
-            "Client": "Pacific Ridge Steel Products, Inc.",
-            "Industry": "Western U.S. steel pipe manufacturing: carbon, stainless, and alloy pipe",
-            "Deal size": "18 territory-aligned direct sales reps; Phase 1 direct-sales replacement system",
-            "Response due": "90-day target from vendor selection to cloud go-live",
+            client: "Pacific Ridge Steel Products, Inc.",
+            industry: "Western U.S. steel pipe manufacturing: carbon, stainless, and alloy pipe",
+            dealSize: "18 territory-aligned direct sales reps; Phase 1 direct-sales replacement system",
+            responseDue: "90-day target from vendor selection to cloud go-live",
           },
         },
       },

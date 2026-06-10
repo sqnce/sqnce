@@ -18,9 +18,11 @@ These ship in `@sqnce/react` with zero dependencies. The value shapes are normat
 | `markdown` | string | subset: ATX headings, paragraphs, lists, blockquotes, fenced code, horizontal rules, pipe tables, inline code/bold/italic/links. React elements only, no innerHTML; link hrefs limited to http(s), mailto, fragment |
 | `table` | array of uniform objects | columns are the union of keys over the first 50 rows |
 | `cards` | array of objects | navigable list plus detail pane; `options.title` and `options.subtitle` name the item keys used as labels (defaults probe `name`/`title`/`id` and `purpose`/`description`) |
-| `keyvalue` | flat object | one row per key |
+| `keyvalue` | flat object | one row per key; row labels resolve per key: `options.labels` wins, then a `fields` output's declared `{ key, label }` pairs, then the raw key |
 
-Hints work on every output type. On `text` outputs the value string is rendered (view/edit toggle); on `file` outputs the extracted `content` text is rendered; `data` outputs are view-first with a raw JSON editor behind an Edit toggle.
+Hints work on every output type. On `text` outputs the value string is rendered (view/edit toggle); on `file` outputs the extracted `content` text is rendered (a file value with no extracted text falls back to the attachment display); `data` outputs are view-first with a raw JSON editor behind an Edit toggle.
+
+`keyvalue` labels: `"render": { "kind": "keyvalue", "options": { "labels": { "dealSize": "Deal size" } } }` relabels keys on plain `data` objects. A `fields` output's declared labels apply automatically with no options; `options.labels` overrides them per key; unmapped keys display as-is.
 
 ## Fallback (fail soft)
 
