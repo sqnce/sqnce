@@ -75,6 +75,21 @@ export function validateDefinition(definition) {
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);
           if (o.type === "fields" && (!Array.isArray(o.fields) || !o.fields.length))
             problems.push(`step "${st.id}": fields output requires a fields array`);
+          if (o.render !== undefined) {
+            if (!o.render || typeof o.render !== "object" || Array.isArray(o.render)) {
+              problems.push(`step "${st.id}": render must be an object`);
+            } else {
+              if (typeof o.render.kind !== "string" || !o.render.kind.trim())
+                problems.push(`step "${st.id}": render.kind must be a non-empty string`);
+              if (
+                o.render.options !== undefined &&
+                (typeof o.render.options !== "object" ||
+                  o.render.options === null ||
+                  Array.isArray(o.render.options))
+              )
+                problems.push(`step "${st.id}": render.options must be an object`);
+            }
+          }
         });
       });
     });

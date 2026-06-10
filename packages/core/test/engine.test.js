@@ -199,3 +199,18 @@ test("validateDefinition accepts the data output type", () => {
   };
   assert.deepEqual(validateDefinition(def), []);
 });
+
+test("validateDefinition checks render hints", () => {
+  const mk = (render) => ({
+    id: "d", name: "D",
+    mainStages: [{ id: "m", subStages: [{ id: "s", steps: [
+      { id: "st", outputs: [{ id: "o", type: "text", label: "T", render }] },
+    ] }] }],
+  });
+  assert.deepEqual(validateDefinition(mk({ kind: "markdown" })), []);
+  assert.deepEqual(validateDefinition(mk({ kind: "erd", options: { tables: "x" } })), []);
+  assert.ok(validateDefinition(mk({})).some((p) => p.includes("render.kind")));
+  assert.ok(validateDefinition(mk({ kind: "" })).some((p) => p.includes("render.kind")));
+  assert.ok(validateDefinition(mk({ kind: "x", options: "nope" })).some((p) => p.includes("render.options")));
+  assert.ok(validateDefinition(mk("markdown")).some((p) => p.includes("render")));
+});
