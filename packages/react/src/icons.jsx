@@ -5,6 +5,7 @@ import React from "react";
  * Inline SVGs on currentColor, sized to ride alongside 11 to 12px mono
  * labels. Covers all five output types, including data.
  */
+/** @type {import("react").SVGProps<SVGSVGElement>} */
 const base = {
   width: 12,
   height: 12,
