@@ -5,7 +5,7 @@
   "subject": {
     "stepId": "intake",
     "outputId": "facts",
-    "field": "client",
+    "field": "Client",
     "fallback": "the client"
   },
   "mainStages": [
@@ -31,21 +31,24 @@
                   "id": "facts",
                   "type": "fields",
                   "label": "Deal facts",
+                  "render": {
+                    "kind": "keyvalue"
+                  },
                   "fields": [
                     {
-                      "key": "client",
+                      "key": "Client",
                       "label": "Client"
                     },
                     {
-                      "key": "industry",
+                      "key": "Industry",
                       "label": "Industry"
                     },
                     {
-                      "key": "dealSize",
+                      "key": "Deal size",
                       "label": "Deal size"
                     },
                     {
-                      "key": "responseDue",
+                      "key": "Response due",
                       "label": "Response due"
                     }
                   ]
@@ -61,7 +64,10 @@
                 {
                   "id": "doc",
                   "type": "file",
-                  "label": "RFP document"
+                  "label": "RFP document",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -75,7 +81,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Go / no-go assessment"
+                  "label": "Go / no-go assessment",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -99,7 +108,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Pain points"
+                  "label": "Pain points",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -108,12 +120,14 @@
               "name": "Requirements Extract",
               "required": true,
               "description": "Functional and non-functional requirements.",
-              "aiPrompt": "Produce a structured requirements list (functional and non-functional) from the RFP context.",
               "outputs": [
                 {
                   "id": "out",
-                  "type": "text",
-                  "label": "Requirements"
+                  "type": "data",
+                  "label": "Requirements",
+                  "render": {
+                    "kind": "table"
+                  }
                 }
               ]
             },
@@ -126,7 +140,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Research notes"
+                  "label": "Research notes",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -139,7 +156,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Research notes"
+                  "label": "Research notes",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -163,7 +183,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Alignment map"
+                  "label": "Alignment map",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -177,7 +200,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Functional architecture"
+                  "label": "Functional architecture",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -191,7 +217,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Technical architecture"
+                  "label": "Technical architecture",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -205,7 +234,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Fit-gap summary"
+                  "label": "Fit-gap summary",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -224,12 +256,18 @@
               "name": "Win Themes",
               "required": true,
               "description": "The three to five reasons we win this deal.",
-              "aiPrompt": "Propose 3 to 5 win themes grounded in the pain points and solution shape.",
               "outputs": [
                 {
                   "id": "out",
-                  "type": "text",
-                  "label": "Win themes"
+                  "type": "data",
+                  "label": "Win themes",
+                  "render": {
+                    "kind": "cards",
+                    "options": {
+                      "title": "name",
+                      "subtitle": "purpose"
+                    }
+                  }
                 }
               ]
             },
@@ -243,7 +281,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Executive summary"
+                  "label": "Executive summary",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -272,7 +313,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Pricing approach"
+                  "label": "Pricing approach",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -311,7 +355,10 @@
                 {
                   "id": "file",
                   "type": "file",
-                  "label": "Data set"
+                  "label": "Data set",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 },
                 {
                   "id": "inventory",
@@ -366,7 +413,10 @@
                 {
                   "id": "file",
                   "type": "file",
-                  "label": "Deck"
+                  "label": "Deck",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -374,12 +424,18 @@
               "id": "qna",
               "name": "Q&A Prep",
               "description": "Anticipated questions and assigned owners.",
-              "aiPrompt": "Generate the 15 hardest questions the evaluation panel could ask, with suggested answers.",
               "outputs": [
                 {
                   "id": "out",
-                  "type": "text",
-                  "label": "Q&A bank"
+                  "type": "data",
+                  "label": "Q&A bank",
+                  "render": {
+                    "kind": "cards",
+                    "options": {
+                      "title": "question",
+                      "subtitle": "owner"
+                    }
+                  }
                 }
               ]
             }
@@ -407,7 +463,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Follow-up log"
+                  "label": "Follow-up log",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -437,7 +496,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Scope statement"
+                  "label": "Scope statement",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },
@@ -449,7 +511,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Assumptions"
+                  "label": "Assumptions",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -471,8 +536,11 @@
               "outputs": [
                 {
                   "id": "out",
-                  "type": "text",
-                  "label": "Estimate"
+                  "type": "data",
+                  "label": "Estimate",
+                  "render": {
+                    "kind": "table"
+                  }
                 }
               ]
             },
@@ -484,7 +552,10 @@
                 {
                   "id": "out",
                   "type": "text",
-                  "label": "Pricing model"
+                  "label": "Pricing model",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             }
@@ -507,7 +578,10 @@
                 {
                   "id": "file",
                   "type": "file",
-                  "label": "SOW document"
+                  "label": "SOW document",
+                  "render": {
+                    "kind": "markdown"
+                  }
                 }
               ]
             },

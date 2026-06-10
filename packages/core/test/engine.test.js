@@ -75,7 +75,7 @@ test("gateProgress reports missing required steps by name", () => {
   assert.equal(p.total, 3);
   assert.ok(p.missing.includes("Opportunity Intake"));
 
-  run = setOutput(run, "intake", "facts", { client: "Ironclad Industries" });
+  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries" });
   run = setOutput(run, "rfp-upload", "doc", { name: "rfp.pdf", content: "" });
   run = setOutput(run, "qualify", "out", "Go. Strong fit.");
   p = gateProgress(start, run);
@@ -130,14 +130,14 @@ test("advancing from a non-frontier (browsing) position is a no-op", () => {
 test("subject resolves from the configured field with fallback", () => {
   let run = createRun();
   assert.equal(resolveSubject(PRESALES, run), "the client");
-  run = setOutput(run, "intake", "facts", { client: "Ironclad Industries" });
+  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries" });
   assert.equal(resolveSubject(PRESALES, run), "Ironclad Industries");
 });
 
 test("buildContext only includes completed prior outputs; prompt references the subject", () => {
   const subs = flattenSubStages(PRESALES);
   let run = createRun();
-  run = setOutput(run, "intake", "facts", { client: "Ironclad Industries", industry: "Steel" });
+  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries", Industry: "Steel" });
   run = setOutput(run, "qualify", "out", "Go. Strong fit.");
   run = advance(run, subs, { force: true }).run;
 
