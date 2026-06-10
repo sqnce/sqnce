@@ -148,6 +148,11 @@ export function hasValue(spec, val) {
   if (spec.type === "fields")
     return Object.values(val).some((v) => String(v || "").trim().length > 0);
   if (spec.type === "file") return !!val.name;
+  if (spec.type === "data") {
+    if (Array.isArray(val)) return val.length > 0;
+    if (typeof val === "object") return Object.keys(val).length > 0;
+    return String(val).trim().length > 0;
+  }
   return false;
 }
 

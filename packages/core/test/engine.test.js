@@ -214,3 +214,17 @@ test("validateDefinition checks render hints", () => {
   assert.ok(validateDefinition(mk({ kind: "x", options: "nope" })).some((p) => p.includes("render.options")));
   assert.ok(validateDefinition(mk("markdown")).some((p) => p.includes("render")));
 });
+
+test("hasValue for data outputs", () => {
+  const spec = { id: "o", type: "data" };
+  assert.equal(hasValue(spec, null), false);
+  assert.equal(hasValue(spec, undefined), false);
+  assert.equal(hasValue(spec, []), false);
+  assert.equal(hasValue(spec, {}), false);
+  assert.equal(hasValue(spec, ""), false);
+  assert.equal(hasValue(spec, "  "), false);
+  assert.equal(hasValue(spec, [1]), true);
+  assert.equal(hasValue(spec, { a: 1 }), true);
+  assert.equal(hasValue(spec, "x"), true);
+  assert.equal(hasValue(spec, 0), true);
+});
