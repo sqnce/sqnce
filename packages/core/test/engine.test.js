@@ -228,3 +228,16 @@ test("hasValue for data outputs", () => {
   assert.equal(hasValue(spec, "x"), true);
   assert.equal(hasValue(spec, 0), true);
 });
+
+test("serializeStep serializes data outputs as capped JSON", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "Step", outputs: [{ id: "o", type: "data", label: "Inventory" }] };
+  let run = createRun();
+  run = setOutput(run, "st", "o", { tables: [{ name: "Account" }] });
+  const block = serializeStep(sub, step, run);
+  assert.ok(block.includes("Inventory:"));
+  assert.ok(block.includes('{"tables":[{"name":"Account"}]}'));
+  run = setOutput(run, "st", "o", { big: "x".repeat(5000) });
+  const capped = serializeStep(sub, step, run);
+  assert.ok(capped.length < 2700);
+});

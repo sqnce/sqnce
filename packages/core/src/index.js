@@ -258,6 +258,8 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
       );
     if (spec.type === "file")
       parts.push(`Attached file: ${val.name}\n${(val.content || "").slice(0, 2000)}`);
+    if (spec.type === "data")
+      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val).slice(0, 2000)}`);
   });
   if (!parts.length) return null;
   return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${parts
