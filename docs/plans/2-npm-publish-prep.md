@@ -311,11 +311,12 @@ Same as core plus JSX support and `.jsx` inclusion:
 },
 "devDependencies": {
   "@types/react": "^18.3.12",
+  "@types/react-dom": "^18.3.1",
   "typescript": "^5.7.2"
 }
 ```
 
-(Core must emit before react: react's declaration build resolves `@sqnce/core` through the workspace link's `types` field.)
+(Core must emit before react: react's declaration build resolves `@sqnce/core` through the workspace link's `types` field. `@types/react-dom` is required because `OutputView.jsx` imports `createPortal` from `react-dom`, which ships no declarations of its own.)
 
 - [ ] **Step 4: Package manifests, final form**
 
@@ -511,9 +512,10 @@ Expected: a single top-level `@sqnce/core@0.1.0`, satisfying `@sqnce/react`'s `^
 
 - [ ] **Step 4: TypeScript consumer check**
 
-In the scratch app:
+In the scratch app (the JS Vite template ships no React type packages, and the emitted `@sqnce/react` declarations reference React types, so install them first):
 
 ```bash
+npm install -D typescript @types/react @types/react-dom
 cat > check.ts <<'EOF'
 import { createRun, gateProgress, type Run } from "@sqnce/core";
 import { ProcessRolodex } from "@sqnce/react";
