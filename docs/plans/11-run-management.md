@@ -712,11 +712,17 @@ Replace the current state block (from `const [activeId, setActiveId] = useState(
     setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
   }, [loaded, entry, activeId, newEntryFor]);
 
-  /* Content mutations bump updatedAt and are blocked on archived runs. */
+  /* Content mutations bump updatedAt and are blocked on archived runs.
+     The status is re-checked inside the updater with current state:
+     an async writer (draft generation, file read) that started while
+     the run was live must not land after it is archived or deleted. */
   const setRun = useCallback(
     (next) => {
       if (!entry || readOnly) return;
-      setStore((s) => updateRunState(s, entry.id, next, Date.now()));
+      setStore((s) => {
+        const e = s.entries[entry.id];
+        return e && e.status === "active" ? updateRunState(s, entry.id, next, Date.now()) : s;
+      });
     },
     [entry, readOnly]
   );
@@ -1531,3 +1537,4 @@ Then follow the workflow's Codex loop (poll reactions and comments until 👍 on
 - Spec coverage: data model (Task 2), every listed core function (Tasks 2 to 6), test script widening (Task 1), store-backed component with compatibility props (Task 7), read-only mode (Task 8), sidebar (Task 9), runs screen (Task 10), docs (Tasks 7 and 11), acceptance (Task 12). The demo needs no changes (spec: storage key stays, discard handles old state).
 - Out of scope holds: no engine function edits (run store is append-only in `index.js`), no demo or artifact changes, no new dependencies.
 - Navigation on archived runs uses `setNav`, which reuses `updateRunState` with the entry's existing `updatedAt` so browsing never reorders "most recently updated" or fights the read-only guard.
+- Stale async writers (Codex P2 on the first plan push): `setRun` re-checks `s.entries[entry.id].status` inside the `setStore` updater, so a draft generation or file read that resolves after the run was archived or deleted is dropped instead of mutating it. `setNav` only needs the existence check, navigation is legal on archived runs.
