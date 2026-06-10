@@ -116,6 +116,32 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
   );
 }
 
+/**
+ * @typedef {Object} RendererContext
+ * @property {string} workflowId
+ * @property {string} stepId
+ * @property {string} subject
+ * @property {boolean} readOnly
+ * @property {boolean} [expanded]
+ */
+/**
+ * @typedef {Object} RendererProps
+ * @property {import("@sqnce/core").OutputSpec} spec
+ * @property {any} value
+ * @property {(value: any) => void} onChange
+ * @property {RendererContext} context
+ */
+/**
+ * @typedef {Object} ProcessRolodexProps
+ * @property {import("@sqnce/core").Definition[]} workflows
+ * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
+ * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string }) => Promise<string>} [generateDraft]
+ * @property {{ label: string, ids: string[] }[]} [workflowGroups]
+ * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
+ * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
+ */
+
+/** @param {ProcessRolodexProps} props */
 export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
@@ -142,6 +168,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const [expanded, setExpanded] = useState(null);
   const [generating, setGenerating] = useState(null);
   const [genError, setGenError] = useState(null);
+  const [manualEdit, setManualEdit] = useState([]);
   const [loaded, setLoaded] = useState(!persistence);
   const [showInputs, setShowInputs] = useState(false);
   const [view, setView] = useState("rolodex");
@@ -254,6 +281,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setExpanded(null);
     setGenError(null);
     setShowInputs(false);
+    setManualEdit([]);
   };
 
   const doBrowse = (dir) => {
@@ -407,14 +435,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
+            const firstIdx = subs.findIndex((s) => s.mainIndex === mi);
             const allDone = ms.subStages.every((ss) => gateProgress(ss, run).met);
-            const state =
-              mi === current.mainIndex ? "active" : allDone || mi < current.mainIndex ? "done" : "ahead";
+            const stageLocked = firstIdx > frontier;
+            const frontierMain = subs[frontier].mainIndex;
+            const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
+            const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
             return (
               <React.Fragment key={ms.id}>
-                {mi > 0 && <span className="pf-rail-line" />}
+                {mi > 0 && <span className={`pf-rail-line ${mi <= frontierMain ? "pf-rail-line-fill" : ""}`} />}
                 <span className={`pf-rail-stage pf-rail-${state}`}>
-                  <span className="pf-rail-dot" />
+                  <span className="pf-rail-circle">{glyph}</span>
                   {ms.name}
                 </span>
               </React.Fragment>
@@ -498,16 +529,31 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           const locked = i > frontier;
           const center = pos === 0;
           const p = gateProgress(sub, run);
+          const sideClickable = !center && Math.abs(pos) === 1 && i <= frontier;
           return (
             <div
               key={sub.id}
-              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""}`}
+              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""} ${sideClickable ? "pf-card-clickable" : ""}`}
               style={{
                 transform: `translateX(calc(-50% + ${pos * 420}px)) rotateY(${pos * -24}deg) scale(${center ? 1 : 0.82})`,
                 opacity: Math.abs(pos) === 2 ? 0 : center ? 1 : 0.38,
                 zIndex: 10 - Math.abs(pos),
-                pointerEvents: center ? "auto" : "none",
+                pointerEvents: center || sideClickable ? "auto" : "none",
               }}
+              role={sideClickable ? "button" : undefined}
+              tabIndex={sideClickable ? 0 : undefined}
+              aria-label={sideClickable ? `Go to ${sub.name}` : undefined}
+              onClick={sideClickable ? () => setNav(jumpTo(run, subs, i)) : undefined}
+              onKeyDown={
+                sideClickable
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setNav(jumpTo(run, subs, i));
+                      }
+                    }
+                  : undefined
+              }
             >
               {!center && Math.abs(pos) === 1 && (
                 <div className="pf-card-eyebrow">{pos < 0 ? "Back" : "Next"}</div>
@@ -564,41 +610,90 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   const open = center && expanded === step.id;
                   return (
                     <div key={step.id} className={`pf-step pf-step-${status}`}>
-                      <button
-                        className="pf-step-row"
-                        disabled={!center}
-                        onClick={() => setExpanded(open ? null : step.id)}
-                      >
-                        <span className={`pf-dot pf-dot-${status}`} />
-                        <span className="pf-step-name">
-                          {step.name}
-                          {step.required && <span className="pf-req">*</span>}
-                        </span>
-                        <span className="pf-step-state">
-                          {status === "done" ? "Done" : status === "draft" ? "Draft" : ""}
-                        </span>
-                        {center && <span className="pf-chev">{open ? "−" : "+"}</span>}
-                      </button>
+                      <div className="pf-step-row">
+                        <button
+                          className={`pf-dot-btn pf-dot-${status}`}
+                          disabled={!center || readOnly}
+                          title={status === "done" ? "Reopen" : "Mark done"}
+                          aria-label={status === "done" ? `Reopen ${step.name}` : `Mark ${step.name} done`}
+                          onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
+                        >
+                          {status === "done" ? "✓" : ""}
+                        </button>
+                        <button
+                          className="pf-step-expand"
+                          disabled={!center}
+                          onClick={() => setExpanded(open ? null : step.id)}
+                        >
+                          <span className="pf-step-name">
+                            {step.name}
+                            {step.required && <span className="pf-req">*</span>}
+                          </span>
+                          <span className="pf-step-state">
+                            {status === "done" ? "Done" : status === "draft" ? "Draft" : ""}
+                          </span>
+                          {center && <span className="pf-chev">{open ? "−" : "+"}</span>}
+                        </button>
+                      </div>
 
                       {open && (
                         <div className="pf-step-body">
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
-                          {(step.outputs || []).map((spec) => (
-                            <OutputView
-                              key={spec.id}
-                              spec={spec}
-                              value={(entry.outputs || {})[spec.id]}
-                              onChange={(v) => writeOutput(step.id, spec.id, v)}
-                              onAttach={() => {
-                                attachFor.current = { stepId: step.id, outputId: spec.id };
-                                fileRef.current && fileRef.current.click();
-                              }}
-                              renderers={renderers}
-                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
-                              generated={isOutputGenerated(run, step.id, spec.id)}
-                            />
-                          ))}
+                          {(step.outputs || []).map((spec) => {
+                            const target = (step.outputs || []).find((o) => o.type === "text");
+                            const isGenTarget = !!generateDraft && spec === target;
+                            if (
+                              isGenTarget &&
+                              !hasValue(spec, (entry.outputs || {})[spec.id]) &&
+                              !manualEdit.includes(step.id)
+                            ) {
+                              return (
+                                <div key={spec.id} className="pf-out">
+                                  <div className="pf-out-head">
+                                    <div className="pf-out-label">{spec.label}</div>
+                                  </div>
+                                  <div className="pf-gen-invite">
+                                    {generating === step.id ? (
+                                      <span className="pf-spinner" aria-label="Generating" />
+                                    ) : (
+                                      <>
+                                        <button
+                                          className="pf-btn pf-btn-primary"
+                                          disabled={readOnly}
+                                          onClick={() => generate(sub, step)}
+                                        >
+                                          Generate draft
+                                        </button>
+                                        <button
+                                          className="pf-gen-manual"
+                                          disabled={readOnly}
+                                          onClick={() => setManualEdit([...manualEdit, step.id])}
+                                        >
+                                          or write it yourself
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <OutputView
+                                key={spec.id}
+                                spec={spec}
+                                value={(entry.outputs || {})[spec.id]}
+                                onChange={(v) => writeOutput(step.id, spec.id, v)}
+                                onAttach={() => {
+                                  attachFor.current = { stepId: step.id, outputId: spec.id };
+                                  fileRef.current && fileRef.current.click();
+                                }}
+                                renderers={renderers}
+                                context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
+                                generated={isOutputGenerated(run, step.id, spec.id)}
+                              />
+                            );
+                          })}
 
                           {genError === step.id && (
                             <div className="pf-error">Generation failed. Check the connection and try again.</div>
@@ -611,7 +706,18 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 disabled={generating === step.id || readOnly}
                                 onClick={() => generate(sub, step)}
                               >
-                                {generating === step.id ? "Generating…" : "Generate draft"}
+                                {generating === step.id ? (
+                                  <>
+                                    <span className="pf-spinner pf-spinner-sm" aria-hidden="true" /> Generating…
+                                  </>
+                                ) : hasValue(
+                                    (step.outputs || []).find((o) => o.type === "text"),
+                                    (entry.outputs || {})[(step.outputs || []).find((o) => o.type === "text").id]
+                                  ) ? (
+                                  "Regenerate"
+                                ) : (
+                                  "Generate draft"
+                                )}
                               </button>
                             )}
                             <button
@@ -628,6 +734,31 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   );
                 })}
               </div>
+
+              {center && (
+                <div className="pf-card-foot">
+                  {p.met ? (
+                    <span className="pf-gate-state pf-gate-met">
+                      ✓ Gate met{atFrontier && nextSub ? ", ready to advance" : ""}
+                    </span>
+                  ) : (
+                    <span className="pf-gate-state">
+                      🔒 {p.total - p.done} required {p.total - p.done === 1 ? "step" : "steps"} left
+                      · Gate unmet: {p.missing.join(", ")}
+                    </span>
+                  )}
+                  {atFrontier && nextSub &&
+                    (p.met ? (
+                      <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
+                        Advance to {nextSub.name} →
+                      </button>
+                    ) : (
+                      <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
+                        Advance anyway
+                      </button>
+                    ))}
+                </div>
+              )}
 
               {locked && (
                 <div className="pf-lock">
@@ -655,22 +786,6 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             ))}
           </div>
 
-          {atFrontier && nextSub && (
-            <div className="pf-advance-zone">
-              {prog.met ? (
-                <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
-                  Advance to {nextSub.name} →
-                </button>
-              ) : (
-                <>
-                  <div className="pf-gate-hint">Gate unmet: {prog.missing.join(", ")}</div>
-                  <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
-                    Advance anyway
-                  </button>
-                </>
-              )}
-            </div>
-          )}
           {!atFrontier && (
             <div className="pf-gate-hint">Browsing history · frontier is {subs[frontier].name}</div>
           )}
@@ -714,11 +829,16 @@ const CSS = `
 .pf-subject { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8A919B; }
 .pf-rail { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
 .pf-rail-stage { display: flex; align-items: center; gap: 7px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
-.pf-rail-dot { width: 8px; height: 8px; border-radius: 50%; }
-.pf-rail-active { color: #D9A441; } .pf-rail-active .pf-rail-dot { background: #D9A441; box-shadow: 0 0 8px #D9A44188; }
-.pf-rail-done { color: #6FBF95; } .pf-rail-done .pf-rail-dot { background: #2E8F62; }
-.pf-rail-ahead { color: #5E6772; } .pf-rail-ahead .pf-rail-dot { background: #444D58; }
+.pf-rail-circle {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid currentColor;
+}
+.pf-rail-active { color: #D9A441; } .pf-rail-active .pf-rail-circle { background: #D9A441; border-color: #D9A441; color: #23282F; }
+.pf-rail-done { color: #6FBF95; } .pf-rail-done .pf-rail-circle { background: #2E8F62; border-color: #2E8F62; color: #EDEAE0; }
+.pf-rail-ahead { color: #5E6772; }
 .pf-rail-line { width: 34px; height: 1px; background: #3A434E; }
+.pf-rail-line-fill { background: #D9A441; }
 .pf-header-right { display: flex; align-items: center; gap: 10px; }
 .pf-switch { display: flex; border: 1px solid #3A434E; border-radius: 8px; overflow: hidden; }
 .pf-switch-btn {
@@ -840,6 +960,9 @@ const CSS = `
 .pf-card-title { font-size: 26px; font-weight: 700; padding: 16px 20px 2px; letter-spacing: -0.01em; }
 .pf-card-desc { padding: 0 20px 6px; font-size: 13.5px; color: #5C6068; }
 .pf-card-locked .pf-card-strip { background: #3A3F46; }
+.pf-card-clickable { cursor: pointer; }
+.pf-card-clickable:hover { filter: brightness(1.12); outline: 1px solid #D9A441; }
+.pf-card-clickable:focus-visible { outline: 2px solid #D9A441; }
 
 .pf-inputs { margin: 8px 20px 0; }
 .pf-inputs-toggle { background: none; border: none; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #7A6A3C; letter-spacing: 0.05em; padding: 0; }
@@ -852,19 +975,28 @@ const CSS = `
 .pf-steps-side { pointer-events: none; }
 .pf-step { border: 1px solid #DCD7C7; border-radius: 8px; background: #FAF8F0; }
 .pf-step-done { border-color: #BCD9C9; background: #F2F8F3; }
-.pf-step-row {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  background: none; border: none; padding: 11px 14px; cursor: pointer;
+.pf-step-row { display: flex; align-items: center; gap: 10px; padding-right: 14px; }
+.pf-dot-btn {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-left: 14px;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  background: #FFFFFF; border: 1.5px solid #B6BAC1; cursor: pointer;
+  font-size: 11px; line-height: 1; color: transparent;
+}
+.pf-dot-btn:hover:not(:disabled) { border-color: #2E8F62; color: #2E8F62; }
+.pf-dot-btn:disabled { cursor: default; }
+.pf-dot-draft { border-color: #D9A441; background: #F4DFAE; }
+.pf-dot-done { border-color: #2E8F62; background: #2E8F62; color: #FFFFFF; }
+.pf-step-expand {
+  flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
+  background: none; border: none; padding: 11px 0; cursor: pointer;
   font-family: inherit; font-size: 14.5px; color: #23282F; text-align: left;
 }
+.pf-step-expand:disabled { cursor: default; }
 .pf-step-name { flex: 1; font-weight: 500; }
 .pf-req { color: #C9542D; margin-left: 3px; }
 .pf-step-state { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8A8E96; }
 .pf-step-done .pf-step-state { color: #2E8F62; }
 .pf-chev { color: #8A8E96; font-size: 16px; width: 14px; text-align: center; }
-.pf-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #B6BAC1; flex-shrink: 0; }
-.pf-dot-draft { border-color: #D9A441; background: #F4DFAE; }
-.pf-dot-done { border-color: #2E8F62; background: #2E8F62; }
 
 .pf-step-body { padding: 0 14px 14px; }
 .pf-step-desc { font-size: 12.5px; color: #6B6F76; margin-bottom: 8px; }
@@ -919,7 +1051,30 @@ const CSS = `
 .pf-pip { width: 9px; height: 9px; border-radius: 50%; background: #4A535E; cursor: pointer; }
 .pf-pip-active { background: #D9A441; transform: scale(1.25); }
 .pf-pip-locked { background: #343C45; cursor: default; }
-.pf-advance-zone { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.pf-card-foot {
+  margin: 12px 14px 0; padding: 10px 2px 0;
+  border-top: 1px solid #DCD7C7;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+.pf-gate-state { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #8A8E96; }
+.pf-gate-met { color: #2E8F62; }
+.pf-gen-invite {
+  border: 1.5px dashed #C9C3B0; border-radius: 8px; padding: 18px;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  background: #FCFBF5; min-height: 46px;
+}
+.pf-gen-manual {
+  background: none; border: none; color: #7A6A3C; cursor: pointer;
+  font-size: 12px; text-decoration: underline; font-family: 'IBM Plex Mono', monospace;
+}
+.pf-spinner {
+  width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+  border: 2px solid #D9A441; border-top-color: transparent;
+  animation: pf-spin 0.8s linear infinite; vertical-align: -2px;
+}
+.pf-spinner-sm { width: 11px; height: 11px; }
+@keyframes pf-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pf-spinner { animation: none; border-top-color: #D9A441; opacity: 0.5; } }
 .pf-advance {
   background: #D9A441; color: #23282F; border: none; border-radius: 8px;
   padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;

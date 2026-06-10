@@ -77,6 +77,8 @@ export default function App() {
 
 Both `persistence` and `generateDraft` are optional. Omit `persistence` for in-memory runs; omit `generateDraft` to hide the draft action entirely.
 
+`@sqnce/react` ships raw JSX. Vite and esbuild consumers work out of the box; webpack/Next.js consumers add `transpilePackages: ["@sqnce/react"]` (or a babel-loader include) because bundlers usually skip transpiling `node_modules`.
+
 Using the engine without the UI:
 
 ```js

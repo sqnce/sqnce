@@ -30,7 +30,7 @@ function Node({ k, v, depth }) {
 export default function JsonTree({ value }) {
   return (
     <div className="pf-jt">
-      <Node v={value === undefined ? null : value} depth={0} />
+      <Node k={null} v={value === undefined ? null : value} depth={0} />
     </div>
   );
 }

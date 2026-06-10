@@ -6,3 +6,4 @@ dist/
 .superpowers/
 .claude/
 graphify-out/
+packages/*/types/
