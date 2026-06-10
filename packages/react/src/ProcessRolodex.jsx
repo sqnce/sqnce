@@ -488,16 +488,31 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           const locked = i > frontier;
           const center = pos === 0;
           const p = gateProgress(sub, run);
+          const sideClickable = !center && Math.abs(pos) === 1 && i <= frontier;
           return (
             <div
               key={sub.id}
-              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""}`}
+              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""} ${sideClickable ? "pf-card-clickable" : ""}`}
               style={{
                 transform: `translateX(calc(-50% + ${pos * 420}px)) rotateY(${pos * -24}deg) scale(${center ? 1 : 0.82})`,
                 opacity: Math.abs(pos) === 2 ? 0 : center ? 1 : 0.38,
                 zIndex: 10 - Math.abs(pos),
-                pointerEvents: center ? "auto" : "none",
+                pointerEvents: center || sideClickable ? "auto" : "none",
               }}
+              role={sideClickable ? "button" : undefined}
+              tabIndex={sideClickable ? 0 : undefined}
+              aria-label={sideClickable ? `Go to ${sub.name}` : undefined}
+              onClick={sideClickable ? () => setNav(jumpTo(run, subs, i)) : undefined}
+              onKeyDown={
+                sideClickable
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setNav(jumpTo(run, subs, i));
+                      }
+                    }
+                  : undefined
+              }
             >
               <div className="pf-card-strip">
                 <span className="pf-card-code">
@@ -891,6 +906,9 @@ const CSS = `
 .pf-card-title { font-size: 26px; font-weight: 700; padding: 16px 20px 2px; letter-spacing: -0.01em; }
 .pf-card-desc { padding: 0 20px 6px; font-size: 13.5px; color: #5C6068; }
 .pf-card-locked .pf-card-strip { background: #3A3F46; }
+.pf-card-clickable { cursor: pointer; }
+.pf-card-clickable:hover { filter: brightness(1.12); outline: 1px solid #D9A441; }
+.pf-card-clickable:focus-visible { outline: 2px solid #D9A441; }
 
 .pf-inputs { margin: 8px 20px 0; }
 .pf-inputs-toggle { background: none; border: none; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #7A6A3C; letter-spacing: 0.05em; padding: 0; }
