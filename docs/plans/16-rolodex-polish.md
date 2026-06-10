@@ -163,7 +163,7 @@ The row is currently one `<button className="pf-step-row">` wrapping dot, name, 
 </div>
 ```
 
-(`status === "done"` is gate-aware completion via `statusOf`; reopen on a content-bearing hybrid step goes through batch 2's `reopenStep`. The in-body Mark done/Reopen button stays untouched.)
+(`status === "done"` is gate-aware completion via `statusOf`. The `reopen` helper and the `reopenStep` core export it wraps land in batch 2, PR #39; this branch merges main after #39 lands and before implementation starts, so both exist here. Until then this snippet intentionally does not compile against the branch. The in-body Mark done/Reopen button stays untouched.)
 
 - [ ] **Step 2: CSS**
 
