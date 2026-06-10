@@ -397,14 +397,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
+            const firstIdx = subs.findIndex((s) => s.mainIndex === mi);
             const allDone = ms.subStages.every((ss) => gateProgress(ss, run).met);
-            const state =
-              mi === current.mainIndex ? "active" : allDone || mi < current.mainIndex ? "done" : "ahead";
+            const stageLocked = firstIdx > frontier;
+            const frontierMain = subs[frontier].mainIndex;
+            const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
+            const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
             return (
               <React.Fragment key={ms.id}>
-                {mi > 0 && <span className="pf-rail-line" />}
+                {mi > 0 && <span className={`pf-rail-line ${mi <= frontierMain ? "pf-rail-line-fill" : ""}`} />}
                 <span className={`pf-rail-stage pf-rail-${state}`}>
-                  <span className="pf-rail-dot" />
+                  <span className="pf-rail-circle">{glyph}</span>
                   {ms.name}
                 </span>
               </React.Fragment>
@@ -695,11 +698,16 @@ const CSS = `
 .pf-subject { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8A919B; }
 .pf-rail { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
 .pf-rail-stage { display: flex; align-items: center; gap: 7px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
-.pf-rail-dot { width: 8px; height: 8px; border-radius: 50%; }
-.pf-rail-active { color: #D9A441; } .pf-rail-active .pf-rail-dot { background: #D9A441; box-shadow: 0 0 8px #D9A44188; }
-.pf-rail-done { color: #6FBF95; } .pf-rail-done .pf-rail-dot { background: #2E8F62; }
-.pf-rail-ahead { color: #5E6772; } .pf-rail-ahead .pf-rail-dot { background: #444D58; }
+.pf-rail-circle {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid currentColor;
+}
+.pf-rail-active { color: #D9A441; } .pf-rail-active .pf-rail-circle { background: #D9A441; border-color: #D9A441; color: #23282F; }
+.pf-rail-done { color: #6FBF95; } .pf-rail-done .pf-rail-circle { background: #2E8F62; border-color: #2E8F62; color: #EDEAE0; }
+.pf-rail-ahead { color: #5E6772; }
 .pf-rail-line { width: 34px; height: 1px; background: #3A434E; }
+.pf-rail-line-fill { background: #D9A441; }
 .pf-header-right { display: flex; align-items: center; gap: 10px; }
 .pf-switch { display: flex; border: 1px solid #3A434E; border-radius: 8px; overflow: hidden; }
 .pf-switch-btn {
