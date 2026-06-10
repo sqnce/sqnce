@@ -4,8 +4,13 @@
   "description": "Rolodex UI for sqnce workflows: focused active sub-stage, gated advancement, browseable history.",
   "type": "module",
   "main": "src/index.js",
-  "exports": { ".": "./src/index.js" },
-  "files": ["src"],
+  "types": "./types/index.d.ts",
+  "exports": { ".": { "types": "./types/index.d.ts", "default": "./src/index.js" } },
+  "files": ["src", "types"],
+  "scripts": {
+    "types": "tsc -p tsconfig.declarations.json",
+    "prepack": "tsc -p ../core/tsconfig.declarations.json && npm run types"
+  },
   "dependencies": { "@sqnce/core": "^0.1.0" },
   "peerDependencies": { "react": ">=18", "react-dom": ">=18" },
   "publishConfig": { "access": "public" },

@@ -4,9 +4,14 @@
   "description": "Pure engine for staged, gated workflows: definitions, runs, gates, frontier navigation, and draft-prompt building.",
   "type": "module",
   "main": "src/index.js",
-  "exports": { ".": "./src/index.js" },
-  "files": ["src"],
-  "scripts": { "test": "node --test test/*.test.js" },
+  "types": "./types/index.d.ts",
+  "exports": { ".": { "types": "./types/index.d.ts", "default": "./src/index.js" } },
+  "files": ["src", "types"],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "types": "tsc -p tsconfig.declarations.json",
+    "prepack": "npm run types"
+  },
   "publishConfig": { "access": "public" },
   "keywords": ["workflow", "process", "stage-gate", "engine", "sqnce"],
   "license": "Apache-2.0",
