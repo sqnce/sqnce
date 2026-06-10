@@ -41,8 +41,8 @@ Delete this row from the `## Packages` table (README.md line 50):
 
 - [ ] **Step 4: Verify no living doc still references the artifact**
 
-Run: `rg -l claude-artifact --glob '!docs/specs/**' --glob '!docs/superpowers/**'`
-Expected: no matches. (Historical specs under `docs/specs/` and `docs/superpowers/` keep their references by spec decision.)
+Run: `rg -l claude-artifact --glob '!docs/specs/**' --glob '!docs/superpowers/**' --glob '!docs/plans/**'`
+Expected: no matches. (Historical specs under `docs/specs/` and `docs/superpowers/` keep their references by spec decision; `docs/plans/` holds this plan itself, which is deleted in the final pre-merge commit.)
 
 - [ ] **Step 5: Run the checks**
 
@@ -78,7 +78,7 @@ Create `packages/core/test/fixtures/workflow.js` with exactly:
 export const FIXTURE = {
   id: "fixture",
   name: "Fixture Process",
-  subject: { stepId: "intake", outputId: "facts", field: "client", fallback: "the client" },
+  subject: { stepId: "intake", outputId: "facts", field: "client", fallback: "the account" },
   mainStages: [
     {
       id: "alpha",
@@ -332,7 +332,7 @@ test("advancing from a non-frontier (browsing) position is a no-op", () => {
 
 test("subject resolves from the configured field with fallback", () => {
   let run = createRun();
-  assert.equal(resolveSubject(FIXTURE, run), "the client");
+  assert.equal(resolveSubject(FIXTURE, run), "the account");
   run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
   assert.equal(resolveSubject(FIXTURE, run), "Vexel Tools");
 });
