@@ -18,31 +18,8 @@ const STORAGE_KEY = "sqnce-demo-v1";
 const FlowDiagram = lazy(() => import("./renderers/FlowDiagram.jsx"));
 const RENDERERS = { flow: FlowDiagram };
 
-/* Issue #28 renamed the presales Deal facts field keys to display-ready
-   strings ("dealSize" -> "Deal size"); runs saved before the rename
-   still hold the old keys, so remap them on load or returning visitors
-   would see blank Deal facts and a fallback subject. */
-const FACT_KEY_RENAMES = {
-  client: "Client",
-  industry: "Industry",
-  dealSize: "Deal size",
-  responseDue: "Response due",
-};
-
-function migrateLegacyFactKeys(state) {
-  const facts = state?.runs?.["presales-pursuit"]?.stepState?.intake?.outputs?.facts;
-  if (!facts) return state;
-  for (const [from, to] of Object.entries(FACT_KEY_RENAMES)) {
-    if (from in facts && !(to in facts)) {
-      facts[to] = facts[from];
-      delete facts[from];
-    }
-  }
-  return state;
-}
-
 const persistence = {
-  load: async () => migrateLegacyFactKeys(JSON.parse(localStorage.getItem(STORAGE_KEY) || "null")),
+  load: async () => JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"),
   save: async (state) => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)),
 };
 
