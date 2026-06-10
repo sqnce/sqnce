@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "exports": { ".": "./src/index.js" },
   "files": ["src"],
-  "scripts": { "test": "node --test test/engine.test.js" },
+  "scripts": { "test": "node --test test/" },
   "keywords": ["workflow", "process", "stage-gate", "engine", "sqnce"],
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/sqnce/sqnce.git", "directory": "packages/core" }
