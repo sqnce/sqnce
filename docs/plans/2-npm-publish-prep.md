@@ -263,6 +263,7 @@ git commit -m "core: JSDoc typedefs and annotations for the public surface (#6)"
 {
   "compilerOptions": {
     "allowJs": true,
+    "checkJs": true,
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "types",
@@ -285,6 +286,7 @@ Same as core plus JSX support and `.jsx` inclusion:
 {
   "compilerOptions": {
     "allowJs": true,
+    "checkJs": true,
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "types",
@@ -366,7 +368,7 @@ In `CLAUDE.md`'s Commands section, add:
 - [ ] **Step 7: Run the emit**
 
 Run: `npm install && npm run types`
-Expected: `packages/core/types/index.d.ts` and `packages/react/types/` exist; `index.d.ts` declares `createRun(): Run` etc. If tsc errors on a JSDoc type, fix the annotation (not the code) until clean.
+Expected: `packages/core/types/index.d.ts` and `packages/react/types/` exist; `index.d.ts` declares `createRun(): Run` etc. With `checkJs` on, tsc also type-checks the JS against the JSDoc; fix annotations (not runtime code) until clean. If react's internals produce errors unrelated to the public surface, suppress at the exact line with `// @ts-expect-error` plus a reason rather than turning `checkJs` off.
 
 Run: `npm test && npm run build -w examples/demo`
 Expected: green (runtime untouched; `exports.default` still points at `src/`).
