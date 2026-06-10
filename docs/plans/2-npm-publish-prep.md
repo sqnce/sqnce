@@ -335,9 +335,11 @@ Same as core plus JSX support and `.jsx` inclusion:
 ```json
 "scripts": {
   "types": "tsc -p tsconfig.declarations.json",
-  "prepack": "npm run types"
+  "prepack": "tsc -p ../core/tsconfig.declarations.json && npm run types"
 }
 ```
+
+(React's declaration build resolves `@sqnce/core` through core's `types` field, so packing or publishing `@sqnce/react` standalone from a clean checkout must emit core's declarations first. A direct `tsc -p ../core/...` call avoids nested `npm -w` invocations inside a lifecycle script; prepack runs in the repo checkout, where `../core` always exists.)
 
 - [ ] **Step 5: Ignore the generated output**
 
