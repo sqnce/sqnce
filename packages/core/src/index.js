@@ -30,6 +30,114 @@
  * Every function here is pure: state in, new state out.
  */
 
+/**
+ * @typedef {Object} RenderHint
+ * @property {string} kind
+ * @property {Object<string, any>} [options]
+ */
+/**
+ * @typedef {Object} FieldSpec
+ * @property {string} key
+ * @property {string} label
+ */
+/**
+ * @typedef {Object} OutputSpec
+ * @property {string} id
+ * @property {"text"|"fields"|"file"|"link"|"data"} type
+ * @property {string} [label]
+ * @property {FieldSpec[]} [fields]
+ * @property {RenderHint} [render]
+ */
+/**
+ * @typedef {Object} Step
+ * @property {string} id
+ * @property {string} name
+ * @property {string} [description]
+ * @property {boolean} [required]
+ * @property {string} [aiPrompt]
+ * @property {OutputSpec[]} [outputs]
+ */
+/**
+ * @typedef {Object} Gate
+ * @property {"hybrid"|"strict"} type
+ */
+/**
+ * @typedef {Object} SubStage
+ * @property {string} id
+ * @property {string} name
+ * @property {string} [description]
+ * @property {Gate} [gate]
+ * @property {Step[]} [steps]
+ */
+/**
+ * @typedef {Object} MainStage
+ * @property {string} id
+ * @property {string} name
+ * @property {SubStage[]} subStages
+ */
+/**
+ * @typedef {Object} SubjectSpec
+ * @property {string} stepId
+ * @property {string} outputId
+ * @property {string} field
+ * @property {string} [fallback]
+ */
+/**
+ * @typedef {Object} Definition
+ * @property {string} id
+ * @property {string} name
+ * @property {string} [short]
+ * @property {SubjectSpec} [subject]
+ * @property {MainStage[]} mainStages
+ */
+/**
+ * @typedef {SubStage & { mainId: string, mainName: string, mainIndex: number, subIndex: number }} FlatSubStage
+ */
+/**
+ * @typedef {Object} StepEntry
+ * @property {boolean} checkedDone
+ * @property {Object<string, any>} outputs
+ * @property {boolean} [reopened]
+ * @property {Object<string, true>} [generated]
+ */
+/**
+ * @typedef {Object} Run
+ * @property {number} idx
+ * @property {number} frontier
+ * @property {Object<string, StepEntry>} stepState
+ */
+/**
+ * @typedef {Object} GateProgress
+ * @property {boolean} met
+ * @property {number} done
+ * @property {number} total
+ * @property {"hybrid"|"strict"} gateType
+ * @property {string[]} missing
+ */
+/**
+ * @typedef {Object} AdvanceResult
+ * @property {Run} run
+ * @property {boolean} advanced
+ * @property {string[]} missing
+ */
+/**
+ * @typedef {Object} RunEntry
+ * @property {string} id
+ * @property {string} workflowId
+ * @property {string} name
+ * @property {"active"|"archived"} status
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ * @property {Run} run
+ */
+/**
+ * @typedef {Object} RunStore
+ * @property {number} version
+ * @property {string|null} activeWorkflowId
+ * @property {Object<string, string>} activeRunByWorkflow
+ * @property {Object<string, RunEntry>} entries
+ */
+
 /* ------------------------------------------------------------------ */
 /* Definition helpers                                                  */
 /* ------------------------------------------------------------------ */
@@ -37,8 +145,11 @@
 /**
  * Flatten a definition's sub-stages into a single navigable sequence,
  * annotating each with its parent main stage.
+ * @param {Definition} definition
+ * @returns {FlatSubStage[]}
  */
 export function flattenSubStages(definition) {
+  /** @type {FlatSubStage[]} */
   const out = [];
   definition.mainStages.forEach((ms, mainIndex) =>
     ms.subStages.forEach((ss, subIndex) =>
@@ -51,6 +162,8 @@ export function flattenSubStages(definition) {
 /**
  * Validate a definition's basic shape. Returns an array of problem
  * strings; an empty array means the definition is usable.
+ * @param {Definition} definition
+ * @returns {string[]}
  */
 export function validateDefinition(definition) {
   const problems = [];
@@ -111,14 +224,21 @@ export function validateDefinition(definition) {
 /* Run state                                                           */
 /* ------------------------------------------------------------------ */
 
+/** @returns {Run} */
 export function createRun() {
   return { idx: 0, frontier: 0, stepState: {} };
 }
 
+/** @returns {StepEntry} */
 export function emptyStepEntry() {
   return { checkedDone: false, outputs: {} };
 }
 
+/**
+ * @param {Run} run
+ * @param {string} stepId
+ * @returns {StepEntry}
+ */
 export function getStepEntry(run, stepId) {
   return run.stepState[stepId] || emptyStepEntry();
 }
@@ -128,11 +248,18 @@ export function getStepEntry(run, stepId) {
  * Any write counts as touching the step and clears `reopened`.
  * `generated: true` marks the value as written by draft generation;
  * the default (a hand edit) clears the mark for that output.
+ * @param {Run} run
+ * @param {string} stepId
+ * @param {string} outputId
+ * @param {any} value
+ * @param {{ generated?: boolean }} [opts]
+ * @returns {Run}
  */
 export function setOutput(run, stepId, outputId, value, { generated = false } = {}) {
   const cur = run.stepState[stepId] || emptyStepEntry();
   const next = { ...cur, outputs: { ...cur.outputs, [outputId]: value } };
   delete next.reopened;
+  /** @type {Object<string, true>} */
   const gen = { ...cur.generated };
   if (generated) gen[outputId] = true;
   else delete gen[outputId];
@@ -141,7 +268,13 @@ export function setOutput(run, stepId, outputId, value, { generated = false } = 
   return { ...run, stepState: { ...run.stepState, [stepId]: next } };
 }
 
-/** Was this output written by draft generation (and not hand-edited since)? */
+/**
+ * Was this output written by draft generation (and not hand-edited since)?
+ * @param {Run} run
+ * @param {string} stepId
+ * @param {string} outputId
+ * @returns {boolean}
+ */
 export function isOutputGenerated(run, stepId, outputId) {
   const entry = run.stepState[stepId];
   return !!(entry && entry.generated && entry.generated[outputId]);
@@ -150,6 +283,10 @@ export function isOutputGenerated(run, stepId, outputId) {
 /**
  * Set or clear a step's explicit done flag. Returns a new run.
  * Re-marking done clears `reopened`.
+ * @param {Run} run
+ * @param {string} stepId
+ * @param {boolean} checkedDone
+ * @returns {Run}
  */
 export function setCheckedDone(run, stepId, checkedDone) {
   const cur = run.stepState[stepId] || emptyStepEntry();
@@ -163,6 +300,9 @@ export function setCheckedDone(run, stepId, checkedDone) {
  * which suppresses hybrid content-completion until the step is touched
  * again (an output write or a re-mark done). Strict gates ignore the
  * flag; they already require explicit done.
+ * @param {Run} run
+ * @param {string} stepId
+ * @returns {Run}
  */
 export function reopenStep(run, stepId) {
   const cur = run.stepState[stepId] || emptyStepEntry();
@@ -176,7 +316,12 @@ export function reopenStep(run, stepId) {
 /* Completion and gating                                               */
 /* ------------------------------------------------------------------ */
 
-/** Does an output spec hold a meaningful value? */
+/**
+ * Does an output spec hold a meaningful value?
+ * @param {OutputSpec} spec
+ * @param {any} val
+ * @returns {boolean}
+ */
 export function hasValue(spec, val) {
   if (val == null) return false;
   if (spec.type === "text" || spec.type === "link") return String(val).trim().length > 0;
@@ -191,6 +336,11 @@ export function hasValue(spec, val) {
   return false;
 }
 
+/**
+ * @param {Step} step
+ * @param {StepEntry} entry
+ * @returns {boolean}
+ */
 export function stepHasAnyOutput(step, entry) {
   return (step.outputs || []).some((spec) => hasValue(spec, (entry.outputs || {})[spec.id]));
 }
@@ -199,6 +349,10 @@ export function stepHasAnyOutput(step, entry) {
  * Is a step complete under a gate type?
  * hybrid: explicit done OR (not reopened AND any output value).
  * strict: explicit done only.
+ * @param {Step} step
+ * @param {StepEntry} entry
+ * @param {"hybrid"|"strict"} [gateType]
+ * @returns {boolean}
  */
 export function isStepComplete(step, entry, gateType = "hybrid") {
   if (gateType === "strict") return !!entry.checkedDone;
@@ -206,6 +360,10 @@ export function isStepComplete(step, entry, gateType = "hybrid") {
   return !entry.reopened && stepHasAnyOutput(step, entry);
 }
 
+/**
+ * @param {SubStage} subStage
+ * @returns {"hybrid"|"strict"}
+ */
 export function gateTypeOf(subStage) {
   return (subStage.gate && subStage.gate.type) || "hybrid";
 }
@@ -213,6 +371,9 @@ export function gateTypeOf(subStage) {
 /**
  * Progress of a sub-stage's gate.
  * Returns { met, done, total, gateType, missing: [step names] }.
+ * @param {SubStage} subStage
+ * @param {Run} run
+ * @returns {GateProgress}
  */
 export function gateProgress(subStage, run) {
   const gateType = gateTypeOf(subStage);
@@ -231,14 +392,26 @@ export function gateProgress(subStage, run) {
 /* Navigation                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Browse within committed territory. Returns a new run (or the same run if out of range). */
+/**
+ * Browse within committed territory. Returns a new run (or the same run if out of range).
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {number} direction
+ * @returns {Run}
+ */
 export function browse(run, subStages, direction) {
   const target = run.idx + direction;
   if (target < 0 || target > run.frontier || target >= subStages.length) return run;
   return { ...run, idx: target };
 }
 
-/** Jump to any already-committed sub-stage index. */
+/**
+ * Jump to any already-committed sub-stage index.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {number} index
+ * @returns {Run}
+ */
 export function jumpTo(run, subStages, index) {
   if (index < 0 || index > run.frontier || index >= subStages.length) return run;
   return { ...run, idx: index };
@@ -248,6 +421,10 @@ export function jumpTo(run, subStages, index) {
  * Commit the frontier forward. Only legal at the frontier.
  * Returns { run, advanced, missing }. If the gate is unmet and
  * force is false, the run is returned unchanged with advanced: false.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {{ force?: boolean }} [opts]
+ * @returns {AdvanceResult}
  */
 export function advance(run, subStages, { force = false } = {}) {
   if (run.idx !== run.frontier || run.frontier >= subStages.length - 1) {
@@ -268,7 +445,12 @@ export function advance(run, subStages, { force = false } = {}) {
 /* Subject and draft-generation support                                */
 /* ------------------------------------------------------------------ */
 
-/** Resolve the human-readable subject of the process ("Contoso", "the client"). */
+/**
+ * Resolve the human-readable subject of the process ("Contoso", "the client").
+ * @param {Definition} definition
+ * @param {Run} run
+ * @returns {string}
+ */
 export function resolveSubject(definition, run) {
   const s = definition.subject;
   if (!s) return "the subject";
@@ -277,7 +459,14 @@ export function resolveSubject(definition, run) {
   return (val && String(val[s.field] || "").trim()) || s.fallback || "the subject";
 }
 
-/** Serialize one step's outputs into a labeled text block, or null if empty. */
+/**
+ * Serialize one step's outputs into a labeled text block, or null if empty.
+ * @param {FlatSubStage} subStage
+ * @param {Step} step
+ * @param {Run} run
+ * @param {{ maxChars?: number }} [opts]
+ * @returns {string|null}
+ */
 export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
   const entry = getStepEntry(run, step.id);
   const parts = [];
@@ -304,7 +493,13 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
     .slice(0, maxChars)}`;
 }
 
-/** Compile all completed outputs from sub-stages before uptoIdx into one context string. */
+/**
+ * Compile all completed outputs from sub-stages before uptoIdx into one context string.
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @param {number} uptoIdx
+ * @returns {string}
+ */
 export function buildContext(subStages, run, uptoIdx) {
   const blocks = [];
   for (let i = 0; i < uptoIdx; i++) {
@@ -321,6 +516,12 @@ export function buildContext(subStages, run, uptoIdx) {
 /**
  * Build a provider-agnostic prompt for drafting a step's text output.
  * Pass the result to any LLM; the engine does not call one itself.
+ * @param {Definition} definition
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @param {number} subIdx
+ * @param {Step} step
+ * @returns {string}
  */
 export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
   const subStage = subStages[subIdx];
@@ -353,19 +554,34 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
  * unchanged when the id is unknown.
  */
 
+/** @returns {RunStore} */
 export function createRunStore() {
   return { version: 2, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
 }
 
+/**
+ * @param {{ id: string, workflowId: string, run: Run, now: number }} init
+ * @returns {RunEntry}
+ */
 export function createRunEntry({ id, workflowId, run, now }) {
   return { id, workflowId, name: "", status: "active", createdAt: now, updatedAt: now, run };
 }
 
+/**
+ * @param {RunStore} store
+ * @param {RunEntry} entry
+ * @returns {RunStore}
+ */
 function withEntry(store, entry) {
   return { ...store, entries: { ...store.entries, [entry.id]: entry } };
 }
 
-/** Insert an entry and make it the active run of its workflow. */
+/**
+ * Insert an entry and make it the active run of its workflow.
+ * @param {RunStore} store
+ * @param {RunEntry} entry
+ * @returns {RunStore}
+ */
 export function addRun(store, entry) {
   return {
     ...withEntry(store, entry),
@@ -374,6 +590,13 @@ export function addRun(store, entry) {
   };
 }
 
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @param {string} name
+ * @param {number} now
+ * @returns {RunStore}
+ */
 export function renameRun(store, runId, name, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
@@ -384,18 +607,35 @@ export function renameRun(store, runId, name, now) {
  * Archiving is manual only and does not touch active-run mappings: an
  * archived active run stays open and renders read-only in the UI.
  */
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @param {number} now
+ * @returns {RunStore}
+ */
 export function archiveRun(store, runId, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
   return withEntry(store, { ...entry, status: "archived", updatedAt: now });
 }
 
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @param {number} now
+ * @returns {RunStore}
+ */
 export function unarchiveRun(store, runId, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
   return withEntry(store, { ...entry, status: "active", updatedAt: now });
 }
 
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @returns {RunStore}
+ */
 export function setActiveRun(store, runId) {
   const entry = store.entries[runId];
   if (!entry) return store;
@@ -406,23 +646,45 @@ export function setActiveRun(store, runId) {
   };
 }
 
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @param {Run} run
+ * @param {number} now
+ * @returns {RunStore}
+ */
 export function updateRunState(store, runId, run, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
   return withEntry(store, { ...entry, run, updatedAt: now });
 }
 
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
 function compareIds(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** All of a workflow's entries, live and archived, oldest first. */
+/**
+ * All of a workflow's entries, live and archived, oldest first.
+ * @param {RunStore} store
+ * @param {string} workflowId
+ * @returns {RunEntry[]}
+ */
 export function runsForWorkflow(store, workflowId) {
   return Object.values(store.entries)
     .filter((e) => e.workflowId === workflowId)
     .sort((a, b) => a.createdAt - b.createdAt || compareIds(a.id, b.id));
 }
 
+/**
+ * @param {RunStore} store
+ * @param {string} workflowId
+ * @returns {RunEntry|null}
+ */
 export function activeRunEntry(store, workflowId) {
   const id = store.activeRunByWorkflow[workflowId];
   return (id && store.entries[id]) || null;
@@ -433,6 +695,11 @@ export function activeRunEntry(store, workflowId) {
  * the workflow's most recently updated live run; with none left, the
  * workflow loses its active-run mapping (the UI creates a fresh entry
  * on demand).
+ */
+/**
+ * @param {RunStore} store
+ * @param {string} runId
+ * @returns {RunStore}
  */
 export function deleteRun(store, runId) {
   const entry = store.entries[runId];
@@ -450,7 +717,12 @@ export function deleteRun(store, runId) {
   return { ...next, activeRunByWorkflow: map };
 }
 
-/** Progress over a definition: how many flattened sub-stage gates are met. */
+/**
+ * Progress over a definition: how many flattened sub-stage gates are met.
+ * @param {Definition} definition
+ * @param {Run} run
+ * @returns {{ met: number, total: number }}
+ */
 export function runSummary(definition, run) {
   const subs = flattenSubStages(definition);
   return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
@@ -462,6 +734,12 @@ export function runSummary(definition, run) {
  * string never becomes a display name), else "Run N" by creation order
  * among the workflow's entries. N can shift after deletions; accepted
  * pre-launch.
+ */
+/**
+ * @param {Definition} definition
+ * @param {RunStore} store
+ * @param {string} runId
+ * @returns {string}
  */
 export function runDisplayName(definition, store, runId) {
   const entry = store.entries[runId];
