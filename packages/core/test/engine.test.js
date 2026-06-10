@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -21,70 +21,70 @@ import {
   hasValue,
   serializeStep,
 } from "../src/index.js";
+import { FIXTURE } from "./fixtures/workflow.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const defsDir = join(here, "..", "..", "..", "definitions");
-const load = (name) => JSON.parse(readFileSync(join(defsDir, name), "utf8"));
-
-const PRESALES = load("presales.json");
 
 test("all bundled definitions validate", () => {
-  for (const name of [
-    "presales.json",
-    "hiring.json",
-    "onboarding.json",
-    "launch.json",
-    "car-buying.json",
-    "moving.json",
-    "trip-planning.json",
-    "meal-planning.json",
-  ]) {
-    const problems = validateDefinition(load(name));
+  const names = readdirSync(defsDir).filter((n) => n.endsWith(".json"));
+  assert.ok(names.length > 0, "definitions/ contains no .json files");
+  for (const name of names) {
+    const def = JSON.parse(readFileSync(join(defsDir, name), "utf8"));
+    const problems = validateDefinition(def);
     assert.deepEqual(problems, [], `${name}: ${problems.join("; ")}`);
   }
 });
 
+test("the test fixture validates", () => {
+  assert.deepEqual(validateDefinition(FIXTURE), []);
+});
+
 test("flatten produces an ordered sequence with main stage annotations", () => {
-  const subs = flattenSubStages(PRESALES);
-  assert.equal(subs.length, 10);
+  const subs = flattenSubStages(FIXTURE);
+  assert.equal(subs.length, 3);
   assert.equal(subs[0].id, "start");
-  assert.equal(subs[0].mainName, "RFP");
-  assert.equal(subs[subs.length - 1].mainName, "SOW");
+  assert.equal(subs[0].mainName, "Alpha");
+  assert.equal(subs[subs.length - 1].mainName, "Omega");
 });
 
 test("hybrid gate: output alone completes a step; strict requires explicit done", () => {
-  const subs = flattenSubStages(PRESALES);
-  const review = subs.find((s) => s.id === "review");
-  const painPoints = review.steps.find((s) => s.id === "pain-points");
+  const subs = flattenSubStages(FIXTURE);
+  const collect = subs.find((s) => s.id === "collect");
+  const summary = collect.steps.find((s) => s.id === "summary");
+  const evidence = collect.steps.find((s) => s.id === "evidence");
 
   let run = createRun();
-  run = setOutput(run, "pain-points", "out", "Siloed sales data across BUs");
-  assert.equal(isStepComplete(painPoints, getStepEntry(run, "pain-points"), "hybrid"), true);
-  assert.equal(isStepComplete(painPoints, getStepEntry(run, "pain-points"), "strict"), false);
+  run = setOutput(run, "summary", "out", "Evidence points one way.");
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "strict"), false);
 
-  run = setCheckedDone(run, "pain-points", true);
-  assert.equal(isStepComplete(painPoints, getStepEntry(run, "pain-points"), "strict"), true);
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  assert.equal(isStepComplete(evidence, getStepEntry(run, "evidence"), "hybrid"), true);
+
+  run = setCheckedDone(run, "summary", true);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "strict"), true);
 });
 
 test("gateProgress reports missing required steps by name", () => {
-  const subs = flattenSubStages(PRESALES);
+  const subs = flattenSubStages(FIXTURE);
   const start = subs[0];
   let run = createRun();
   let p = gateProgress(start, run);
   assert.equal(p.met, false);
-  assert.equal(p.total, 3);
-  assert.ok(p.missing.includes("Opportunity Intake"));
+  assert.equal(p.total, 2);
+  assert.ok(p.missing.includes("Intake"));
+  assert.ok(p.missing.includes("Kickoff"));
 
-  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries" });
-  run = setOutput(run, "rfp-upload", "doc", { name: "rfp.pdf", content: "" });
-  run = setOutput(run, "qualify", "out", "Go. Strong fit.");
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
   p = gateProgress(start, run);
   assert.equal(p.met, true);
   assert.deepEqual(p.missing, []);
 });
 
 test("advance is blocked at an unmet gate, allowed when met, and forceable", () => {
-  const subs = flattenSubStages(PRESALES);
+  const subs = flattenSubStages(FIXTURE);
   let run = createRun();
 
   let result = advance(run, subs);
@@ -98,9 +98,14 @@ test("advance is blocked at an unmet gate, allowed when met, and forceable", () 
 });
 
 test("browse stays within [0, frontier]; jumpTo respects the frontier", () => {
-  const subs = flattenSubStages(PRESALES);
+  const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = advance(run, subs, { force: true }).run;
+  assert.equal(run.frontier, 1);
+
+  run = jumpTo(run, subs, 2); // beyond frontier: no-op
+  assert.equal(run.idx, 1);
+
   run = advance(run, subs, { force: true }).run;
   assert.equal(run.frontier, 2);
 
@@ -113,12 +118,10 @@ test("browse stays within [0, frontier]; jumpTo respects the frontier", () => {
 
   run = jumpTo(run, subs, 0);
   assert.equal(run.idx, 0);
-  run = jumpTo(run, subs, 5); // beyond frontier: no-op
-  assert.equal(run.idx, 0);
 });
 
 test("advancing from a non-frontier (browsing) position is a no-op", () => {
-  const subs = flattenSubStages(PRESALES);
+  const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = advance(run, subs, { force: true }).run;
   run = browse(run, subs, -1);
@@ -129,27 +132,27 @@ test("advancing from a non-frontier (browsing) position is a no-op", () => {
 
 test("subject resolves from the configured field with fallback", () => {
   let run = createRun();
-  assert.equal(resolveSubject(PRESALES, run), "the client");
-  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries" });
-  assert.equal(resolveSubject(PRESALES, run), "Ironclad Industries");
+  assert.equal(resolveSubject(FIXTURE, run), "the account");
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  assert.equal(resolveSubject(FIXTURE, run), "Vexel Tools");
 });
 
 test("buildContext only includes completed prior outputs; prompt references the subject", () => {
-  const subs = flattenSubStages(PRESALES);
+  const subs = flattenSubStages(FIXTURE);
   let run = createRun();
-  run = setOutput(run, "intake", "facts", { Client: "Ironclad Industries", Industry: "Steel" });
-  run = setOutput(run, "qualify", "out", "Go. Strong fit.");
-  run = advance(run, subs, { force: true }).run;
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools", industry: "Tooling" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = advance(run, subs).run;
+  assert.equal(run.idx, 1);
 
   const ctx = buildContext(subs, run, run.idx);
-  assert.match(ctx, /Ironclad Industries/);
-  assert.match(ctx, /Go\. Strong fit\./);
-  assert.doesNotMatch(ctx, /Pain points/i);
+  assert.match(ctx, /Vexel Tools/);
+  assert.doesNotMatch(ctx, /Summary/);
 
-  const step = subs[1].steps.find((s) => s.id === "pain-points");
-  const prompt = buildDraftPrompt(PRESALES, subs, run, run.idx, step);
-  assert.match(prompt, /Ironclad Industries/);
-  assert.match(prompt, /Pain Points/);
+  const summary = subs[1].steps.find((s) => s.id === "summary");
+  const prompt = buildDraftPrompt(FIXTURE, subs, run, run.idx, summary);
+  assert.match(prompt, /Vexel Tools/);
+  assert.match(prompt, /Summarize the evidence\./);
 });
 
 test("hasValue treats empty values as absent across output types", () => {
