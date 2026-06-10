@@ -7,8 +7,11 @@
  *
  * 1) DEFINITION (a plain JSON-compatible object, see /definitions)
  *    MainStage -> SubStage -> Step -> Output spec[]
- *    - Output spec types: "text" | "fields" | "file" | "link"
+ *    - Output spec types: "text" | "fields" | "file" | "link" | "data"
  *      (steps with no outputs are checklist steps)
+ *    - Any output spec may carry an optional render hint:
+ *      render: { kind, options }. kind is a free string resolved by the
+ *      UI layer's renderer registry; the engine never interprets it.
  *    - SubStage gate: { type: "hybrid" | "strict" }
  *      hybrid: a step is complete when it has any output OR is marked
  *      done. strict: it must be explicitly marked done.
@@ -68,10 +71,25 @@ export function validateDefinition(definition) {
         if (st.id && stepIds.has(st.id)) problems.push(`duplicate step id "${st.id}"`);
         stepIds.add(st.id);
         (st.outputs || []).forEach((o) => {
-          if (!["text", "fields", "file", "link"].includes(o.type))
+          if (!["text", "fields", "file", "link", "data"].includes(o.type))
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);
           if (o.type === "fields" && (!Array.isArray(o.fields) || !o.fields.length))
             problems.push(`step "${st.id}": fields output requires a fields array`);
+          if (o.render !== undefined) {
+            if (!o.render || typeof o.render !== "object" || Array.isArray(o.render)) {
+              problems.push(`step "${st.id}": render must be an object`);
+            } else {
+              if (typeof o.render.kind !== "string" || !o.render.kind.trim())
+                problems.push(`step "${st.id}": render.kind must be a non-empty string`);
+              if (
+                o.render.options !== undefined &&
+                (typeof o.render.options !== "object" ||
+                  o.render.options === null ||
+                  Array.isArray(o.render.options))
+              )
+                problems.push(`step "${st.id}": render.options must be an object`);
+            }
+          }
         });
       });
     });
@@ -130,6 +148,11 @@ export function hasValue(spec, val) {
   if (spec.type === "fields")
     return Object.values(val).some((v) => String(v || "").trim().length > 0);
   if (spec.type === "file") return !!val.name;
+  if (spec.type === "data") {
+    if (Array.isArray(val)) return val.length > 0;
+    if (typeof val === "object") return Object.keys(val).length > 0;
+    return String(val).trim().length > 0;
+  }
   return false;
 }
 
@@ -235,6 +258,8 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
       );
     if (spec.type === "file")
       parts.push(`Attached file: ${val.name}\n${(val.content || "").slice(0, 2000)}`);
+    if (spec.type === "data")
+      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val).slice(0, 2000)}`);
   });
   if (!parts.length) return null;
   return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${parts

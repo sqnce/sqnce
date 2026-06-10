@@ -17,6 +17,7 @@ import {
   buildDraftPrompt,
   hasValue,
 } from "@sqnce/core";
+import OutputView from "./OutputView.jsx";
 
 /**
  * <ProcessRolodex />
@@ -39,6 +40,12 @@ import {
  *  - initialRunFor (optional): (workflowId) => run, used when a
  *      workflow has no stored run and by Reset. Defaults to createRun.
  *      Must be side-effect free; it can be called on every render.
+ *  - renderers (optional): map of render kind -> React component, the
+ *      registry for definition render hints. Resolution order: this map,
+ *      then built-ins (markdown, table, cards, keyvalue), then fallback
+ *      (JSON tree for data outputs, default editor otherwise). A renderer
+ *      receives { spec, value, onChange, context } and must treat
+ *      onChange as value-mutations-only. Omit to use built-ins alone.
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -83,7 +90,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
   );
 }
 
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers }) {
   const [activeId, setActiveId] = useState(workflows[0].id);
   const [runs, setRuns] = useState({});
   const [expanded, setExpanded] = useState(null);
@@ -376,77 +383,20 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                         <div className="pf-step-body">
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
-                          {(step.outputs || []).map((spec) => {
-                            const val = (entry.outputs || {})[spec.id];
-                            if (spec.type === "text")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <textarea
-                                    className="pf-ta"
-                                    placeholder="Write the output or generate a draft."
-                                    value={val || ""}
-                                    onChange={(e) => writeOutput(step.id, spec.id, e.target.value)}
-                                  />
-                                </div>
-                              );
-                            if (spec.type === "link")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <input
-                                    className="pf-field-input pf-link-input"
-                                    placeholder="https://"
-                                    value={val || ""}
-                                    onChange={(e) => writeOutput(step.id, spec.id, e.target.value)}
-                                  />
-                                </div>
-                              );
-                            if (spec.type === "fields")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  <div className="pf-fields">
-                                    {spec.fields.map((f) => (
-                                      <label key={f.key} className="pf-field">
-                                        <span>{f.label}</span>
-                                        <input
-                                          className="pf-field-input"
-                                          value={(val && val[f.key]) || ""}
-                                          onChange={(e) =>
-                                            writeOutput(step.id, spec.id, {
-                                              ...(val || {}),
-                                              [f.key]: e.target.value,
-                                            })
-                                          }
-                                        />
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            if (spec.type === "file")
-                              return (
-                                <div key={spec.id} className="pf-out">
-                                  <div className="pf-out-label">{spec.label}</div>
-                                  {val && val.name ? (
-                                    <div className="pf-filechip">📎 {val.name}</div>
-                                  ) : (
-                                    <div className="pf-filechip pf-filechip-empty">No file attached</div>
-                                  )}
-                                  <button
-                                    className="pf-btn pf-btn-sm"
-                                    onClick={() => {
-                                      attachFor.current = { stepId: step.id, outputId: spec.id };
-                                      fileRef.current && fileRef.current.click();
-                                    }}
-                                  >
-                                    {val && val.name ? "Replace file" : "Attach file"}
-                                  </button>
-                                </div>
-                              );
-                            return null;
-                          })}
+                          {(step.outputs || []).map((spec) => (
+                            <OutputView
+                              key={spec.id}
+                              spec={spec}
+                              value={(entry.outputs || {})[spec.id]}
+                              onChange={(v) => writeOutput(step.id, spec.id, v)}
+                              onAttach={() => {
+                                attachFor.current = { stepId: step.id, outputId: spec.id };
+                                fileRef.current && fileRef.current.click();
+                              }}
+                              renderers={renderers}
+                              context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: false }}
+                            />
+                          ))}
 
                           {genError === step.id && (
                             <div className="pf-error">Generation failed. Check the connection and try again.</div>
@@ -690,6 +640,50 @@ const CSS = `
 .pf-override:hover { color: #D9A441; }
 .pf-gate-hint { font-size: 11.5px; color: #8A919B; font-family: 'IBM Plex Mono', monospace; text-align: center; }
 .pf-legend { font-size: 11px; color: #5E6772; margin: 2px 0 0; text-align: center; }
+
+.pf-out-head { display: flex; align-items: center; justify-content: space-between; }
+.pf-render-toggle { background: none; border: none; color: #7A6A3C; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; text-decoration: underline; padding: 0; }
+.pf-render { position: relative; border: 1px solid #D8D3C2; border-radius: 6px; background: #FFFFFF; max-height: 280px; overflow: auto; padding: 10px; }
+.pf-render-expand { position: absolute; top: 6px; right: 6px; z-index: 2; background: #F1EEE3; border: 1px solid #C9C3B0; border-radius: 5px; cursor: pointer; font-size: 12px; padding: 2px 6px; }
+.pf-render-expand:hover { border-color: #23282F; }
+.pf-render-loading { font-size: 12px; color: #8A8E96; padding: 8px; }
+.pf-ta-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-height: 180px; }
+.pf-overlay { position: fixed; inset: 0; z-index: 1000; background: #F1EEE3; display: flex; flex-direction: column; }
+.pf-overlay-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #23282F; color: #EDEAE0; }
+.pf-overlay-title { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.pf-overlay-body { flex: 1; overflow: auto; padding: 18px 22px; }
+.pf-jt { font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.55; }
+.pf-jt-children { padding-left: 16px; }
+.pf-jt-node > summary { cursor: pointer; }
+.pf-jt-leaf { padding-left: 16px; }
+.pf-jt-key { color: #7A6A3C; }
+.pf-jt-string { color: #2E6E8F; } .pf-jt-number { color: #8F4E2E; } .pf-jt-boolean, .pf-jt-null { color: #6B4E8F; }
+.pf-jt-meta { color: #9A9EA6; }
+.pf-kv { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
+.pf-kv-row { display: contents; }
+.pf-kv-key { font-family: 'IBM Plex Mono', monospace; color: #7A6A3C; word-break: break-word; }
+.pf-kv-val { color: #23282F; white-space: pre-wrap; word-break: break-word; }
+.pf-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.pf-table th, .pf-table td { border: 1px solid #DCD7C7; padding: 5px 8px; text-align: left; vertical-align: top; }
+.pf-table th { background: #EFEBDD; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; }
+.pf-cards { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 12px; min-height: 120px; }
+.pf-cards-list { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; max-height: 420px; }
+.pf-cards-item { text-align: left; background: #FAF8F0; border: 1px solid #DCD7C7; border-radius: 6px; padding: 7px 9px; cursor: pointer; font-family: inherit; }
+.pf-cards-item:hover { border-color: #23282F; }
+.pf-cards-active { border-color: #D9A441; background: #FBF3DD; }
+.pf-cards-title { font-size: 12.5px; font-weight: 600; color: #23282F; }
+.pf-cards-sub { font-size: 11px; color: #6B6F76; }
+.pf-cards-detail { border-left: 2px solid #D9A441; padding-left: 12px; overflow: auto; }
+.pf-md { font-size: 13.5px; line-height: 1.6; }
+.pf-md h1, .pf-md h2, .pf-md h3, .pf-md h4, .pf-md h5, .pf-md h6 { margin: 12px 0 6px; line-height: 1.25; }
+.pf-md h1 { font-size: 19px; } .pf-md h2 { font-size: 16.5px; } .pf-md h3 { font-size: 14.5px; }
+.pf-md p { margin: 6px 0; }
+.pf-md ul, .pf-md ol { margin: 6px 0; padding-left: 22px; }
+.pf-md blockquote { margin: 8px 0; border-left: 3px solid #D9A441; padding-left: 10px; color: #5C6068; }
+.pf-md-pre { background: #23282F; color: #EDEAE0; border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12px; }
+.pf-md code { background: #EFEBDD; border-radius: 3px; padding: 0 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.92em; }
+.pf-md-pre code { background: none; padding: 0; }
+.pf-md table { margin: 8px 0; }
 
 @media (max-width: 720px) {
   .pf-card-side { display: none; }

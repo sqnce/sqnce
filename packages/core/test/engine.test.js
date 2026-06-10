@@ -19,6 +19,7 @@ import {
   buildContext,
   buildDraftPrompt,
   hasValue,
+  serializeStep,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -187,4 +188,56 @@ test("validateDefinition catches structural problems", () => {
   assert.ok(problems.some((p) => p.includes("gate.type")));
   assert.ok(problems.some((p) => p.includes("unknown output type")));
   assert.ok(problems.some((p) => p.includes("duplicate step id")));
+});
+
+test("validateDefinition accepts the data output type", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [{ id: "m", subStages: [{ id: "s", steps: [
+      { id: "st", outputs: [{ id: "o", type: "data", label: "Payload" }] },
+    ] }] }],
+  };
+  assert.deepEqual(validateDefinition(def), []);
+});
+
+test("validateDefinition checks render hints", () => {
+  const mk = (render) => ({
+    id: "d", name: "D",
+    mainStages: [{ id: "m", subStages: [{ id: "s", steps: [
+      { id: "st", outputs: [{ id: "o", type: "text", label: "T", render }] },
+    ] }] }],
+  });
+  assert.deepEqual(validateDefinition(mk({ kind: "markdown" })), []);
+  assert.deepEqual(validateDefinition(mk({ kind: "erd", options: { tables: "x" } })), []);
+  assert.ok(validateDefinition(mk({})).some((p) => p.includes("render.kind")));
+  assert.ok(validateDefinition(mk({ kind: "" })).some((p) => p.includes("render.kind")));
+  assert.ok(validateDefinition(mk({ kind: "x", options: "nope" })).some((p) => p.includes("render.options")));
+  assert.ok(validateDefinition(mk("markdown")).some((p) => p.includes("render")));
+});
+
+test("hasValue for data outputs", () => {
+  const spec = { id: "o", type: "data" };
+  assert.equal(hasValue(spec, null), false);
+  assert.equal(hasValue(spec, undefined), false);
+  assert.equal(hasValue(spec, []), false);
+  assert.equal(hasValue(spec, {}), false);
+  assert.equal(hasValue(spec, ""), false);
+  assert.equal(hasValue(spec, "  "), false);
+  assert.equal(hasValue(spec, [1]), true);
+  assert.equal(hasValue(spec, { a: 1 }), true);
+  assert.equal(hasValue(spec, "x"), true);
+  assert.equal(hasValue(spec, 0), true);
+});
+
+test("serializeStep serializes data outputs as capped JSON", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "Step", outputs: [{ id: "o", type: "data", label: "Inventory" }] };
+  let run = createRun();
+  run = setOutput(run, "st", "o", { tables: [{ name: "Account" }] });
+  const block = serializeStep(sub, step, run);
+  assert.ok(block.includes("Inventory:"));
+  assert.ok(block.includes('{"tables":[{"name":"Account"}]}'));
+  run = setOutput(run, "st", "o", { big: "x".repeat(5000) });
+  const capped = serializeStep(sub, step, run);
+  assert.ok(capped.length < 2700);
 });

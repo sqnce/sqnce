@@ -7,7 +7,7 @@
   "exports": { ".": "./src/index.js" },
   "files": ["src"],
   "dependencies": { "@sqnce/core": "0.1.0" },
-  "peerDependencies": { "react": ">=18" },
+  "peerDependencies": { "react": ">=18", "react-dom": ">=18" },
   "keywords": ["workflow", "react", "rolodex", "stage-gate", "sqnce"],
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/sqnce/sqnce.git", "directory": "packages/react" }
