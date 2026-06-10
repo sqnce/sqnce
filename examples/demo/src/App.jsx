@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { ProcessRolodex } from "@sqnce/react";
 import carBuying from "../../../definitions/car-buying.json";
 import moving from "../../../definitions/moving.json";
@@ -11,6 +12,11 @@ import { initialRunFor } from "./seeds.js";
 import { generateDraft } from "./drafts.js";
 
 const STORAGE_KEY = "sqnce-demo-v1";
+
+/* Vendorable reference renderer (React Flow + elkjs), lazy so the
+   diagram stack stays out of the initial chunk. */
+const FlowDiagram = lazy(() => import("./renderers/FlowDiagram.jsx"));
+const RENDERERS = { flow: FlowDiagram };
 
 const persistence = {
   load: async () => JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"),
@@ -43,6 +49,7 @@ export default function App() {
         initialRunFor={initialRunFor}
         persistence={persistence}
         generateDraft={generateDraft}
+        renderers={RENDERERS}
       />
     </>
   );
