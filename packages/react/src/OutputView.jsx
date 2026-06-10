@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { hasValue } from "@sqnce/core";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 import JsonTree from "./renderers/JsonTree.jsx";
+import { OutputTypeIcon } from "./icons.jsx";
 
 /*
  * Renderer contract: a renderer is a pure presentation component
@@ -187,7 +188,10 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
   return (
     <div className="pf-out">
       <div className="pf-out-head">
-        <div className="pf-out-label">{spec.label}</div>
+        <div className="pf-out-label">
+          <OutputTypeIcon type={spec.type} />
+          {spec.label}
+        </div>
         {toggle}
       </div>
       {body}
