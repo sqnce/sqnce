@@ -16,7 +16,7 @@ A sqnce is a workflow definition: main stages, sub-stages within them, steps wit
 DEFINITION (JSON, swap to run any process)
   MainStage[] -> SubStage[] -> Step[] -> Output spec[]
        |             |            |          |
-       |             |            |          types: text | fields | file | link
+       |             |            |          types: text | fields | file | link | data
        |             |            required steps drive the gate
        |             gate: { type: "hybrid" | "strict" }
        subject: which field names the thing the process is about
@@ -141,6 +141,29 @@ A definition is plain JSON. Minimal shape:
 ```
 
 Rules of thumb: step ids must be unique across the whole definition; a step with no `outputs` is a checklist step completed by marking it done; `aiPrompt` is the task line injected into the generated draft prompt for that step's text output. Run `validateDefinition(def)` from `@sqnce/core` to check a definition's shape.
+
+## Custom renderers
+
+Outputs render as plain editors by default. Two pieces of data change that: an optional `render: { kind, options }` hint on any output spec, and the `data` output type whose value is arbitrary JSON. The rolodex resolves `kind` through the `renderers` prop, then its built-ins (`markdown`, `table`, `cards`, `keyvalue`), then falls back: a JSON tree for `data` outputs, the default editor otherwise. Unknown kinds never render blank.
+
+```jsx
+import { lazy } from "react";
+import { ProcessRolodex } from "@sqnce/react";
+
+const FlowDiagram = lazy(() => import("./renderers/FlowDiagram.jsx"));
+
+<ProcessRolodex workflows={[presales]} renderers={{ flow: FlowDiagram }} />
+```
+
+A renderer is a pure presentation component receiving `{ spec, value, onChange, context }`. Two rules: `onChange` carries value mutations only (renderer view state like selection or pan/zoom stays internal, because values feed the LLM draft prompts via `serializeStep`), and renderers fail soft on shape drift (render what is there, never throw). `context.expanded` flips to true inside the full-screen overlay; re-fit on its change. The kind vocabulary, normative built-in value shapes, reserved names (`flow`, `lanes`, `erd`), and the namespacing rule for app-private kinds (`myapp:org-chart`) live in [docs/render-kinds.md](docs/render-kinds.md).
+
+Domain visuals (ERDs, swim lanes, flow charts) belong in the importing project, not in sqnce, and that is deliberate:
+
+- There is no universal JSON shape for a data model or a scenario. Only the project that owns the data can render it faithfully; a generic diagram renders boxes and misses the affordances where digestibility lives (cross-links, status badges, citation popovers).
+- The dependency decision stays with the importer. Good diagrams usually justify a library; sqnce stays zero-dependency and imposes nothing on other users. Verified library recommendations are in [docs/RENDERERS.md](docs/RENDERERS.md).
+- Renderers are forever-surface for whoever ships them. Ship a renderer where its data lives.
+
+Instead of waiting for an official renderer package, vendor the reference implementation: [examples/demo/src/renderers/FlowDiagram.jsx](examples/demo/src/renderers/FlowDiagram.jsx) is a complete React Flow + elkjs renderer (async worker layout, overlay re-fit, view-only contract) written to be copied into your project and made your own.
 
 ## Development
 
