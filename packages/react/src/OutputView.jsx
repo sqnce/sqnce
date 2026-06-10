@@ -153,6 +153,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     Renderer && shownMode === "view" ? (
       filled ? (
         <div className="pf-render">
+          {generated && spec.type === "text" && <span className="pf-gen-badge">AI draft</span>}
           <button className="pf-render-expand" title="Expand" onClick={() => setBig(true)}>
             ⛶
           </button>

@@ -932,6 +932,7 @@ const CSS = `
   color: #7A6A3C; background: #F4DFAE; border-radius: 4px; padding: 1px 6px;
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
+.pf-render > .pf-gen-badge { left: 10px; right: auto; }
 .pf-jt-meta { color: #9A9EA6; }
 .pf-kv { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
 .pf-kv-row { display: contents; }
