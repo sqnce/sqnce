@@ -126,12 +126,25 @@ export function getStepEntry(run, stepId) {
 /**
  * Set one output value on a step. Returns a new run.
  * Any write counts as touching the step and clears `reopened`.
+ * `generated: true` marks the value as written by draft generation;
+ * the default (a hand edit) clears the mark for that output.
  */
-export function setOutput(run, stepId, outputId, value) {
+export function setOutput(run, stepId, outputId, value, { generated = false } = {}) {
   const cur = run.stepState[stepId] || emptyStepEntry();
   const next = { ...cur, outputs: { ...cur.outputs, [outputId]: value } };
   delete next.reopened;
+  const gen = { ...cur.generated };
+  if (generated) gen[outputId] = true;
+  else delete gen[outputId];
+  if (Object.keys(gen).length) next.generated = gen;
+  else delete next.generated;
   return { ...run, stepState: { ...run.stepState, [stepId]: next } };
+}
+
+/** Was this output written by draft generation (and not hand-edited since)? */
+export function isOutputGenerated(run, stepId, outputId) {
+  const entry = run.stepState[stepId];
+  return !!(entry && entry.generated && entry.generated[outputId]);
 }
 
 /**

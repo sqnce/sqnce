@@ -21,6 +21,7 @@ import {
   hasValue,
   serializeStep,
   reopenStep,
+  isOutputGenerated,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 
@@ -335,4 +336,47 @@ test("reopenStep on an untouched step creates a safe entry", () => {
   assert.equal(entry.reopened, true);
   assert.deepEqual(entry.outputs, {});
   assert.equal(isStepComplete(summary, entry, "hybrid"), false);
+});
+
+test("a generated write marks the output; a plain write clears it", () => {
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "Draft.", { generated: true });
+  assert.equal(isOutputGenerated(run, "summary", "out"), true);
+
+  run = setOutput(run, "summary", "out", "Edited by hand.");
+  assert.equal(isOutputGenerated(run, "summary", "out"), false);
+});
+
+test("regenerating after a hand edit re-marks the output", () => {
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "Draft.", { generated: true });
+  run = setOutput(run, "summary", "out", "Edited.");
+  run = setOutput(run, "summary", "out", "Draft two.", { generated: true });
+  assert.equal(isOutputGenerated(run, "summary", "out"), true);
+});
+
+test("the generated mark does not change serialization", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const collect = subs.find((s) => s.id === "collect");
+  const summary = collect.steps.find((s) => s.id === "summary");
+
+  let typed = createRun();
+  typed = setOutput(typed, "summary", "out", "Same text.");
+  let generated = createRun();
+  generated = setOutput(generated, "summary", "out", "Same text.", { generated: true });
+
+  assert.equal(serializeStep(collect, summary, typed), serializeStep(collect, summary, generated));
+  assert.equal(buildContext(subs, typed, 2), buildContext(subs, generated, 2));
+});
+
+test("a generated write clears the reopened flag", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const summary = subs.find((s) => s.id === "collect").steps.find((s) => s.id === "summary");
+
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "A summary.");
+  run = reopenStep(run, "summary");
+  run = setOutput(run, "summary", "out", "Regenerated.", { generated: true });
+  assert.equal(getStepEntry(run, "summary").reopened, undefined);
+  assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
 });
