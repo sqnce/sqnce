@@ -706,11 +706,14 @@ Replace the current state block (from `const [activeId, setActiveId] = useState(
   const frontier = Math.min(run.frontier, subs.length - 1);
 
   /* A loaded store can lack an active entry for the active workflow
-     (last live run deleted, foreign activeWorkflowId). Create one. */
+     (last live run deleted, foreign activeWorkflowId). Create one,
+     but only when the rolodex view actually needs it: on the runs
+     screen a confirmed delete of the final run must not appear to
+     recreate a blank run in the table. */
   useEffect(() => {
-    if (!loaded || entry) return;
+    if (!loaded || entry || view !== "rolodex") return;
     setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
-  }, [loaded, entry, activeId, newEntryFor]);
+  }, [loaded, entry, activeId, view, newEntryFor]);
 
   /* Content mutations bump updatedAt and are blocked on archived runs.
      The status is re-checked inside the updater with current state:
@@ -1538,3 +1541,4 @@ Then follow the workflow's Codex loop (poll reactions and comments until 👍 on
 - Out of scope holds: no engine function edits (run store is append-only in `index.js`), no demo or artifact changes, no new dependencies.
 - Navigation on archived runs uses `setNav`, which reuses `updateRunState` with the entry's existing `updatedAt` so browsing never reorders "most recently updated" or fights the read-only guard.
 - Stale async writers (Codex P2 on the first plan push): `setRun` re-checks `s.entries[entry.id].status` inside the `setStore` updater, so a draft generation or file read that resolves after the run was archived or deleted is dropped instead of mutating it. `setNav` only needs the existence check, navigation is legal on archived runs.
+- Delete-only management (Codex P2 on the second plan push): the ensure effect is gated on `view === "rolodex"`, so deleting the final live run from the runs screen leaves the table without it; a fresh entry is created only when the rolodex needs one (switching back to the run view, or the explicit + New run path).
