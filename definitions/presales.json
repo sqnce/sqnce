@@ -120,11 +120,13 @@
               "name": "Requirements Extract",
               "required": true,
               "description": "Functional and non-functional requirements.",
+              "aiPrompt": "Extract the requirements as a JSON array of row objects, each with keys id, requirement, type (functional or non-functional), and priority (must, should, could).",
               "outputs": [
                 {
                   "id": "out",
                   "type": "data",
                   "label": "Requirements",
+                  "validate": "requirements",
                   "render": {
                     "kind": "table"
                   }
@@ -262,11 +264,13 @@
               "name": "Win Themes",
               "required": true,
               "description": "The three to five reasons we win this deal.",
+              "aiPrompt": "Draft three to five win themes as a JSON array of objects, each with keys name (the theme) and purpose (how we use it).",
               "outputs": [
                 {
                   "id": "out",
                   "type": "data",
                   "label": "Win themes",
+                  "validate": "win-themes",
                   "render": {
                     "kind": "cards",
                     "options": {
