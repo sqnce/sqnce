@@ -11,6 +11,7 @@ import {
   stepHasAnyOutput,
   gateTypeOf,
   gateProgress,
+  mainGateProgress,
   browse as coreBrowse,
   jumpTo,
   advance as coreAdvance,
@@ -50,8 +51,8 @@ function newId() {
  *  - persistence (optional): { load: async () => state | null,
  *                              save: async (state) => void }
  *      where state is the versioned run store
- *      { version: 2, activeWorkflowId, activeRunByWorkflow, entries }.
- *      Anything that is not a version 2 store is discarded on load.
+ *      { version: 3, activeWorkflowId, activeRunByWorkflow, entries }.
+ *      Anything that is not a version 3 store is discarded on load.
  *      Omit for in-memory only.
  *  - generateDraft (optional): async (prompt, context) => string where
  *      context is { workflowId, stepId, subject }. The second argument
@@ -191,7 +192,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   /* One-frame fallback while the ensure effect below creates an entry. */
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
-  const frontier = Math.min(run.frontier, subs.length - 1);
+  const frontier = Math.min(run.frontier, def.mainStages.length - 1);
 
   /* Repair a loaded store whose active pointers do not match the
      rendered state. Two cases: a foreign activeWorkflowId (workflow no
@@ -249,7 +250,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         const saved = await persistence.load();
         /* Version 2 stores only; anything else (including the old
            { activeId, runs } shape) is discarded. Pre-launch, no users. */
-        if (saved && saved.version === 2 && saved.entries && saved.activeRunByWorkflow) {
+        if (saved && saved.version === 3 && saved.entries && saved.activeRunByWorkflow) {
           setStore(saved);
         }
       } catch (e) {
@@ -271,8 +272,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   /* ---------- derived ---------- */
   const current = subs[idx];
-  const atFrontier = idx === frontier;
-  const prog = gateProgress(current, run);
+  const inFrontierStage = current.mainIndex === frontier;
+  const maxBrowse = subs.reduce((acc, s, i) => (s.mainIndex <= frontier ? i : acc), 0);
+  const stageProg = mainGateProgress(def.mainStages[frontier], run);
+  const nextMain = frontier < def.mainStages.length - 1 ? def.mainStages[frontier + 1] : null;
   const nextSub = idx < subs.length - 1 ? subs[idx + 1] : null;
   const prevSub = idx > 0 ? subs[idx - 1] : null;
   const subjectName = resolveSubject(def, run);
@@ -435,15 +438,13 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
-            const firstIdx = subs.findIndex((s) => s.mainIndex === mi);
             const allDone = ms.subStages.every((ss) => gateProgress(ss, run).met);
-            const stageLocked = firstIdx > frontier;
-            const frontierMain = subs[frontier].mainIndex;
+            const stageLocked = mi > frontier;
             const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
             const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
             return (
               <React.Fragment key={ms.id}>
-                {mi > 0 && <span className={`pf-rail-line ${mi <= frontierMain ? "pf-rail-line-fill" : ""}`} />}
+                {mi > 0 && <span className={`pf-rail-line ${mi <= frontier ? "pf-rail-line-fill" : ""}`} />}
                 <span className={`pf-rail-stage pf-rail-${state}`}>
                   <span className="pf-rail-circle">{glyph}</span>
                   {ms.name}
@@ -526,10 +527,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         {subs.map((sub, i) => {
           const pos = i - idx;
           if (Math.abs(pos) > 2) return null;
-          const locked = i > frontier;
+          const locked = sub.mainIndex > frontier;
           const center = pos === 0;
           const p = gateProgress(sub, run);
-          const sideClickable = !center && Math.abs(pos) === 1 && i <= frontier;
+          const sideClickable = !center && Math.abs(pos) === 1 && sub.mainIndex <= frontier;
           return (
             <div
               key={sub.id}
@@ -737,26 +738,37 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
               {center && (
                 <div className="pf-card-foot">
-                  {p.met ? (
-                    <span className="pf-gate-state pf-gate-met">
-                      ✓ Gate met{atFrontier && nextSub ? ", ready to advance" : ""}
-                    </span>
+                  {inFrontierStage ? (
+                    <>
+                      {stageProg.met ? (
+                        <span className="pf-gate-state pf-gate-met">
+                          ✓ Stage gate met{nextMain ? ", ready to advance" : ""}
+                        </span>
+                      ) : (
+                        <span className="pf-gate-state">
+                          🔒 {stageProg.total - stageProg.done} required {stageProg.total - stageProg.done === 1 ? "step" : "steps"} left in this stage
+                          · Gate unmet: {stageProg.missing.join(", ")}
+                        </span>
+                      )}
+                      {nextMain &&
+                        (stageProg.met ? (
+                          <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
+                            Advance to {nextMain.name} →
+                          </button>
+                        ) : (
+                          <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
+                            Advance anyway
+                          </button>
+                        ))}
+                    </>
+                  ) : p.met ? (
+                    <span className="pf-gate-state pf-gate-met">✓ Gate met</span>
                   ) : (
                     <span className="pf-gate-state">
                       🔒 {p.total - p.done} required {p.total - p.done === 1 ? "step" : "steps"} left
                       · Gate unmet: {p.missing.join(", ")}
                     </span>
                   )}
-                  {atFrontier && nextSub &&
-                    (p.met ? (
-                      <button className="pf-advance" disabled={readOnly} onClick={() => doAdvance(false)}>
-                        Advance to {nextSub.name} →
-                      </button>
-                    ) : (
-                      <button className="pf-override" disabled={readOnly} onClick={() => doAdvance(true)}>
-                        Advance anyway
-                      </button>
-                    ))}
                 </div>
               )}
 
@@ -780,22 +792,22 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             {subs.map((s, i) => (
               <span
                 key={s.id}
-                className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${i > frontier ? "pf-pip-locked" : ""}`}
+                className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${s.mainIndex > frontier ? "pf-pip-locked" : ""}`}
                 onClick={() => setNav(jumpTo(run, subs, i))}
               />
             ))}
           </div>
 
-          {!atFrontier && (
-            <div className="pf-gate-hint">Browsing history · frontier is {subs[frontier].name}</div>
+          {!inFrontierStage && (
+            <div className="pf-gate-hint">Browsing history · frontier is {def.mainStages[frontier].name}</div>
           )}
           <p className="pf-legend">
             Fill an output or mark a step done to complete it. Required steps (*) drive the gate.
           </p>
         </div>
 
-        <button className="pf-nav-btn pf-nav-fwd" disabled={idx >= frontier} onClick={() => doBrowse(1)}>
-          {idx < frontier && nextSub ? nextSub.name : "Forward"} →
+        <button className="pf-nav-btn pf-nav-fwd" disabled={idx >= maxBrowse} onClick={() => doBrowse(1)}>
+          {idx < maxBrowse && nextSub ? nextSub.name : "Forward"} →
         </button>
       </div>
 

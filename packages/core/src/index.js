@@ -21,8 +21,11 @@
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
  *      reopened?, generated? } } }
- *    `frontier` is the furthest committed sub-stage. Browsing moves
- *    within [0, frontier]; advancing commits the frontier forward.
+ *    `idx` is the flat sub-stage index of the centered card. `frontier`
+ *    is the index of the furthest committed MAIN stage: browsing moves
+ *    freely through committed main stages (no commit between sibling
+ *    sub-stages); advancing commits the next main stage at its boundary
+ *    gate, the aggregate of the stage's sub-stage gates.
  *    `reopened` suppresses hybrid content-completion until the step is
  *    touched again. `generated` maps outputId -> true for values
  *    written by draft generation; any hand edit clears the mark.
@@ -112,6 +115,13 @@
  * @property {number} done
  * @property {number} total
  * @property {"hybrid"|"strict"} gateType
+ * @property {string[]} missing
+ */
+/**
+ * @typedef {Object} MainGateProgress
+ * @property {boolean} met
+ * @property {number} done
+ * @property {number} total
  * @property {string[]} missing
  */
 /**
@@ -388,12 +398,66 @@ export function gateProgress(subStage, run) {
   };
 }
 
+/**
+ * Aggregate gate over one main stage's sub-stages. Missing step names
+ * are qualified by sub-stage when the stage has more than one, so
+ * single-sub-stage main stages read as before.
+ * @param {SubStage[]} subStagesOfMain
+ * @param {Run} run
+ * @returns {MainGateProgress}
+ */
+function aggregateGate(subStagesOfMain, run) {
+  const multi = subStagesOfMain.length > 1;
+  let met = true;
+  let done = 0;
+  let total = 0;
+  /** @type {string[]} */
+  const missing = [];
+  subStagesOfMain.forEach((ss) => {
+    const p = gateProgress(ss, run);
+    met = met && p.met;
+    done += p.done;
+    total += p.total;
+    p.missing.forEach((name) => missing.push(multi ? `${ss.name}: ${name}` : name));
+  });
+  return { met, done, total, missing };
+}
+
+/**
+ * Progress of a main stage's boundary gate: the aggregate of its
+ * sub-stage gates.
+ * @param {MainStage} mainStage
+ * @param {Run} run
+ * @returns {MainGateProgress}
+ */
+export function mainGateProgress(mainStage, run) {
+  return aggregateGate(mainStage.subStages, run);
+}
+
 /* ------------------------------------------------------------------ */
 /* Navigation                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * Browse within committed territory. Returns a new run (or the same run if out of range).
+ * Last flat index belonging to a main stage or any stage before it.
+ * The comparison is <=, so a frontier past the last main stage clamps
+ * to the final sub-stage.
+ * @param {FlatSubStage[]} subStages
+ * @param {number} mainIndex
+ * @returns {number}
+ */
+function lastIndexInMain(subStages, mainIndex) {
+  let last = -1;
+  subStages.forEach((s, i) => {
+    if (s.mainIndex <= mainIndex) last = i;
+  });
+  return last;
+}
+
+/**
+ * Browse within committed main stages. Returns a new run (or the same
+ * run if out of range). Movement between sibling sub-stages is plain
+ * browsing; nothing commits.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} direction
@@ -401,41 +465,51 @@ export function gateProgress(subStage, run) {
  */
 export function browse(run, subStages, direction) {
   const target = run.idx + direction;
-  if (target < 0 || target > run.frontier || target >= subStages.length) return run;
+  if (target < 0 || target > lastIndexInMain(subStages, run.frontier)) return run;
   return { ...run, idx: target };
 }
 
 /**
- * Jump to any already-committed sub-stage index.
+ * Jump to any sub-stage within the committed main stages.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} index
  * @returns {Run}
  */
 export function jumpTo(run, subStages, index) {
-  if (index < 0 || index > run.frontier || index >= subStages.length) return run;
+  if (index < 0 || index > lastIndexInMain(subStages, run.frontier)) return run;
   return { ...run, idx: index };
 }
 
 /**
- * Commit the frontier forward. Only legal at the frontier.
- * Returns { run, advanced, missing }. If the gate is unmet and
- * force is false, the run is returned unchanged with advanced: false.
+ * Commit the next main stage. Legal from any card within the frontier
+ * main stage; a no-op while browsing a committed stage or at the last
+ * main stage. The gate is the stage aggregate; force overrides it.
+ * On success, idx lands on the first sub-stage of the committed stage.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {{ force?: boolean }} [opts]
  * @returns {AdvanceResult}
  */
 export function advance(run, subStages, { force = false } = {}) {
-  if (run.idx !== run.frontier || run.frontier >= subStages.length - 1) {
+  const cur = subStages[run.idx];
+  const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
+  if (!cur || cur.mainIndex !== run.frontier || run.frontier >= maxMain) {
     return { run, advanced: false, missing: [] };
   }
-  const progress = gateProgress(subStages[run.idx], run);
+  const progress = aggregateGate(
+    subStages.filter((s) => s.mainIndex === run.frontier),
+    run
+  );
   if (!progress.met && !force) {
     return { run, advanced: false, missing: progress.missing };
   }
   return {
-    run: { ...run, idx: run.idx + 1, frontier: run.frontier + 1 },
+    run: {
+      ...run,
+      idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
+      frontier: run.frontier + 1,
+    },
     advanced: true,
     missing: [],
   };
@@ -494,22 +568,31 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
 }
 
 /**
- * Compile all completed outputs from sub-stages before uptoIdx into one context string.
+ * Compile completed outputs into one context string for the card at
+ * flatIdx: every completed step in main stages before the card's main
+ * stage, plus completed sibling steps within that main stage (any
+ * card, including the current one), excluding excludeStepId (the step
+ * being drafted).
  * @param {FlatSubStage[]} subStages
  * @param {Run} run
- * @param {number} uptoIdx
+ * @param {number} flatIdx
+ * @param {string} [excludeStepId]
  * @returns {string}
  */
-export function buildContext(subStages, run, uptoIdx) {
+export function buildContext(subStages, run, flatIdx, excludeStepId) {
+  const cur = subStages[flatIdx];
+  const curMain = cur ? cur.mainIndex : 0;
   const blocks = [];
-  for (let i = 0; i < uptoIdx; i++) {
-    const gateType = gateTypeOf(subStages[i]);
-    (subStages[i].steps || []).forEach((step) => {
+  subStages.forEach((sub) => {
+    if (sub.mainIndex > curMain) return;
+    const gateType = gateTypeOf(sub);
+    (sub.steps || []).forEach((step) => {
+      if (step.id === excludeStepId) return;
       if (!isStepComplete(step, getStepEntry(run, step.id), gateType)) return;
-      const block = serializeStep(subStages[i], step, run);
+      const block = serializeStep(sub, step, run);
       if (block) blocks.push(block);
     });
-  }
+  });
   return blocks.join("\n\n");
 }
 
@@ -526,7 +609,7 @@ export function buildContext(subStages, run, uptoIdx) {
 export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
   const subStage = subStages[subIdx];
   const subject = resolveSubject(definition, run);
-  const ctx = buildContext(subStages, run, subIdx);
+  const ctx = buildContext(subStages, run, subIdx, step.id);
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
     `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
@@ -546,7 +629,9 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
  *   { id, workflowId, name, status: "active" | "archived",
  *     createdAt, updatedAt, run }
  * The store is the versioned persisted shape:
- *   { version: 2, activeWorkflowId, activeRunByWorkflow, entries }
+ *   { version: 3, activeWorkflowId, activeRunByWorkflow, entries }
+ * Version 3 marks the frontier unit change (main-stage index); older
+ * stores are discarded by loaders.
  * Ids and timestamps are supplied by the caller; nothing here reads
  * the clock or generates randomness. "Live" means status "active";
  * entry.name holds manual renames only (display names are derived by
@@ -556,7 +641,7 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
 
 /** @returns {RunStore} */
 export function createRunStore() {
-  return { version: 2, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
+  return { version: 3, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
 }
 
 /**

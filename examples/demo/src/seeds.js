@@ -8,11 +8,12 @@ import { createRun } from "@sqnce/core";
 const done = { checkedDone: true, outputs: {} };
 
 const SEEDS = {
-  /* Deep seed: frontier at "Financing" (index 3), a strict gate with
-     nothing done, so the gate hint and the override are visible. */
+  /* Deep seed: frontier at the Deal stage, viewing "Financing" (flat
+     index 3), a strict gate with nothing done, so the stage gate is
+     unmet and the override is visible. */
   "car-buying": {
     idx: 3,
-    frontier: 3,
+    frontier: 2,
     stepState: {
       "car-needs": {
         checkedDone: false,
@@ -60,8 +61,9 @@ const SEEDS = {
     },
   },
 
-  /* Light seed: needs and budget done, browsing at "Search" (index 1)
-     with the listings link saved and viewing notes still open. */
+  /* Light seed: needs and budget done, frontier at the Hunt stage,
+     viewing "Search" (flat index 1) with the listings link saved and
+     viewing notes still open. */
   moving: {
     idx: 1,
     frontier: 1,
@@ -90,8 +92,9 @@ const SEEDS = {
     },
   },
 
-  /* Light seed: frame done, at "Transport" (index 1) with flights
-     booked, so the met gate and the Advance button are visible. */
+  /* Light seed: frame done, frontier at the Book stage, viewing
+     "Transport" (flat index 1) with flights booked, so the met gate
+     and the Advance button are visible. */
   "trip-planning": {
     idx: 1,
     frontier: 1,
@@ -114,11 +117,12 @@ const SEEDS = {
     },
   },
 
-  /* Light seed: menu planned, at "Shopping List" (index 1) with the
-     grocery list still open, so the hybrid gate hint is visible. */
+  /* Light seed: menu planned, viewing "Shopping List" (flat index 1)
+     with the grocery list still open, so the hybrid gate hint is
+     visible. The frontier stays at the Plan stage (0). */
   "meal-planning": {
     idx: 1,
-    frontier: 1,
+    frontier: 0,
     stepState: {
       "meal-week": {
         checkedDone: false,
@@ -139,12 +143,14 @@ const SEEDS = {
     },
   },
 
-  /* Deep seed: frontier at "Demonstration" (index 4), every step through
-     Demo Data filled. Demo Build, a required checklist step, stays
-     undone, so the unmet hybrid gate hint and the override are visible. */
+  /* Deep seed: frontier at Proposal & Demo, viewing "Demonstration"
+     (flat index 4), every step through Demo Data filled. Demo Build, a
+     required checklist step, stays undone, so the unmet stage gate and
+     the override are visible. Orals Prep and Delivery are browsable in
+     the open stage but unseeded. */
   "presales-pursuit": {
     idx: 4,
-    frontier: 4,
+    frontier: 1,
     stepState: {
       intake: {
         checkedDone: false,
