@@ -451,7 +451,9 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         </div>
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
-            const allDone = ms.subStages.every((ss) => gateProgress(ss, run).met);
+            /* Skip-aware: a stage whose remaining sub-stage gates are met
+               reads done even when a skipped sub-stage's own gate is not. */
+            const allDone = mainGateProgress(ms, run).met;
             const stageLocked = mi > frontier;
             const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
             const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
