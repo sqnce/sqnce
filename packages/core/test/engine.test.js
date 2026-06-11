@@ -235,6 +235,26 @@ test("buildDraftPrompt carries sibling context and the step task", () => {
   assert.match(prompt, /Summarize the evidence\./);
 });
 
+test("maxCharsPerStep threads from buildDraftPrompt and buildContext to serializeStep", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Acme", industry: "x".repeat(4000) });
+  const summary = subs[1].steps.find((s) => s.id === "summary");
+
+  const capped = buildContext(subs, run, 1, "summary");
+  assert.ok(capped.includes("[truncated]"), "default budget truncates the long block");
+
+  const full = buildContext(subs, run, 1, "summary", { maxCharsPerStep: Infinity });
+  assert.ok(full.includes("x".repeat(4000)), "Infinity budget passes the block whole");
+  assert.ok(!full.includes("[truncated]"));
+
+  const prompt = buildDraftPrompt(FIXTURE, subs, run, 1, summary, { maxCharsPerStep: Infinity });
+  assert.ok(prompt.includes("x".repeat(4000)), "the option reaches the prompt");
+
+  const defaultPrompt = buildDraftPrompt(FIXTURE, subs, run, 1, summary);
+  assert.ok(defaultPrompt.includes("[truncated]"), "omitting the option keeps the default budget");
+});
+
 test("hasValue treats empty values as absent across output types", () => {
   assert.equal(hasValue({ type: "text" }, "   "), false);
   assert.equal(hasValue({ type: "text" }, "x"), true);

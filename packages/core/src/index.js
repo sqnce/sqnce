@@ -662,9 +662,11 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * @param {Run} run
  * @param {number} flatIdx
  * @param {string} [excludeStepId]
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ *   maxCharsPerStep forwards as serializeStep's maxChars (default 2500).
  * @returns {string}
  */
-export function buildContext(subStages, run, flatIdx, excludeStepId) {
+export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
   const cur = subStages[flatIdx];
   const curMain = cur ? cur.mainIndex : 0;
   const blocks = [];
@@ -675,7 +677,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
       if (!isStepComplete(step, getStepEntry(run, step.id), gateType)) return;
-      const block = serializeStep(sub, step, run);
+      const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
   });
@@ -690,12 +692,14 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
  * @param {Run} run
  * @param {number} subIdx
  * @param {Step} step
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ *   Forwarded to buildContext.
  * @returns {string}
  */
-export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
+export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
   const subStage = subStages[subIdx];
   const subject = resolveSubject(definition, run);
-  const ctx = buildContext(subStages, run, subIdx, step.id);
+  const ctx = buildContext(subStages, run, subIdx, step.id, opts);
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
     `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
