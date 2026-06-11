@@ -593,6 +593,8 @@ export function advance(run, subStages, { force = false } = {}) {
 
 /**
  * Resolve the human-readable subject of the process ("Contoso", "the client").
+ * Falls back when the subject step's sub-stage is skipped: not-applicable
+ * content never feeds draft prompts.
  * @param {Definition} definition
  * @param {Run} run
  * @returns {string}
@@ -600,6 +602,10 @@ export function advance(run, subStages, { force = false } = {}) {
 export function resolveSubject(definition, run) {
   const s = definition.subject;
   if (!s) return "the subject";
+  const owner = (definition.mainStages || [])
+    .flatMap((ms) => ms.subStages || [])
+    .find((ss) => (ss.steps || []).some((st) => st.id === s.stepId));
+  if (owner && isSubStageSkipped(run, owner.id)) return s.fallback || "the subject";
   const entry = run.stepState[s.stepId];
   const val = entry && entry.outputs && entry.outputs[s.outputId];
   return (val && String(val[s.field] || "").trim()) || s.fallback || "the subject";

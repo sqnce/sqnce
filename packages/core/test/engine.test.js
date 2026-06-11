@@ -605,6 +605,36 @@ test("a met gate records no force, with or without the flag", () => {
   assert.equal(advance(run, subs, { force: true }).run.forces, undefined);
 });
 
+test("resolveSubject falls back when the subject's sub-stage is skipped", () => {
+  const def = {
+    id: "d", name: "D",
+    subject: { stepId: "s1", outputId: "o", field: "client", fallback: "the account" },
+    mainStages: [
+      {
+        id: "m1",
+        subStages: [
+          {
+            id: "a", name: "A", skippable: true,
+            steps: [{
+              id: "s1", name: "S1",
+              outputs: [{ id: "o", type: "fields", fields: [{ key: "client", label: "Client" }] }],
+            }],
+          },
+          { id: "b", name: "B", steps: [] },
+        ],
+      },
+    ],
+  };
+  const subs = flattenSubStages(def);
+  let run = createRun();
+  run = setOutput(run, "s1", "o", { client: "Vexel Tools" });
+  assert.equal(resolveSubject(def, run), "Vexel Tools");
+  run = skipSubStage(run, subs, "a");
+  assert.equal(resolveSubject(def, run), "the account");
+  run = unskipSubStage(run, subs, "a");
+  assert.equal(resolveSubject(def, run), "Vexel Tools");
+});
+
 test("buildContext excludes a skipped sub-stage's completed steps", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
