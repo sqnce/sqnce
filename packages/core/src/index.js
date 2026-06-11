@@ -616,7 +616,10 @@ export function resolveSubject(definition, run) {
  * @param {FlatSubStage} subStage
  * @param {Step} step
  * @param {Run} run
- * @param {{ maxChars?: number }} [opts]
+ * @param {{ maxChars?: number }} [opts] Block budget in characters,
+ *   default 2500; Infinity disables truncation. The budget is the
+ *   single truncation point (no per-part caps); a truncated block ends
+ *   with a "[truncated]" line.
  * @returns {string|null}
  */
 export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
@@ -635,14 +638,15 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
           .join("\n")
       );
     if (spec.type === "file")
-      parts.push(`Attached file: ${val.name}\n${(val.content || "").slice(0, 2000)}`);
+      parts.push(`Attached file: ${val.name}\n${val.content || ""}`);
     if (spec.type === "data")
-      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val).slice(0, 2000)}`);
+      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val)}`);
   });
   if (!parts.length) return null;
-  return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${parts
-    .join("\n")
-    .slice(0, maxChars)}`;
+  const joined = parts.join("\n");
+  const body =
+    joined.length > maxChars ? `${joined.slice(0, maxChars)}\n[truncated]` : joined;
+  return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${body}`;
 }
 
 /**

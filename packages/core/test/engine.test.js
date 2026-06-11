@@ -312,7 +312,7 @@ test("hasValue for data outputs", () => {
   assert.equal(hasValue(spec, 0), true);
 });
 
-test("serializeStep serializes data outputs as capped JSON", () => {
+test("serializeStep truncates at maxChars with a marker, inner caps removed", () => {
   const sub = { mainName: "M", name: "S" };
   const step = { id: "st", name: "Step", outputs: [{ id: "o", type: "data", label: "Inventory" }] };
   let run = createRun();
@@ -320,9 +320,28 @@ test("serializeStep serializes data outputs as capped JSON", () => {
   const block = serializeStep(sub, step, run);
   assert.ok(block.includes("Inventory:"));
   assert.ok(block.includes('{"tables":[{"name":"Account"}]}'));
+  assert.ok(!block.includes("[truncated]"));
+
   run = setOutput(run, "st", "o", { big: "x".repeat(5000) });
   const capped = serializeStep(sub, step, run);
-  assert.ok(capped.length < 2700);
+  assert.ok(capped.endsWith("\n[truncated]"));
+  assert.ok(capped.length < 2600);
+
+  const unlimited = serializeStep(sub, step, run, { maxChars: Infinity });
+  assert.ok(unlimited.includes("x".repeat(5000)), "Infinity disables truncation entirely");
+  assert.ok(!unlimited.includes("[truncated]"));
+
+  const tight = serializeStep(sub, step, run, { maxChars: 10 });
+  assert.ok(tight.endsWith("\n[truncated]"));
+});
+
+test("serializeStep no longer inner-caps file content", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "Step", outputs: [{ id: "f", type: "file", label: "Doc" }] };
+  let run = createRun();
+  run = setOutput(run, "st", "f", { name: "big.txt", content: "y".repeat(3000) });
+  const block = serializeStep(sub, step, run, { maxChars: Infinity });
+  assert.ok(block.includes("y".repeat(3000)), "file content above 2000 chars survives a big budget");
 });
 
 test("reopenStep suppresses content completion under a hybrid gate", () => {
