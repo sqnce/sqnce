@@ -18,5 +18,5 @@
   "license": "Apache-2.0",
   "homepage": "https://github.com/sqnce/sqnce#readme",
   "bugs": { "url": "https://github.com/sqnce/sqnce/issues" },
-  "repository": { "type": "git", "url": "https://github.com/sqnce/sqnce.git", "directory": "packages/react" }
+  "repository": { "type": "git", "url": "git+https://github.com/sqnce/sqnce.git", "directory": "packages/react" }
 }
