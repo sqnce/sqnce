@@ -681,7 +681,43 @@ Append the class to the card div (the `pf-card` className template):
               className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""} ${sideClickable ? "pf-card-clickable" : ""} ${skipped ? "pf-card-skipped" : ""}`}
 ```
 
-- [ ] **Step 4: Replace the strip count on skipped cards**
+- [ ] **Step 4: Disable step controls on skipped cards**
+
+CSS alone (`pointer-events: none`) would leave the buttons reachable by keyboard and assistive tech, so skipped state joins the `disabled` logic of both step controls. Change the dot button:
+
+```jsx
+                        <button
+                          className={`pf-dot-btn pf-dot-${status}`}
+                          disabled={!center || readOnly}
+```
+
+to:
+
+```jsx
+                        <button
+                          className={`pf-dot-btn pf-dot-${status}`}
+                          disabled={!center || readOnly || skipped}
+```
+
+and the expand button:
+
+```jsx
+                        <button
+                          className="pf-step-expand"
+                          disabled={!center}
+```
+
+to:
+
+```jsx
+                        <button
+                          className="pf-step-expand"
+                          disabled={!center || skipped}
+```
+
+With expansion disabled and `toggleSkip` closing any open body via `setExpanded(null)`, no step-body control (outputs, generate, mark done) is reachable on a skipped card by any input method.
+
+- [ ] **Step 5: Replace the strip count on skipped cards**
 
 Change:
 
@@ -701,7 +737,7 @@ to:
                 </span>
 ```
 
-- [ ] **Step 5: Rework the card footer (skip control, skipped line, forced marker)**
+- [ ] **Step 6: Rework the card footer (skip control, skipped line, forced marker)**
 
 Replace the entire `{center && (<div className="pf-card-foot"> ... </div>)}` block with:
 
@@ -764,7 +800,7 @@ Replace the entire `{center && (<div className="pf-card-foot"> ... </div>)}` blo
 
 Notes on intent: the frontier-stage branch is unchanged (a skipped frontier card still shows the stage aggregate and advance affordance, because the footer describes the stage); committed cards get the skipped line or, independently, the forced marker; the skip toggle renders on any centered skippable card and only disables when read-only.
 
-- [ ] **Step 6: Mute skipped pips**
+- [ ] **Step 7: Mute skipped pips**
 
 Change the pip className to:
 
@@ -772,9 +808,9 @@ Change the pip className to:
                 className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${s.mainIndex > frontier ? "pf-pip-locked" : ""} ${isSubStageSkipped(run, s.id) ? "pf-pip-skipped" : ""}`}
 ```
 
-- [ ] **Step 7: Add the CSS**
+- [ ] **Step 8: Add the CSS**
 
-In the `CSS` template string, after the `.pf-override:hover { color: #D9A441; }` rule, add:
+The `pointer-events: none` rule is visual reinforcement only; the accessible disabling is the `disabled` props from Step 4. In the `CSS` template string, after the `.pf-override:hover { color: #D9A441; }` rule, add:
 
 ```css
 .pf-skip-btn {
@@ -789,7 +825,7 @@ In the `CSS` template string, after the `.pf-override:hover { color: #D9A441; }`
 .pf-pip-skipped { background: transparent; border: 1px solid #4A535E; box-sizing: border-box; }
 ```
 
-- [ ] **Step 8: Syntax check and build**
+- [ ] **Step 9: Syntax check and build**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: no errors.
@@ -797,7 +833,7 @@ Expected: no errors.
 Run: `npm run build -w examples/demo`
 Expected: build succeeds.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
