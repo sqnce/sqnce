@@ -399,6 +399,7 @@
         {
           "id": "orals",
           "name": "Orals Prep",
+          "skippable": true,
           "gate": {
             "type": "hybrid"
           },
