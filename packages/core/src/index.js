@@ -346,6 +346,17 @@ export function isSubStageSkipped(run, subStageId) {
 }
 
 /**
+ * Did this run advance past mainIndex's boundary while its gate was
+ * unmet? A historical fact: never auto-cleared.
+ * @param {Run} run
+ * @param {number} mainIndex
+ * @returns {boolean}
+ */
+export function wasAdvanceForced(run, mainIndex) {
+  return !!(run.forces && run.forces[mainIndex]);
+}
+
+/**
  * Mark a sub-stage not applicable. Returns a new run. No-op (the same
  * run back) when the id is unknown, the sub-stage is not declared
  * skippable, it lies beyond the frontier, or it is already skipped.
@@ -546,6 +557,8 @@ export function jumpTo(run, subStages, index) {
  * main stage; a no-op while browsing a committed stage or at the last
  * main stage. The gate is the stage aggregate; force overrides it.
  * On success, idx lands on the first sub-stage of the committed stage.
+ * A forced commit past an unmet gate records forces[old frontier];
+ * a met gate records nothing.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {{ force?: boolean }} [opts]
@@ -564,15 +577,14 @@ export function advance(run, subStages, { force = false } = {}) {
   if (!progress.met && !force) {
     return { run, advanced: false, missing: progress.missing };
   }
-  return {
-    run: {
-      ...run,
-      idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
-      frontier: run.frontier + 1,
-    },
-    advanced: true,
-    missing: [],
+  /** @type {Run} */
+  const next = {
+    ...run,
+    idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
+    frontier: run.frontier + 1,
   };
+  if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+  return { run: next, advanced: true, missing: [] };
 }
 
 /* ------------------------------------------------------------------ */

@@ -28,6 +28,7 @@ import {
   unskipSubStage,
   isSubStageSkipped,
   runSummary,
+  wasAdvanceForced,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 
@@ -584,6 +585,24 @@ test("runSummary excludes skipped sub-stages", () => {
   assert.deepEqual(runSummary(FIXTURE, run), { met: 0, total: 3 });
   run = skipSubStage(run, subs, "collect");
   assert.deepEqual(runSummary(FIXTURE, run), { met: 0, total: 2 });
+});
+
+test("a forced advance past an unmet gate is recorded", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const result = advance(createRun(), subs, { force: true });
+  assert.equal(result.advanced, true);
+  assert.equal(wasAdvanceForced(result.run, 0), true);
+  assert.equal(wasAdvanceForced(result.run, 1), false);
+});
+
+test("a met gate records no force, with or without the flag", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  assert.equal(advance(run, subs).run.forces, undefined);
+  assert.equal(advance(run, subs, { force: true }).run.forces, undefined);
 });
 
 test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
