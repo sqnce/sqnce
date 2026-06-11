@@ -480,21 +480,31 @@ export function gateTypeOf(subStage) {
 
 /**
  * Progress of a sub-stage's gate.
- * Returns { met, done, total, gateType, missing: [step names] }.
+ * Returns { met, done, total, gateType, missing }. A missing entry is
+ * the step name, or "name: message" when the step is incomplete
+ * because a present output failed its named validator.
  * @param {SubStage} subStage
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {GateProgress}
  */
-export function gateProgress(subStage, run) {
+export function gateProgress(subStage, run, { validators } = {}) {
   const gateType = gateTypeOf(subStage);
   const required = (subStage.steps || []).filter((s) => s.required);
-  const missing = required.filter((s) => !isStepComplete(s, getStepEntry(run, s.id), gateType));
+  /** @type {string[]} */
+  const missing = [];
+  required.forEach((s) => {
+    const entry = getStepEntry(run, s.id);
+    if (isStepComplete(s, entry, gateType, validators)) return;
+    const invalid = firstInvalidOutput(s, entry, validators);
+    missing.push(invalid ? `${s.name}: ${invalid.message}` : s.name);
+  });
   return {
     met: missing.length === 0,
     done: required.length - missing.length,
     total: required.length,
     gateType,
-    missing: missing.map((s) => s.name),
+    missing,
   };
 }
 
@@ -504,9 +514,10 @@ export function gateProgress(subStage, run) {
  * single-sub-stage main stages read as before.
  * @param {SubStage[]} subStagesOfMain
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
-function aggregateGate(subStagesOfMain, run) {
+function aggregateGate(subStagesOfMain, run, opts) {
   const multi = subStagesOfMain.length > 1;
   const active = subStagesOfMain.filter((ss) => !isSubStageSkipped(run, ss.id));
   let met = true;
@@ -515,7 +526,7 @@ function aggregateGate(subStagesOfMain, run) {
   /** @type {string[]} */
   const missing = [];
   active.forEach((ss) => {
-    const p = gateProgress(ss, run);
+    const p = gateProgress(ss, run, opts);
     met = met && p.met;
     done += p.done;
     total += p.total;
@@ -529,10 +540,11 @@ function aggregateGate(subStagesOfMain, run) {
  * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
-export function mainGateProgress(mainStage, run) {
-  return aggregateGate(mainStage.subStages, run);
+export function mainGateProgress(mainStage, run, opts) {
+  return aggregateGate(mainStage.subStages, run, opts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -591,10 +603,10 @@ export function jumpTo(run, subStages, index) {
  * a met gate records nothing.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
- * @param {{ force?: boolean }} [opts]
+ * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {AdvanceResult}
  */
-export function advance(run, subStages, { force = false } = {}) {
+export function advance(run, subStages, { force = false, validators } = {}) {
   const cur = subStages[run.idx];
   const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
   if (!cur || cur.mainIndex !== run.frontier || run.frontier >= maxMain) {
@@ -602,7 +614,8 @@ export function advance(run, subStages, { force = false } = {}) {
   }
   const progress = aggregateGate(
     subStages.filter((s) => s.mainIndex === run.frontier),
-    run
+    run,
+    { validators }
   );
   if (!progress.met && !force) {
     return { run, advanced: false, missing: progress.missing };
@@ -706,7 +719,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
-      if (!isStepComplete(step, getStepEntry(run, step.id), gateType)) return;
+      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators)) return;
       const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
@@ -927,11 +940,12 @@ export function deleteRun(store, runId) {
  * met. Skipped sub-stages are excluded from both counts.
  * @param {Definition} definition
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {{ met: number, total: number }}
  */
-export function runSummary(definition, run) {
+export function runSummary(definition, run, opts) {
   const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
-  return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
+  return { met: subs.filter((ss) => gateProgress(ss, run, opts).met).length, total: subs.length };
 }
 
 /*

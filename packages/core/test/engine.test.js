@@ -739,3 +739,57 @@ test("validators run only on present values and only when resolvable", () => {
   assert.equal(isStepComplete(step, entry, "hybrid", { other: () => "nope" }), true, "unresolvable name: unvalidated");
   assert.equal(isStepComplete(step, entry, "hybrid", {}), true, "empty map: unvalidated");
 });
+
+test("gateProgress reports invalid outputs as unmet with the validator message", () => {
+  const start = FIXTURE.mainStages[0].subStages[0];
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  run = setCheckedDone(run, "kickoff", true);
+
+  const without = gateProgress(start, run);
+  assert.equal(without.met, true, "no validators: unchanged");
+
+  const p = gateProgress(start, run, { validators: FACTS_VALIDATORS });
+  assert.equal(p.met, false);
+  assert.equal(p.done, 1);
+  assert.deepEqual(p.missing, ["Intake: Client name missing"]);
+});
+
+test("validators thread through the boundary gate, advance, and runSummary", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = skipSubStage(run, subs, "collect");
+
+  const main = mainGateProgress(FIXTURE.mainStages[0], run, { validators: FACTS_VALIDATORS });
+  assert.equal(main.met, false);
+  assert.deepEqual(main.missing, ["Start: Intake: Client name missing"]);
+
+  const blocked = advance(run, subs, { validators: FACTS_VALIDATORS });
+  assert.equal(blocked.advanced, false);
+  assert.deepEqual(blocked.missing, ["Start: Intake: Client name missing"]);
+
+  const forced = advance(run, subs, { force: true, validators: FACTS_VALIDATORS });
+  assert.equal(forced.advanced, true);
+  assert.equal(wasAdvanceForced(forced.run, 0), true, "force past invalid records the marker");
+
+  const plain = advance(run, subs, {});
+  assert.equal(plain.advanced, true, "without validators the gate is met");
+  assert.equal(wasAdvanceForced(plain.run, 0), false);
+
+  const sum = runSummary(FIXTURE, run, { validators: FACTS_VALIDATORS });
+  assert.equal(sum.met, 0);
+  assert.equal(runSummary(FIXTURE, run).met, 1, "no validators: unchanged");
+});
+
+test("buildContext excludes steps made incomplete by invalid outputs", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Acme" });
+  assert.ok(buildContext(subs, run, 0, "kickoff", { validators: FACTS_VALIDATORS }).includes("Acme"));
+
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  assert.equal(buildContext(subs, run, 0, "kickoff", { validators: FACTS_VALIDATORS }), "");
+  assert.ok(buildContext(subs, run, 0, "kickoff").includes("Retail"), "no validators: included");
+});
