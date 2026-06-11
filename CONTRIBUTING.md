@@ -14,7 +14,7 @@ Thanks for your interest in sqnce.
 
 1. Bump `version` in the manifests of the packages being released. When a react release needs new core behavior, release core first and update react's `@sqnce/core` range to match.
 2. Verify from a clean tree: `npm test`, `npm run types`, `npm run build -w examples/demo`.
-3. Inspect the tarballs: `npm pack -w packages/core -w packages/react` and check the file lists. Expected: `package.json`, `LICENSE`, `README.md`, `src/`, `types/`. Never `test/`.
-4. Publish from the repo root: `npm publish -w packages/core -w packages/react`. `prepack` regenerates `types/`; `publishConfig.access: public` is set in both manifests. Publishing requires npm 2FA: run it from an interactive terminal so the browser passkey prompt can complete (a non-TTY shell fails with `EOTP`).
+3. Inspect the tarballs of the packages being released: `npm pack -w packages/<pkg>` per package, and check the file lists. Expected: `package.json`, `LICENSE`, `README.md`, `src/`, `types/`. Never `test/`.
+4. Publish from the repo root, scoping `-w` to exactly the packages whose versions were bumped: `npm publish -w packages/core -w packages/react` for a lockstep release, or a single `-w` for a one-package release. Never include an unbumped package: republishing an existing version fails and leaves the release partial. `prepack` regenerates `types/`; `publishConfig.access: public` is set in both manifests. Publishing requires npm 2FA: run it from an interactive terminal so the browser passkey prompt can complete (a non-TTY shell fails with `EOTP`).
 5. Verify: `npm view @sqnce/core version` and `npm view @sqnce/react version` show the new versions, and a scratch project installs them cleanly (`pnpm add @sqnce/core @sqnce/react` with default settings, no overrides).
 6. Tag the release commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. Once the two package versions diverge, switch to per-package tags (`core-vX.Y.Z`, `react-vX.Y.Z`).
