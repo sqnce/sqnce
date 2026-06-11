@@ -9,7 +9,7 @@ Driving need: the packaging surface (the `files` lists, the `exports` maps, `pre
 A second job, `pack`, in `.github/workflows/ci.yml`, alongside the existing `test` job, same triggers (push to main, every pull request), independent (no `needs`):
 
 1. Checkout, setup-node 24 with npm cache, `npm ci` (same prelude as `test`).
-2. `npm pack -w packages/core -w packages/react --pack-destination "$RUNNER_TEMP/tarballs"`. This runs each package's `prepack`, so the declaration emit is exercised through the real packing path (react's `prepack` also runs core's emit).
+2. `mkdir -p "$RUNNER_TEMP/tarballs"`, then `npm pack -w packages/core -w packages/react --pack-destination "$RUNNER_TEMP/tarballs"` (`--pack-destination` fails with ENOENT when the directory does not exist). Packing runs each package's `prepack`, so the declaration emit is exercised through the real packing path (react's `prepack` also runs core's emit).
 3. Content assertions on both tarballs via `tar -tzf`: each must contain `package/package.json`, `package/LICENSE`, `package/README.md`, at least one path under `package/src/`, and `package/types/index.d.ts`; neither may contain any path under `package/test/`. A small inline shell step; failure of any assertion fails the job.
 4. Scratch consumer in a temp directory outside the repo: `npm init -y`, then `npm install` of both tarballs plus `react`, `react-dom`, and `esbuild`. Installing both tarballs together lets npm satisfy react's `@sqnce/core: ^0.1.0` dependency by version from the core tarball, the registry-shaped resolution a real consumer gets.
 5. Consumer checks, both must pass:
