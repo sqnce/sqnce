@@ -10,6 +10,7 @@ import { runSummary, runDisplayName } from "@sqnce/core";
 export default function RunsScreen({
   workflows,
   store,
+  validators,
   onOpenRun,
   onRename,
   onArchive,
@@ -44,7 +45,7 @@ export default function RunsScreen({
         <tbody>
           {rows.map((e) => {
             const w = byId.get(e.workflowId);
-            const sum = runSummary(w, e.run);
+            const sum = runSummary(w, e.run, { validators });
             return (
               <tr key={e.id} className={e.status === "archived" ? "pf-runs-archived" : ""}>
                 <td>

@@ -290,7 +290,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
   const maxBrowse = subs.reduce((acc, s, i) => (s.mainIndex <= frontier ? i : acc), 0);
-  const stageProg = mainGateProgress(def.mainStages[frontier], run);
+  const stageProg = mainGateProgress(def.mainStages[frontier], run, { validators });
   const nextMain = frontier < def.mainStages.length - 1 ? def.mainStages[frontier + 1] : null;
   const nextSub = idx < subs.length - 1 ? subs[idx + 1] : null;
   const prevSub = idx > 0 ? subs[idx - 1] : null;
@@ -313,7 +313,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const doAdvance = (force) => {
     if (readOnly) return;
-    const result = coreAdvance(run, subs, { force });
+    const result = coreAdvance(run, subs, { force, validators });
     if (result.advanced) {
       clearTransients();
       setRun(result.run);
@@ -441,7 +441,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         .map((s) => ({ step: s, entry: getStepEntry(run, s.id) }))
         .filter(
           ({ step, entry }) =>
-            isStepComplete(step, entry, gateTypeOf(prevSub)) && stepHasAnyOutput(step, entry)
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators) && stepHasAnyOutput(step, entry)
         )
     : [];
 
@@ -456,7 +456,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const statusOf = (sub, step) => {
     const entry = getStepEntry(run, step.id);
-    if (isStepComplete(step, entry, gateTypeOf(sub))) return "done";
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators)) return "done";
     if (stepHasAnyOutput(step, entry)) return "draft";
     return "open";
   };
@@ -477,7 +477,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           {def.mainStages.map((ms, mi) => {
             /* Skip-aware: a stage whose remaining sub-stage gates are met
                reads done even when a skipped sub-stage's own gate is not. */
-            const allDone = mainGateProgress(ms, run).met;
+            const allDone = mainGateProgress(ms, run, { validators }).met;
             const stageLocked = mi > frontier;
             const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
             const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
@@ -539,6 +539,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
       <RunSidebar
         workflows={workflows}
         store={store}
+        validators={validators}
         collapsed={!sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onOpenRun={openRun}
@@ -553,6 +554,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         <RunsScreen
           workflows={workflows}
           store={store}
+          validators={validators}
           onOpenRun={openRun}
           onRename={doRename}
           onArchive={doArchive}
@@ -568,7 +570,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           if (Math.abs(pos) > 2) return null;
           const locked = sub.mainIndex > frontier;
           const center = pos === 0;
-          const p = gateProgress(sub, run);
+          const p = gateProgress(sub, run, { validators });
           const skipped = isSubStageSkipped(run, sub.id);
           const sideClickable = !center && Math.abs(pos) === 1 && sub.mainIndex <= frontier;
           return (
@@ -721,11 +723,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 </div>
                               );
                             }
+                            const outVal = (entry.outputs || {})[spec.id];
+                            const checkFn = spec.validate && validators && validators[spec.validate];
+                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec) : null;
                             return (
                               <OutputView
                                 key={spec.id}
                                 spec={spec}
-                                value={(entry.outputs || {})[spec.id]}
+                                value={outVal}
+                                invalid={typeof invalidMsg === "string" ? invalidMsg : null}
                                 onChange={(v) => writeOutput(step.id, spec.id, v)}
                                 onAttach={() => {
                                   attachFor.current = { stepId: step.id, outputId: spec.id };
@@ -815,7 +821,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                         </span>
                       )}
                       {wasAdvanceForced(run, sub.mainIndex) &&
-                        !mainGateProgress(def.mainStages[sub.mainIndex], run).met && (
+                        !mainGateProgress(def.mainStages[sub.mainIndex], run, { validators }).met && (
                           <span className="pf-gate-state pf-gate-forced">Advanced with open steps</span>
                         )}
                     </>
