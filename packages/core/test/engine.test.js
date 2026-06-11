@@ -12,6 +12,7 @@ import {
   isStepComplete,
   getStepEntry,
   gateProgress,
+  mainGateProgress,
   browse,
   jumpTo,
   advance,
@@ -85,51 +86,104 @@ test("gateProgress reports missing required steps by name", () => {
   assert.deepEqual(p.missing, []);
 });
 
-test("advance is blocked at an unmet gate, allowed when met, and forceable", () => {
+test("browse moves freely within the frontier main stage", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
-
-  let result = advance(run, subs);
-  assert.equal(result.advanced, false);
-  assert.ok(result.missing.length > 0);
-
-  result = advance(run, subs, { force: true });
-  assert.equal(result.advanced, true);
-  assert.equal(result.run.idx, 1);
-  assert.equal(result.run.frontier, 1);
+  run = browse(run, subs, 1); // Collect, same main stage: free
+  assert.equal(run.idx, 1);
+  assert.equal(run.frontier, 0);
+  run = browse(run, subs, 1); // Sign-off is the next main stage: no-op
+  assert.equal(run.idx, 1);
+  run = browse(run, subs, -1);
+  assert.equal(run.idx, 0);
+  run = browse(run, subs, -1); // below zero: no-op
+  assert.equal(run.idx, 0);
 });
 
-test("browse stays within [0, frontier]; jumpTo respects the frontier", () => {
+test("jumpTo respects the frontier main stage boundary", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
-  run = advance(run, subs, { force: true }).run;
-  assert.equal(run.frontier, 1);
-
-  run = jumpTo(run, subs, 2); // beyond frontier: no-op
+  run = jumpTo(run, subs, 1);
   assert.equal(run.idx, 1);
-
-  run = advance(run, subs, { force: true }).run;
-  assert.equal(run.frontier, 2);
-
-  run = browse(run, subs, -1);
+  run = jumpTo(run, subs, 2); // beyond the frontier main stage: no-op
   assert.equal(run.idx, 1);
-  run = browse(run, subs, 1);
-  assert.equal(run.idx, 2);
-  run = browse(run, subs, 1); // beyond frontier: no-op
-  assert.equal(run.idx, 2);
-
   run = jumpTo(run, subs, 0);
   assert.equal(run.idx, 0);
 });
 
-test("advancing from a non-frontier (browsing) position is a no-op", () => {
+test("advance gates on the whole stage and reports qualified missing names", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+
+  let result = advance(run, subs); // Evidence (on the Collect card) still missing
+  assert.equal(result.advanced, false);
+  assert.deepEqual(result.missing, ["Collect: Evidence"]);
+
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  result = advance(run, subs);
+  assert.equal(result.advanced, true);
+  assert.equal(result.run.frontier, 1);
+  assert.equal(result.run.idx, 2); // first card of the committed stage
+});
+
+test("advance is legal from any card within the frontier stage", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = createRun(); // idx 0 is not the stage's last card
+  const result = advance(run, subs, { force: true });
+  assert.equal(result.advanced, true);
+  assert.equal(result.run.idx, 2);
+  assert.equal(result.run.frontier, 1);
+});
+
+test("advancing while browsing a committed stage is a no-op", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = advance(run, subs, { force: true }).run;
-  run = browse(run, subs, -1);
+  run = jumpTo(run, subs, 1); // back into committed Alpha
   const result = advance(run, subs, { force: true });
   assert.equal(result.advanced, false);
   assert.equal(result.run.frontier, 1);
+});
+
+test("advance at the last main stage is a no-op", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = advance(run, subs, { force: true }).run;
+  const result = advance(run, subs, { force: true });
+  assert.equal(result.advanced, false);
+  assert.equal(result.run.frontier, 1);
+});
+
+test("mainGateProgress aggregates across sub-stages; single-sub stages read plain", () => {
+  let run = createRun();
+  let p = mainGateProgress(FIXTURE.mainStages[0], run);
+  assert.equal(p.met, false);
+  assert.equal(p.total, 3); // Intake, Kickoff, Evidence
+  assert.deepEqual(p.missing, ["Start: Intake", "Start: Kickoff", "Collect: Evidence"]);
+
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  p = mainGateProgress(FIXTURE.mainStages[0], run);
+  assert.equal(p.met, true);
+  assert.equal(p.done, 3);
+  assert.deepEqual(p.missing, []);
+
+  p = mainGateProgress(FIXTURE.mainStages[1], run);
+  assert.equal(p.met, false);
+  assert.deepEqual(p.missing, ["Approve"]); // unqualified: one sub-stage
+});
+
+test("a strict sub-stage blocks its stage boundary until explicitly done", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = advance(run, subs, { force: true }).run; // commit to Omega
+  run = setOutput(run, "approve", "memo", "Looks good.");
+  assert.equal(mainGateProgress(FIXTURE.mainStages[1], run).met, false);
+  run = setCheckedDone(run, "approve", true);
+  assert.equal(mainGateProgress(FIXTURE.mainStages[1], run).met, true);
 });
 
 test("subject resolves from the configured field with fallback", () => {
@@ -139,20 +193,38 @@ test("subject resolves from the configured field with fallback", () => {
   assert.equal(resolveSubject(FIXTURE, run), "Vexel Tools");
 });
 
-test("buildContext only includes completed prior outputs; prompt references the subject", () => {
+test("buildContext includes completed siblings in the current stage, excluding the drafted step", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = setOutput(run, "intake", "facts", { client: "Vexel Tools", industry: "Tooling" });
-  run = setCheckedDone(run, "kickoff", true);
-  run = advance(run, subs).run;
-  assert.equal(run.idx, 1);
+  run = setOutput(run, "summary", "out", "Evidence points one way.");
 
-  const ctx = buildContext(subs, run, run.idx);
+  // From the first card, the completed Summary on a LATER sibling card is context.
+  const ctx = buildContext(subs, run, 0);
   assert.match(ctx, /Vexel Tools/);
-  assert.doesNotMatch(ctx, /Summary/);
+  assert.match(ctx, /Evidence points one way\./);
 
+  // Drafting Summary itself excludes it but keeps its siblings.
+  const forSummary = buildContext(subs, run, 1, "summary");
+  assert.match(forSummary, /Vexel Tools/);
+  assert.doesNotMatch(forSummary, /Evidence points one way\./);
+});
+
+test("buildContext excludes later main stages", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "approve", "memo", "Looks good.");
+  run = setCheckedDone(run, "approve", true); // strict gate: now complete
+  assert.doesNotMatch(buildContext(subs, run, 0), /Looks good\./);
+  assert.match(buildContext(subs, run, 2), /Looks good\./);
+});
+
+test("buildDraftPrompt carries sibling context and the step task", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools", industry: "Tooling" });
   const summary = subs[1].steps.find((s) => s.id === "summary");
-  const prompt = buildDraftPrompt(FIXTURE, subs, run, run.idx, summary);
+  const prompt = buildDraftPrompt(FIXTURE, subs, run, 1, summary);
   assert.match(prompt, /Vexel Tools/);
   assert.match(prompt, /Summarize the evidence\./);
 });
@@ -318,12 +390,10 @@ test("buildContext excludes a reopened step's outputs", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
-  run = setCheckedDone(run, "kickoff", true);
-  run = advance(run, subs).run;
-  assert.match(buildContext(subs, run, run.idx), /Vexel Tools/);
+  assert.match(buildContext(subs, run, 0), /Vexel Tools/);
 
   run = reopenStep(run, "intake");
-  assert.doesNotMatch(buildContext(subs, run, run.idx), /Vexel Tools/);
+  assert.doesNotMatch(buildContext(subs, run, 0), /Vexel Tools/);
 });
 
 test("reopenStep on an untouched step creates a safe entry", () => {
