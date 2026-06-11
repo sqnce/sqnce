@@ -12,7 +12,8 @@ A second job, `pack`, in `.github/workflows/ci.yml`, alongside the existing `tes
 2. `mkdir -p "$RUNNER_TEMP/tarballs"`, then `npm pack -w packages/core -w packages/react --pack-destination "$RUNNER_TEMP/tarballs"` (`--pack-destination` fails with ENOENT when the directory does not exist). Packing runs each package's `prepack`, so the declaration emit is exercised through the real packing path (react's `prepack` also runs core's emit).
 3. Content assertions on both tarballs via `tar -tzf`: each must contain `package/package.json`, `package/LICENSE`, `package/README.md`, at least one path under `package/src/`, and `package/types/index.d.ts`; neither may contain any path under `package/test/`. A small inline shell step; failure of any assertion fails the job.
 4. Scratch consumer in a temp directory outside the repo: `npm init -y`, then `npm install` of both tarballs plus `react`, `react-dom`, and `esbuild`. Installing both tarballs together lets npm satisfy react's `@sqnce/core: ^0.1.0` dependency by version from the core tarball, the registry-shaped resolution a real consumer gets.
-5. Consumer checks, both must pass:
+5. Consumer checks, all must pass:
+   - Resolution assertion: the consumer's installed `@sqnce/core` version equals the workspace version, and no nested copy exists under `node_modules/@sqnce/react/node_modules/`. Without this, version skew lets npm quietly satisfy react from the registry (a stale published core) instead of the packed tarball, and the skew-is-signal guarantee silently dies.
    - Engine import: `node -e "import('@sqnce/core').then(m => { if (typeof m.createRun !== 'function') process.exit(1); })"`.
    - Component resolution: an entry file `import { ProcessRolodex } from "@sqnce/react"` bundled with esbuild (`--bundle --format=esm --external:react --external:react-dom`), proving the exports maps and the cross-package resolution work for a bundling consumer.
 
