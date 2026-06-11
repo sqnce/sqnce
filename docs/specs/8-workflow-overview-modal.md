@@ -34,7 +34,7 @@ Four sections, top to bottom, all computed from `def` and `run` with already-imp
    - Within a committed main stage, sub-stages are freely browsable; the next main stage commits at its boundary gate, the aggregate of the stage's sub-stage gates.
    - The gate guides, never blocks: advancing past an unmet gate is always possible with the explicit override.
    - If any sub-stage is `skippable`, one line explains marking a sub-stage not applicable and that skipped sub-stages leave the gate aggregate and progress counts.
-3. **Stages.** The full tree. Main stage rows mirror the header rail logic exactly: ✓ when `mainGateProgress(...).met`, the stage number otherwise, 🔒 when beyond the frontier, with the active stage (the one containing the centered sub-stage) highlighted. A stage with `wasAdvanceForced(run, mi)` true gets a small "advanced with override" note. Sub-stage rows show name, description, gate type, and status: met (gate met), in progress (gate unmet), or not applicable (skipped). The centered sub-stage (`idx`) carries a "you are here" marker.
+3. **Stages.** The full tree. Main stage rows mirror the header rail logic exactly: ✓ when `mainGateProgress(...).met`, the stage number otherwise, 🔒 when beyond the frontier, with the active stage (the one containing the centered sub-stage) highlighted. A stage gets a small "advanced with open steps" note when `wasAdvanceForced(run, mi)` is true and its gate is currently unmet, mirroring the card UI (`ProcessRolodex.jsx` shows the forced marker only under that same condition, and the modal reuses its copy): the run-state marker is never auto-cleared, but once the gate is met the note disappears. Sub-stage rows show name, description, gate type, and status: met (gate met), in progress (gate unmet), or not applicable (skipped). The centered sub-stage (`idx`) carries a "you are here" marker.
 4. **Progress.** "N of M gates met" from `runSummary(def, run, { validators })`. Skipped sub-stages are excluded by the engine; the modal does not recount.
 
 Validators thread through every gate computation (`{ validators }`), so a step with an invalid value reads incomplete here exactly as it does in the rail and cards.
@@ -45,7 +45,7 @@ Validators thread through every gate computation (`{ validators }`), so a step w
 - The overlay shows the four sections above; the "you are here" marker sits on the sub-stage the rolodex currently centers, including while browsing history.
 - Main stage glyphs and states in the modal always agree with the header rail for the same run state.
 - Skipped sub-stages read "not applicable" and the progress count matches `runSummary` (which excludes them).
-- A stage advanced with the override shows the "advanced with override" note; a stage whose gate was met shows none.
+- A stage advanced with the override shows the "advanced with open steps" note while its gate remains unmet; the note disappears once the gate is later met, matching the card UI. A stage advanced through a met gate never shows it.
 - X and Escape both close the modal; Escape works even when focus is in a textarea or input. Arrow-key browsing behind the modal is not triggered while it is open.
 - Archived (read-only) runs can open and read the modal.
 - The hybrid/strict explainer lines and the skip line appear only when the definition uses those gate types or has a skippable sub-stage.
