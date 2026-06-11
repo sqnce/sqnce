@@ -32,7 +32,9 @@ Nothing publishes; the registry is never touched.
 
 ## Acceptance
 
+Evaluated once the implementation commit lands in this PR (this spec is the PR's first commit; the workflow change follows the spec gate and plan, before merge):
+
 - A `prepack`/declaration-emit failure fails the `pack` job.
 - A tarball losing `types/` or `src/`, or gaining `test/`, fails the job.
 - A consumer unable to import `@sqnce/core` or bundle `ProcessRolodex` against the tarball install fails the job.
-- The job runs on this PR and is green; the existing `test` job is untouched.
+- The `pack` job runs and is green on the implementation push; the existing `test` job is untouched.
