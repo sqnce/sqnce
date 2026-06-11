@@ -683,10 +683,11 @@ export function draftTarget(step) {
  * Turn a raw LLM reply into a storable value for a draft target.
  * Text targets pass through unchanged. Data targets are trimmed,
  * stripped of one surrounding markdown code fence when present, then
- * parsed as strict JSON.
+ * parsed as strict JSON. Success: { ok: true, value }. Failure:
+ * { ok: false, error } and no value.
  * @param {OutputSpec} spec
  * @param {string} text
- * @returns {{ ok: true, value: any } | { ok: false, error: string }}
+ * @returns {{ ok: boolean, value?: any, error?: string }}
  */
 export function parseDraft(spec, text) {
   if (spec.type !== "data") return { ok: true, value: text };
