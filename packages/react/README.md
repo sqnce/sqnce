@@ -1,6 +1,6 @@
 # @sqnce/react
 
-Rolodex UI for sqnce workflow definitions. The active sub-stage is centered and interactive; neighbors are faded; sub-stages beyond the frontier main stage are locked until its boundary gate is met (with an explicit override). Sub-stages declared skippable offer "Mark not applicable"; a skipped card stays in the deck, dimmed, with a Restore control. See the [repository README](../../README.md) for usage.
+Rolodex UI for sqnce workflow definitions. The active sub-stage is centered and interactive; neighbors are faded; sub-stages beyond the frontier main stage are locked until its boundary gate is met (with an explicit override). Sub-stages declared skippable offer "Mark not applicable"; a skipped card stays in the deck, dimmed, with a Restore control. An About button in the header opens a read-only overview of the active workflow: its description, how its gates work, the full stage tree, and a you-are-here marker. See the [repository README](../../README.md) for usage.
 
 ## Props
 
