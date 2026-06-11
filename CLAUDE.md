@@ -36,4 +36,4 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 - `npm test` (runs packages/core/test/engine.test.js)
 - `npm run build -w examples/demo` (build the demo app; CI runs this on every PR)
 - `npm run types` (generate .d.ts from JSDoc into packages/*/types; prepack runs it, CI checks it)
-- Syntax check for JSX: `npx esbuild <file> --bundle --format=esm --external:react --external:@sqnce/core --outfile=/dev/null`
+- Syntax check for JSX: `npx esbuild <file> --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
