@@ -605,6 +605,19 @@ test("a met gate records no force, with or without the flag", () => {
   assert.equal(advance(run, subs, { force: true }).run.forces, undefined);
 });
 
+test("buildContext excludes a skipped sub-stage's completed steps", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", "Evidence points one way.");
+  assert.match(buildContext(subs, run, 0), /Evidence points one way\./);
+
+  run = skipSubStage(run, subs, "collect");
+  assert.doesNotMatch(buildContext(subs, run, 0), /Evidence points one way\./);
+
+  run = unskipSubStage(run, subs, "collect");
+  assert.match(buildContext(subs, run, 0), /Evidence points one way\./);
+});
+
 test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
   const mk = (subStages) => ({ id: "d", name: "D", mainStages: [{ id: "m", subStages }] });
   assert.deepEqual(validateDefinition(mk([{ id: "s", skippable: true, steps: [] }])), []);

@@ -645,6 +645,9 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * stage, plus completed sibling steps within that main stage (any
  * card, including the current one), excluding excludeStepId (the step
  * being drafted).
+ * Skipped sub-stages are excluded entirely: not-applicable content
+ * never feeds draft prompts, even if outputs were entered before the
+ * skip.
  * @param {FlatSubStage[]} subStages
  * @param {Run} run
  * @param {number} flatIdx
@@ -657,6 +660,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
   const blocks = [];
   subStages.forEach((sub) => {
     if (sub.mainIndex > curMain) return;
+    if (isSubStageSkipped(run, sub.id)) return;
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
