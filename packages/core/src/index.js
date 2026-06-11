@@ -467,12 +467,13 @@ export function gateProgress(subStage, run) {
  */
 function aggregateGate(subStagesOfMain, run) {
   const multi = subStagesOfMain.length > 1;
+  const active = subStagesOfMain.filter((ss) => !isSubStageSkipped(run, ss.id));
   let met = true;
   let done = 0;
   let total = 0;
   /** @type {string[]} */
   const missing = [];
-  subStagesOfMain.forEach((ss) => {
+  active.forEach((ss) => {
     const p = gateProgress(ss, run);
     met = met && p.met;
     done += p.done;
@@ -484,7 +485,7 @@ function aggregateGate(subStagesOfMain, run) {
 
 /**
  * Progress of a main stage's boundary gate: the aggregate of its
- * sub-stage gates.
+ * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
  * @returns {MainGateProgress}
@@ -862,13 +863,14 @@ export function deleteRun(store, runId) {
 }
 
 /**
- * Progress over a definition: how many flattened sub-stage gates are met.
+ * Progress over a definition: how many flattened sub-stage gates are
+ * met. Skipped sub-stages are excluded from both counts.
  * @param {Definition} definition
  * @param {Run} run
  * @returns {{ met: number, total: number }}
  */
 export function runSummary(definition, run) {
-  const subs = flattenSubStages(definition);
+  const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
   return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
 }
 

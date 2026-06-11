@@ -27,6 +27,7 @@ import {
   skipSubStage,
   unskipSubStage,
   isSubStageSkipped,
+  runSummary,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 
@@ -494,6 +495,95 @@ test("unskip restores state and drops the empty map", () => {
   const collect = subs.find((s) => s.id === "collect");
   const evidence = collect.steps.find((s) => s.id === "evidence");
   assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true);
+});
+
+test("a skipped sub-stage is excluded from the stage boundary gate", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  assert.equal(mainGateProgress(FIXTURE.mainStages[0], run).met, false); // Evidence missing
+
+  run = skipSubStage(run, subs, "collect");
+  const p = mainGateProgress(FIXTURE.mainStages[0], run);
+  assert.equal(p.met, true);
+  assert.equal(p.total, 2); // Intake, Kickoff only
+  assert.deepEqual(p.missing, []);
+
+  const result = advance(run, subs); // no force needed
+  assert.equal(result.advanced, true);
+  assert.equal(result.run.frontier, 1);
+});
+
+test("a skipped strict sub-stage no longer blocks the boundary", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [
+      {
+        id: "m1",
+        subStages: [
+          { id: "a", name: "A", steps: [] },
+          {
+            id: "b", name: "B", skippable: true, gate: { type: "strict" },
+            steps: [{ id: "s1", name: "S1", required: true }],
+          },
+        ],
+      },
+      { id: "m2", subStages: [{ id: "c", name: "C", steps: [] }] },
+    ],
+  };
+  const subs = flattenSubStages(def);
+  let run = createRun();
+  assert.equal(mainGateProgress(def.mainStages[0], run).met, false);
+  run = skipSubStage(run, subs, "b");
+  assert.equal(mainGateProgress(def.mainStages[0], run).met, true);
+  assert.equal(advance(run, subs).advanced, true);
+});
+
+test("missing names stay qualified by the stage's total sub-stage count", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [
+      {
+        id: "m1",
+        subStages: [
+          { id: "a", name: "A", steps: [{ id: "s1", name: "S1", required: true }] },
+          { id: "b", name: "B", skippable: true, steps: [{ id: "s2", name: "S2", required: true }] },
+        ],
+      },
+    ],
+  };
+  const subs = flattenSubStages(def);
+  const run = skipSubStage(createRun(), subs, "b");
+  assert.deepEqual(mainGateProgress(def.mainStages[0], run).missing, ["A: S1"]);
+});
+
+test("a stage with every sub-stage skipped is trivially met", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [
+      {
+        id: "m1",
+        subStages: [
+          { id: "a", name: "A", skippable: true, steps: [{ id: "s1", name: "S1", required: true }] },
+        ],
+      },
+      { id: "m2", subStages: [{ id: "c", name: "C", steps: [] }] },
+    ],
+  };
+  const subs = flattenSubStages(def);
+  const run = skipSubStage(createRun(), subs, "a");
+  const p = mainGateProgress(def.mainStages[0], run);
+  assert.deepEqual(p, { met: true, done: 0, total: 0, missing: [] });
+  assert.equal(advance(run, subs).advanced, true);
+});
+
+test("runSummary excludes skipped sub-stages", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  assert.deepEqual(runSummary(FIXTURE, run), { met: 0, total: 3 });
+  run = skipSubStage(run, subs, "collect");
+  assert.deepEqual(runSummary(FIXTURE, run), { met: 0, total: 2 });
 });
 
 test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
