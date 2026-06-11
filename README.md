@@ -53,6 +53,10 @@ Core concepts:
 
 ## Quickstart
 
+```
+npm install @sqnce/core @sqnce/react
+```
+
 ```jsx
 import { ProcessRolodex } from "@sqnce/react";
 import presales from "../definitions/presales.json";
