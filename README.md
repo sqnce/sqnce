@@ -53,9 +53,13 @@ Core concepts:
 
 ## Quickstart
 
+The packages are not on npm; link them from a local checkout of this repo:
+
 ```
-npm install @sqnce/core @sqnce/react
+pnpm add link:../sqnce/packages/core link:../sqnce/packages/react
 ```
+
+Two notes for linked consumers: dedupe React in your bundler so the linked package resolves your app's copy (Vite: `resolve: { dedupe: ["react", "react-dom"] }`), and run `npm run types` in this repo after public API changes so your editor sees fresh declarations.
 
 ```jsx
 import { ProcessRolodex } from "@sqnce/react";

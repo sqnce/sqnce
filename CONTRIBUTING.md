@@ -10,6 +10,8 @@ Thanks for your interest in sqnce.
 
 ## Releasing
 
+Status: dormant. Nothing is currently published. 0.1.0 was published and unpublished on 2026-06-11; consumers use local link dependencies (see the README quickstart). The steps below apply only if publishing resumes, and an unpublished version number is burned permanently, so any future publish must use a version never previously published (0.1.0 is unusable).
+
 `@sqnce/core` and `@sqnce/react` publish to npm under the `sqnce` org. Versions are independent: react declares a caret range on core (`^0.1.0`), so a core patch release does not force a react release.
 
 1. Bump `version` in the manifests of the packages being released. When a react release needs new core behavior, release core first and update react's `@sqnce/core` range to match.
