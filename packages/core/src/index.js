@@ -20,7 +20,7 @@
  *
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
- *      reopened?, generated? } } }
+ *      reopened?, generated? } }, skips?, forces? }
  *    `idx` is the flat sub-stage index of the centered card. `frontier`
  *    is the index of the furthest committed MAIN stage: browsing moves
  *    freely through committed main stages (no commit between sibling
@@ -29,6 +29,11 @@
  *    `reopened` suppresses hybrid content-completion until the step is
  *    touched again. `generated` maps outputId -> true for values
  *    written by draft generation; any hand edit clears the mark.
+ *    `skips` maps sub-stage id -> true for sub-stages this run marked
+ *    not applicable: excluded from boundary gates, runSummary, and
+ *    draft context. `forces` maps main-stage index -> true when the
+ *    run advanced past that stage's unmet gate with the override.
+ *    Both maps are optional and absent when empty.
  *
  * Every function here is pure: state in, new state out.
  */
@@ -69,6 +74,7 @@
  * @property {string} id
  * @property {string} name
  * @property {string} [description]
+ * @property {boolean} [skippable]
  * @property {Gate} [gate]
  * @property {Step[]} [steps]
  */
@@ -108,6 +114,8 @@
  * @property {number} idx
  * @property {number} frontier
  * @property {Object<string, StepEntry>} stepState
+ * @property {Object<string, true>} [skips]
+ * @property {Object<string, true>} [forces]
  */
 /**
  * @typedef {Object} GateProgress
@@ -184,12 +192,17 @@ export function validateDefinition(definition) {
     problems.push("definition.mainStages must be a non-empty array");
 
   const stepIds = new Set();
+  const subStageIds = new Set();
   (definition.mainStages || []).forEach((ms, mi) => {
     if (!ms.id) problems.push(`mainStages[${mi}].id is required`);
     if (!Array.isArray(ms.subStages) || !ms.subStages.length)
       problems.push(`mainStages[${mi}].subStages must be a non-empty array`);
     (ms.subStages || []).forEach((ss, si) => {
       if (!ss.id) problems.push(`mainStages[${mi}].subStages[${si}].id is required`);
+      if (ss.id && subStageIds.has(ss.id)) problems.push(`duplicate sub-stage id "${ss.id}"`);
+      subStageIds.add(ss.id);
+      if (ss.skippable !== undefined && typeof ss.skippable !== "boolean")
+        problems.push(`sub-stage "${ss.id}": skippable must be a boolean`);
       const gt = ss.gate && ss.gate.type;
       if (gt && gt !== "hybrid" && gt !== "strict")
         problems.push(`sub-stage "${ss.id}": gate.type must be "hybrid" or "strict"`);
@@ -322,6 +335,63 @@ export function reopenStep(run, stepId) {
   };
 }
 
+/**
+ * Was this sub-stage marked not applicable in this run?
+ * @param {Run} run
+ * @param {string} subStageId
+ * @returns {boolean}
+ */
+export function isSubStageSkipped(run, subStageId) {
+  return !!(run.skips && run.skips[subStageId]);
+}
+
+/**
+ * Did this run advance past mainIndex's boundary while its gate was
+ * unmet? A historical fact: never auto-cleared.
+ * @param {Run} run
+ * @param {number} mainIndex
+ * @returns {boolean}
+ */
+export function wasAdvanceForced(run, mainIndex) {
+  return !!(run.forces && run.forces[mainIndex]);
+}
+
+/**
+ * Mark a sub-stage not applicable. Returns a new run. No-op (the same
+ * run back) when the id is unknown, the sub-stage is not declared
+ * skippable, it lies beyond the frontier, or it is already skipped.
+ * Skipping never touches stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function skipSubStage(run, subStages, subStageId) {
+  const sub = subStages.find((s) => s.id === subStageId);
+  if (!sub || !sub.skippable || sub.mainIndex > run.frontier) return run;
+  if (isSubStageSkipped(run, subStageId)) return run;
+  return { ...run, skips: { ...run.skips, [subStageId]: true } };
+}
+
+/**
+ * Undo a skip. Returns a new run with the entry removed; the skips
+ * field is dropped entirely when it empties. No-op when the id is not
+ * currently skipped. Outputs and done flags survive untouched.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function unskipSubStage(run, subStages, subStageId) {
+  if (!isSubStageSkipped(run, subStageId)) return run;
+  /** @type {Object<string, true>} */
+  const skips = { ...run.skips };
+  delete skips[subStageId];
+  const next = { ...run, skips };
+  if (!Object.keys(skips).length) delete next.skips;
+  return next;
+}
+
 /* ------------------------------------------------------------------ */
 /* Completion and gating                                               */
 /* ------------------------------------------------------------------ */
@@ -408,12 +478,13 @@ export function gateProgress(subStage, run) {
  */
 function aggregateGate(subStagesOfMain, run) {
   const multi = subStagesOfMain.length > 1;
+  const active = subStagesOfMain.filter((ss) => !isSubStageSkipped(run, ss.id));
   let met = true;
   let done = 0;
   let total = 0;
   /** @type {string[]} */
   const missing = [];
-  subStagesOfMain.forEach((ss) => {
+  active.forEach((ss) => {
     const p = gateProgress(ss, run);
     met = met && p.met;
     done += p.done;
@@ -425,7 +496,7 @@ function aggregateGate(subStagesOfMain, run) {
 
 /**
  * Progress of a main stage's boundary gate: the aggregate of its
- * sub-stage gates.
+ * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
  * @returns {MainGateProgress}
@@ -486,6 +557,8 @@ export function jumpTo(run, subStages, index) {
  * main stage; a no-op while browsing a committed stage or at the last
  * main stage. The gate is the stage aggregate; force overrides it.
  * On success, idx lands on the first sub-stage of the committed stage.
+ * A forced commit past an unmet gate records forces[old frontier];
+ * a met gate records nothing.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {{ force?: boolean }} [opts]
@@ -504,15 +577,14 @@ export function advance(run, subStages, { force = false } = {}) {
   if (!progress.met && !force) {
     return { run, advanced: false, missing: progress.missing };
   }
-  return {
-    run: {
-      ...run,
-      idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
-      frontier: run.frontier + 1,
-    },
-    advanced: true,
-    missing: [],
+  /** @type {Run} */
+  const next = {
+    ...run,
+    idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
+    frontier: run.frontier + 1,
   };
+  if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+  return { run: next, advanced: true, missing: [] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -521,6 +593,8 @@ export function advance(run, subStages, { force = false } = {}) {
 
 /**
  * Resolve the human-readable subject of the process ("Contoso", "the client").
+ * Falls back when the subject step's sub-stage is skipped: not-applicable
+ * content never feeds draft prompts.
  * @param {Definition} definition
  * @param {Run} run
  * @returns {string}
@@ -528,6 +602,10 @@ export function advance(run, subStages, { force = false } = {}) {
 export function resolveSubject(definition, run) {
   const s = definition.subject;
   if (!s) return "the subject";
+  const owner = (definition.mainStages || [])
+    .flatMap((ms) => ms.subStages || [])
+    .find((ss) => (ss.steps || []).some((st) => st.id === s.stepId));
+  if (owner && isSubStageSkipped(run, owner.id)) return s.fallback || "the subject";
   const entry = run.stepState[s.stepId];
   const val = entry && entry.outputs && entry.outputs[s.outputId];
   return (val && String(val[s.field] || "").trim()) || s.fallback || "the subject";
@@ -573,6 +651,9 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * stage, plus completed sibling steps within that main stage (any
  * card, including the current one), excluding excludeStepId (the step
  * being drafted).
+ * Skipped sub-stages are excluded entirely: not-applicable content
+ * never feeds draft prompts, even if outputs were entered before the
+ * skip.
  * @param {FlatSubStage[]} subStages
  * @param {Run} run
  * @param {number} flatIdx
@@ -585,6 +666,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
   const blocks = [];
   subStages.forEach((sub) => {
     if (sub.mainIndex > curMain) return;
+    if (isSubStageSkipped(run, sub.id)) return;
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
@@ -803,13 +885,14 @@ export function deleteRun(store, runId) {
 }
 
 /**
- * Progress over a definition: how many flattened sub-stage gates are met.
+ * Progress over a definition: how many flattened sub-stage gates are
+ * met. Skipped sub-stages are excluded from both counts.
  * @param {Definition} definition
  * @param {Run} run
  * @returns {{ met: number, total: number }}
  */
 export function runSummary(definition, run) {
-  const subs = flattenSubStages(definition);
+  const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
   return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
 }
 

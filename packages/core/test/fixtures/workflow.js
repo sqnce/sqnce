@@ -1,7 +1,8 @@
 /*
  * Minimal definition owned by core's test suite, per
  * docs/specs/34-definitions-decoupling.md. Coverage floor: two main
- * stages, three sub-stages, both gate types, all five output types,
+ * stages, three sub-stages, both gate types, a skippable sub-stage,
+ * all five output types,
  * a render hint, a subject with field and fallback, required steps,
  * a checklist step, and an aiPrompt. Engine behavior tests assert
  * against this content, never against bundled definitions.
@@ -44,6 +45,7 @@ export const FIXTURE = {
           id: "collect",
           name: "Collect",
           description: "Gather and summarize evidence.",
+          skippable: true,
           gate: { type: "hybrid" },
           steps: [
             {

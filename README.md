@@ -22,7 +22,8 @@ DEFINITION (JSON, swap to run any process)
        subject: which field names the thing the process is about
 
 RUN (runtime state, separate from the definition)
-  { idx, frontier, stepState: { [stepId]: { checkedDone, outputs, reopened?, generated? } } }
+  { idx, frontier, stepState: { [stepId]: { checkedDone, outputs, reopened?, generated? } },
+    skips?, forces? }
 
 ENGINE (@sqnce/core, pure functions, zero dependencies)
   flatten, completion, gate progress, browse/jump/advance,
@@ -30,7 +31,8 @@ ENGINE (@sqnce/core, pure functions, zero dependencies)
 
 UI (@sqnce/react)
   Rolodex: active sub-stage centered, neighbors faded,
-  locked beyond the frontier main stage, gated "Advance" at stage boundaries with override
+  locked beyond the frontier main stage, gated "Advance" at stage boundaries with override,
+  skippable sub-stages can be marked not applicable
 ```
 
 Core concepts:
