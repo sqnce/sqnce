@@ -629,7 +629,9 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
  *   { id, workflowId, name, status: "active" | "archived",
  *     createdAt, updatedAt, run }
  * The store is the versioned persisted shape:
- *   { version: 2, activeWorkflowId, activeRunByWorkflow, entries }
+ *   { version: 3, activeWorkflowId, activeRunByWorkflow, entries }
+ * Version 3 marks the frontier unit change (main-stage index); older
+ * stores are discarded by loaders.
  * Ids and timestamps are supplied by the caller; nothing here reads
  * the clock or generates randomness. "Live" means status "active";
  * entry.name holds manual renames only (display names are derived by
@@ -639,7 +641,7 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
 
 /** @returns {RunStore} */
 export function createRunStore() {
-  return { version: 2, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
+  return { version: 3, activeWorkflowId: null, activeRunByWorkflow: {}, entries: {} };
 }
 
 /**

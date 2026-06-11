@@ -52,9 +52,9 @@ export const DEF = {
 export const entryAt = (id, workflowId, now) =>
   createRunEntry({ id, workflowId, run: createRun(), now });
 
-test("createRunStore returns an empty version 2 store", () => {
+test("createRunStore returns an empty version 3 store", () => {
   assert.deepEqual(createRunStore(), {
-    version: 2,
+    version: 3,
     activeWorkflowId: null,
     activeRunByWorkflow: {},
     entries: {},
