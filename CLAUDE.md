@@ -33,6 +33,7 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 - Plain ESM JavaScript, no build step in `core`. Tests use Node's built-in runner (`node:test`, Node 20+).
 - License is Apache-2.0.
 - Keep `@sqnce/core` dependency-free. New UI work goes in `@sqnce/react` or a new package, never into core.
+- Versioning, 0.x regime (owner decision, 2026-06-11, packages published at 0.1.0): published versions are immutable, never republished. A change that breaks the published surface (core function signatures, react props, the definition schema, the run-store shape) bumps the 0.x minor (0.2.0); additive changes and fixes bump the patch. No compat shims, state migrations, or deprecation cycles before 1.0 or the first real third-party consumer; the version number does the compatibility work. Release mechanics live in CONTRIBUTING.md.
 - Renderer packages are a non-goal: reference renderers live in examples (`examples/demo/src/renderers/`) and are meant to be copied, not depended on. Extract a published @sqnce/renderers-* package only when at least two independent downstream projects have vendored the glue, the provisional value shapes survived both, and there is capacity for the React Flow and elkjs upgrade treadmill.
 
 ## Commands
