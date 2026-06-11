@@ -242,7 +242,13 @@
               ]
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "id": "proposal-demo",
+      "name": "Proposal & Demo",
+      "subStages": [
         {
           "id": "proposal",
           "name": "Proposal Draft",
@@ -389,13 +395,7 @@
               "description": "Environment configured and dry run complete."
             }
           ]
-        }
-      ]
-    },
-    {
-      "id": "proposal-demo",
-      "name": "Proposal & Demo",
-      "subStages": [
+        },
         {
           "id": "orals",
           "name": "Orals Prep",
