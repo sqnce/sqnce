@@ -12,6 +12,11 @@
  *    - Any output spec may carry an optional render hint:
  *      render: { kind, options }. kind is a free string resolved by the
  *      UI layer's renderer registry; the engine never interprets it.
+ *    - Any output spec may carry an optional validate: "<name>", a
+ *      free string resolved against a consumer-supplied validators map
+ *      { [name]: (value, spec) => string | null }. A returned string
+ *      is the problem message. Validators are pure, never persisted,
+ *      and unresolvable names mean unvalidated.
  *    - SubStage gate: { type: "hybrid" | "strict" }
  *      hybrid: a step is complete when it has any output OR is marked
  *      done. strict: it must be explicitly marked done.
@@ -34,6 +39,9 @@
  *    draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
+ *    Draft generation targets draftTarget(step): the first text
+ *    output, else the first data output; parseDraft turns the raw
+ *    reply into a storable value (strict JSON for data targets).
  *
  * Every function here is pure: state in, new state out.
  */
@@ -999,6 +1007,11 @@ export function runSummary(definition, run, opts) {
  * string never becomes a display name), else "Run N" by creation order
  * among the workflow's entries. N can shift after deletions; accepted
  * pre-launch.
+ * Deliberate asymmetry with resolveSubject (#50): a skipped subject
+ * sub-stage makes resolveSubject fall back (content channels must not
+ * leak not-applicable values), but the display name keeps the typed
+ * subject; it identifies the run, and renaming runs on skip would
+ * destabilize the runs list.
  */
 /**
  * @param {Definition} definition
