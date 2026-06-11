@@ -69,6 +69,7 @@
  * @property {string} id
  * @property {string} name
  * @property {string} [description]
+ * @property {boolean} [skippable]
  * @property {Gate} [gate]
  * @property {Step[]} [steps]
  */
@@ -184,12 +185,17 @@ export function validateDefinition(definition) {
     problems.push("definition.mainStages must be a non-empty array");
 
   const stepIds = new Set();
+  const subStageIds = new Set();
   (definition.mainStages || []).forEach((ms, mi) => {
     if (!ms.id) problems.push(`mainStages[${mi}].id is required`);
     if (!Array.isArray(ms.subStages) || !ms.subStages.length)
       problems.push(`mainStages[${mi}].subStages must be a non-empty array`);
     (ms.subStages || []).forEach((ss, si) => {
       if (!ss.id) problems.push(`mainStages[${mi}].subStages[${si}].id is required`);
+      if (ss.id && subStageIds.has(ss.id)) problems.push(`duplicate sub-stage id "${ss.id}"`);
+      subStageIds.add(ss.id);
+      if (ss.skippable !== undefined && typeof ss.skippable !== "boolean")
+        problems.push(`sub-stage "${ss.id}": skippable must be a boolean`);
       const gt = ss.gate && ss.gate.type;
       if (gt && gt !== "hybrid" && gt !== "strict")
         problems.push(`sub-stage "${ss.id}": gate.type must be "hybrid" or "strict"`);

@@ -450,3 +450,18 @@ test("a generated write clears the reopened flag", () => {
   assert.equal(getStepEntry(run, "summary").reopened, undefined);
   assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
 });
+
+test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
+  const mk = (subStages) => ({ id: "d", name: "D", mainStages: [{ id: "m", subStages }] });
+  assert.deepEqual(validateDefinition(mk([{ id: "s", skippable: true, steps: [] }])), []);
+  assert.ok(
+    validateDefinition(mk([{ id: "s", skippable: "yes", steps: [] }])).some((p) =>
+      p.includes("skippable")
+    )
+  );
+  assert.ok(
+    validateDefinition(mk([{ id: "s", steps: [] }, { id: "s", steps: [] }])).some((p) =>
+      p.includes('duplicate sub-stage id "s"')
+    )
+  );
+});
