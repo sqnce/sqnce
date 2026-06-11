@@ -11,6 +11,7 @@ import { runsForWorkflow, runSummary, runDisplayName } from "@sqnce/core";
 export default function RunSidebar({
   workflows,
   store,
+  validators,
   collapsed,
   onToggle,
   onOpenRun,
@@ -52,7 +53,7 @@ export default function RunSidebar({
           <div key={w.id} className="pf-side-group">
             <div className="pf-side-label">{w.short || w.name}</div>
             {live.map((e) => {
-              const sum = runSummary(w, e.run);
+              const sum = runSummary(w, e.run, { validators });
               const isActive =
                 store.activeWorkflowId === w.id && store.activeRunByWorkflow[w.id] === e.id;
               return (

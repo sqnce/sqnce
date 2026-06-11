@@ -30,6 +30,19 @@ const GROUPS = [
   { label: "Work", ids: ["presales-pursuit", "hiring-pipeline", "customer-onboarding", "product-launch"] },
 ];
 
+/* Validators referenced by validate names in definitions/presales.json.
+   A returned string is the problem message; null means valid. */
+const validators = {
+  requirements: (value) =>
+    Array.isArray(value) && value.length > 0 && value.every((r) => r && typeof r === "object" && !Array.isArray(r))
+      ? null
+      : "Requirements must be a non-empty array of row objects.",
+  "win-themes": (value) =>
+    Array.isArray(value) && value.length > 0 && value.every((t) => t && typeof t.name === "string" && typeof t.purpose === "string")
+      ? null
+      : "Win themes must be an array of { name, purpose } objects.",
+};
+
 export default function App() {
   return (
     <>
@@ -49,6 +62,7 @@ export default function App() {
         initialRunFor={initialRunFor}
         persistence={persistence}
         generateDraft={generateDraft}
+        validators={validators}
         renderers={RENDERERS}
       />
     </>

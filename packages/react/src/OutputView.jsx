@@ -134,7 +134,7 @@ function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated })
  * renderers map, then built-ins, then falls back (JSON tree for data,
  * the default editor otherwise). Unknown kinds never render blank.
  */
-export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated }) {
+export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, invalid }) {
   const kind = spec.render && spec.render.kind;
   const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
   const isData = spec.type === "data";
@@ -157,7 +157,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     Renderer && shownMode === "view" && !fileNoText ? (
       filled ? (
         <div className="pf-render">
-          {generated && spec.type === "text" && <span className="pf-gen-badge">AI draft</span>}
+          {generated && <span className="pf-gen-badge">AI draft</span>}
           <button className="pf-render-expand" title="Expand" onClick={() => setBig(true)}>
             ⛶
           </button>
@@ -198,6 +198,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
         {toggle}
       </div>
       {body}
+      {invalid && <div className="pf-error">{invalid}</div>}
       {big && Renderer && (
         <Overlay label={spec.label} onClose={() => setBig(false)}>
           <RenderView

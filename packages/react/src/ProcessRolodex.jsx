@@ -22,6 +22,8 @@ import {
   resolveSubject,
   serializeStep,
   buildDraftPrompt,
+  draftTarget,
+  parseDraft,
   hasValue,
   createRunStore,
   createRunEntry,
@@ -62,7 +64,10 @@ function newId() {
  *      context is { workflowId, stepId, subject }. The second argument
  *      is informational; single-argument implementations keep working.
  *      Wire this to any LLM provider. Omit to hide the
- *      "Generate draft" action entirely.
+ *      "Generate draft" action entirely. Generation targets the step's
+ *      first text output, else its first data output; data replies are
+ *      parsed as strict JSON (one surrounding code fence tolerated) and
+ *      validated before anything is stored.
  *  - workflowGroups (optional): array of { label, ids } grouping the
  *      switcher. Ids not matching a workflow are ignored; workflows in
  *      no group render in a trailing unlabeled section. Omit for the
@@ -77,6 +82,12 @@ function newId() {
  *      (JSON tree for data outputs, default editor otherwise). A renderer
  *      receives { spec, value, onChange, context } and must treat
  *      onChange as value-mutations-only. Omit to use built-ins alone.
+ *  - validators (optional): map of validator name -> (value, spec) =>
+ *      string | null, resolving the validate names declared on output
+ *      specs. A returned string is the problem message: it makes the
+ *      owning step incomplete (gates, status, draft context) and
+ *      rejects generated drafts. Pure functions; omit to validate
+ *      nothing.
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -144,10 +155,11 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {{ label: string, ids: string[] }[]} [workflowGroups]
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec) => (string|null)>} [validators]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -278,7 +290,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
   const maxBrowse = subs.reduce((acc, s, i) => (s.mainIndex <= frontier ? i : acc), 0);
-  const stageProg = mainGateProgress(def.mainStages[frontier], run);
+  const stageProg = mainGateProgress(def.mainStages[frontier], run, { validators });
   const nextMain = frontier < def.mainStages.length - 1 ? def.mainStages[frontier + 1] : null;
   const nextSub = idx < subs.length - 1 ? subs[idx + 1] : null;
   const prevSub = idx > 0 ? subs[idx - 1] : null;
@@ -301,7 +313,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const doAdvance = (force) => {
     if (readOnly) return;
-    const result = coreAdvance(run, subs, { force });
+    const result = coreAdvance(run, subs, { force, validators });
     if (result.advanced) {
       clearTransients();
       setRun(result.run);
@@ -369,23 +381,35 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   /* ---------- draft generation ---------- */
   const generate = async (sub, step) => {
     if (!generateDraft || readOnly) return;
-    const target = (step.outputs || []).find((o) => o.type === "text");
+    const target = draftTarget(step);
     if (!target) return;
     setGenerating(step.id);
     setGenError(null);
     try {
-      const prompt = buildDraftPrompt(def, subs, run, idx, step);
+      const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
       const text = await generateDraft(prompt, {
         workflowId: def.id,
         stepId: step.id,
         subject: subjectName,
       });
       if (!text) throw new Error("Empty response");
-      writeOutput(step.id, target.id, text, { generated: true });
+      const parsed = parseDraft(target, text);
+      if (!parsed.ok) {
+        setGenError({ stepId: step.id, message: parsed.error });
+        return;
+      }
+      const fn = target.validate && validators && validators[target.validate];
+      const message = fn ? fn(parsed.value, target) : null;
+      if (typeof message === "string") {
+        setGenError({ stepId: step.id, message: `Draft failed validation: ${message}` });
+        return;
+      }
+      writeOutput(step.id, target.id, parsed.value, { generated: true });
     } catch (e) {
-      setGenError(step.id);
+      setGenError({ stepId: step.id, message: null });
+    } finally {
+      setGenerating(null);
     }
-    setGenerating(null);
   };
 
   /* ---------- file attach ---------- */
@@ -417,7 +441,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         .map((s) => ({ step: s, entry: getStepEntry(run, s.id) }))
         .filter(
           ({ step, entry }) =>
-            isStepComplete(step, entry, gateTypeOf(prevSub)) && stepHasAnyOutput(step, entry)
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators) && stepHasAnyOutput(step, entry)
         )
     : [];
 
@@ -432,7 +456,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const statusOf = (sub, step) => {
     const entry = getStepEntry(run, step.id);
-    if (isStepComplete(step, entry, gateTypeOf(sub))) return "done";
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators)) return "done";
     if (stepHasAnyOutput(step, entry)) return "draft";
     return "open";
   };
@@ -453,7 +477,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           {def.mainStages.map((ms, mi) => {
             /* Skip-aware: a stage whose remaining sub-stage gates are met
                reads done even when a skipped sub-stage's own gate is not. */
-            const allDone = mainGateProgress(ms, run).met;
+            const allDone = mainGateProgress(ms, run, { validators }).met;
             const stageLocked = mi > frontier;
             const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
             const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
@@ -515,6 +539,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
       <RunSidebar
         workflows={workflows}
         store={store}
+        validators={validators}
         collapsed={!sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onOpenRun={openRun}
@@ -529,6 +554,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         <RunsScreen
           workflows={workflows}
           store={store}
+          validators={validators}
           onOpenRun={openRun}
           onRename={doRename}
           onArchive={doArchive}
@@ -544,7 +570,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           if (Math.abs(pos) > 2) return null;
           const locked = sub.mainIndex > frontier;
           const center = pos === 0;
-          const p = gateProgress(sub, run);
+          const p = gateProgress(sub, run, { validators });
           const skipped = isSubStageSkipped(run, sub.id);
           const sideClickable = !center && Math.abs(pos) === 1 && sub.mainIndex <= frontier;
           return (
@@ -626,6 +652,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                 {sub.steps.map((step) => {
                   const entry = getStepEntry(run, step.id);
                   const status = statusOf(sub, step);
+                  const target = draftTarget(step);
                   const open = center && expanded === step.id;
                   return (
                     <div key={step.id} className={`pf-step pf-step-${status}`}>
@@ -660,7 +687,6 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
                           {(step.outputs || []).map((spec) => {
-                            const target = (step.outputs || []).find((o) => o.type === "text");
                             const isGenTarget = !!generateDraft && spec === target;
                             if (
                               isGenTarget &&
@@ -697,11 +723,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 </div>
                               );
                             }
+                            const outVal = (entry.outputs || {})[spec.id];
+                            const checkFn = spec.validate && validators && validators[spec.validate];
+                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec) : null;
                             return (
                               <OutputView
                                 key={spec.id}
                                 spec={spec}
-                                value={(entry.outputs || {})[spec.id]}
+                                value={outVal}
+                                invalid={typeof invalidMsg === "string" ? invalidMsg : null}
                                 onChange={(v) => writeOutput(step.id, spec.id, v)}
                                 onAttach={() => {
                                   attachFor.current = { stepId: step.id, outputId: spec.id };
@@ -714,12 +744,14 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             );
                           })}
 
-                          {genError === step.id && (
-                            <div className="pf-error">Generation failed. Check the connection and try again.</div>
+                          {genError && genError.stepId === step.id && (
+                            <div className="pf-error">
+                              {genError.message || "Generation failed. Check the connection and try again."}
+                            </div>
                           )}
 
                           <div className="pf-actions">
-                            {generateDraft && (step.outputs || []).some((o) => o.type === "text") && (
+                            {generateDraft && target && (
                               <button
                                 className="pf-btn"
                                 disabled={generating === step.id || readOnly}
@@ -729,10 +761,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                   <>
                                     <span className="pf-spinner pf-spinner-sm" aria-hidden="true" /> Generating…
                                   </>
-                                ) : hasValue(
-                                    (step.outputs || []).find((o) => o.type === "text"),
-                                    (entry.outputs || {})[(step.outputs || []).find((o) => o.type === "text").id]
-                                  ) ? (
+                                ) : hasValue(target, (entry.outputs || {})[target.id]) ? (
                                   "Regenerate"
                                 ) : (
                                   "Generate draft"
@@ -792,7 +821,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                         </span>
                       )}
                       {wasAdvanceForced(run, sub.mainIndex) &&
-                        !mainGateProgress(def.mainStages[sub.mainIndex], run).met && (
+                        !mainGateProgress(def.mainStages[sub.mainIndex], run, { validators }).met && (
                           <span className="pf-gate-state pf-gate-forced">Advanced with open steps</span>
                         )}
                     </>

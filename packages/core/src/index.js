@@ -12,6 +12,11 @@
  *    - Any output spec may carry an optional render hint:
  *      render: { kind, options }. kind is a free string resolved by the
  *      UI layer's renderer registry; the engine never interprets it.
+ *    - Any output spec may carry an optional validate: "<name>", a
+ *      free string resolved against a consumer-supplied validators map
+ *      { [name]: (value, spec) => string | null }. A returned string
+ *      is the problem message. Validators are pure, never persisted,
+ *      and unresolvable names mean unvalidated.
  *    - SubStage gate: { type: "hybrid" | "strict" }
  *      hybrid: a step is complete when it has any output OR is marked
  *      done. strict: it must be explicitly marked done.
@@ -34,6 +39,9 @@
  *    draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
+ *    Draft generation targets draftTarget(step): the first text
+ *    output, else the first data output; parseDraft turns the raw
+ *    reply into a storable value (strict JSON for data targets).
  *
  * Every function here is pure: state in, new state out.
  */
@@ -55,6 +63,7 @@
  * @property {string} [label]
  * @property {FieldSpec[]} [fields]
  * @property {RenderHint} [render]
+ * @property {string} [validate] Validator name resolved against a consumer-supplied validators map.
  */
 /**
  * @typedef {Object} Step
@@ -230,6 +239,11 @@ export function validateDefinition(definition) {
                 problems.push(`step "${st.id}": render.options must be an object`);
             }
           }
+          if (
+            o.validate !== undefined &&
+            (typeof o.validate !== "string" || !o.validate.trim())
+          )
+            problems.push(`step "${st.id}": validate must be a non-empty string`);
         });
       });
     });
@@ -426,15 +440,44 @@ export function stepHasAnyOutput(step, entry) {
 }
 
 /**
+ * First invalid present output of a step, or null. An output is invalid
+ * when it names a validator (`spec.validate`), the validators map
+ * resolves the name, the value is present (`hasValue`), and the
+ * validator returns a string message. Validators must be pure and must
+ * not throw; the engine does not catch.
+ * @param {Step} step
+ * @param {StepEntry} entry
+ * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
+ * @returns {{ spec: OutputSpec, message: string } | null}
+ */
+function firstInvalidOutput(step, entry, validators) {
+  if (!validators) return null;
+  for (const spec of step.outputs || []) {
+    const fn = spec.validate && validators[spec.validate];
+    if (!fn) continue;
+    const val = (entry.outputs || {})[spec.id];
+    if (!hasValue(spec, val)) continue;
+    const message = fn(val, spec);
+    if (typeof message === "string") return { spec, message };
+  }
+  return null;
+}
+
+/**
  * Is a step complete under a gate type?
  * hybrid: explicit done OR (not reopened AND any output value).
  * strict: explicit done only.
+ * Either way, a present output value whose named validator rejects it
+ * makes the step incomplete; a done flag cannot bless invalid data
+ * (the advance force override remains the escape hatch).
  * @param {Step} step
  * @param {StepEntry} entry
  * @param {"hybrid"|"strict"} [gateType]
+ * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
  * @returns {boolean}
  */
-export function isStepComplete(step, entry, gateType = "hybrid") {
+export function isStepComplete(step, entry, gateType = "hybrid", validators) {
+  if (firstInvalidOutput(step, entry, validators)) return false;
   if (gateType === "strict") return !!entry.checkedDone;
   if (entry.checkedDone) return true;
   return !entry.reopened && stepHasAnyOutput(step, entry);
@@ -450,21 +493,31 @@ export function gateTypeOf(subStage) {
 
 /**
  * Progress of a sub-stage's gate.
- * Returns { met, done, total, gateType, missing: [step names] }.
+ * Returns { met, done, total, gateType, missing }. A missing entry is
+ * the step name, or "name: message" when the step is incomplete
+ * because a present output failed its named validator.
  * @param {SubStage} subStage
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {GateProgress}
  */
-export function gateProgress(subStage, run) {
+export function gateProgress(subStage, run, { validators } = {}) {
   const gateType = gateTypeOf(subStage);
   const required = (subStage.steps || []).filter((s) => s.required);
-  const missing = required.filter((s) => !isStepComplete(s, getStepEntry(run, s.id), gateType));
+  /** @type {string[]} */
+  const missing = [];
+  required.forEach((s) => {
+    const entry = getStepEntry(run, s.id);
+    if (isStepComplete(s, entry, gateType, validators)) return;
+    const invalid = firstInvalidOutput(s, entry, validators);
+    missing.push(invalid ? `${s.name}: ${invalid.message}` : s.name);
+  });
   return {
     met: missing.length === 0,
     done: required.length - missing.length,
     total: required.length,
     gateType,
-    missing: missing.map((s) => s.name),
+    missing,
   };
 }
 
@@ -474,9 +527,10 @@ export function gateProgress(subStage, run) {
  * single-sub-stage main stages read as before.
  * @param {SubStage[]} subStagesOfMain
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
-function aggregateGate(subStagesOfMain, run) {
+function aggregateGate(subStagesOfMain, run, opts) {
   const multi = subStagesOfMain.length > 1;
   const active = subStagesOfMain.filter((ss) => !isSubStageSkipped(run, ss.id));
   let met = true;
@@ -485,7 +539,7 @@ function aggregateGate(subStagesOfMain, run) {
   /** @type {string[]} */
   const missing = [];
   active.forEach((ss) => {
-    const p = gateProgress(ss, run);
+    const p = gateProgress(ss, run, opts);
     met = met && p.met;
     done += p.done;
     total += p.total;
@@ -499,10 +553,11 @@ function aggregateGate(subStagesOfMain, run) {
  * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
-export function mainGateProgress(mainStage, run) {
-  return aggregateGate(mainStage.subStages, run);
+export function mainGateProgress(mainStage, run, opts) {
+  return aggregateGate(mainStage.subStages, run, opts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -561,10 +616,10 @@ export function jumpTo(run, subStages, index) {
  * a met gate records nothing.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
- * @param {{ force?: boolean }} [opts]
+ * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {AdvanceResult}
  */
-export function advance(run, subStages, { force = false } = {}) {
+export function advance(run, subStages, { force = false, validators } = {}) {
   const cur = subStages[run.idx];
   const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
   if (!cur || cur.mainIndex !== run.frontier || run.frontier >= maxMain) {
@@ -572,7 +627,8 @@ export function advance(run, subStages, { force = false } = {}) {
   }
   const progress = aggregateGate(
     subStages.filter((s) => s.mainIndex === run.frontier),
-    run
+    run,
+    { validators }
   );
   if (!progress.met && !force) {
     return { run, advanced: false, missing: progress.missing };
@@ -612,11 +668,48 @@ export function resolveSubject(definition, run) {
 }
 
 /**
+ * The output spec draft generation writes into: the first "text"
+ * output, else the first "data" output, else null. The UI and the
+ * prompt builder share this single definition of the target.
+ * @param {Step} step
+ * @returns {OutputSpec|null}
+ */
+export function draftTarget(step) {
+  const outputs = step.outputs || [];
+  return outputs.find((o) => o.type === "text") || outputs.find((o) => o.type === "data") || null;
+}
+
+/**
+ * Turn a raw LLM reply into a storable value for a draft target.
+ * Text targets pass through unchanged. Data targets are trimmed,
+ * stripped of one surrounding markdown code fence when present, then
+ * parsed as strict JSON. Success: { ok: true, value }. Failure:
+ * { ok: false, error } and no value.
+ * @param {OutputSpec} spec
+ * @param {string} text
+ * @returns {{ ok: boolean, value?: any, error?: string }}
+ */
+export function parseDraft(spec, text) {
+  if (spec.type !== "data") return { ok: true, value: text };
+  let body = String(text).trim();
+  const fence = body.match(/^```[A-Za-z0-9_-]*\s*\n([\s\S]*?)\n?```$/);
+  if (fence) body = fence[1].trim();
+  try {
+    return { ok: true, value: JSON.parse(body) };
+  } catch (e) {
+    return { ok: false, error: `Draft is not valid JSON: ${e.message}` };
+  }
+}
+
+/**
  * Serialize one step's outputs into a labeled text block, or null if empty.
  * @param {FlatSubStage} subStage
  * @param {Step} step
  * @param {Run} run
- * @param {{ maxChars?: number }} [opts]
+ * @param {{ maxChars?: number }} [opts] Block budget in characters,
+ *   default 2500; Infinity disables truncation. The budget is the
+ *   single truncation point (no per-part caps); a truncated block ends
+ *   with a "[truncated]" line.
  * @returns {string|null}
  */
 export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
@@ -635,14 +728,15 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
           .join("\n")
       );
     if (spec.type === "file")
-      parts.push(`Attached file: ${val.name}\n${(val.content || "").slice(0, 2000)}`);
+      parts.push(`Attached file: ${val.name}\n${val.content || ""}`);
     if (spec.type === "data")
-      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val).slice(0, 2000)}`);
+      parts.push(`${spec.label || "Data"}:\n${JSON.stringify(val)}`);
   });
   if (!parts.length) return null;
-  return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${parts
-    .join("\n")
-    .slice(0, maxChars)}`;
+  const joined = parts.join("\n");
+  const body =
+    joined.length > maxChars ? `${joined.slice(0, maxChars)}\n[truncated]` : joined;
+  return `### ${subStage.mainName} / ${subStage.name} / ${step.name}\n${body}`;
 }
 
 /**
@@ -658,9 +752,11 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * @param {Run} run
  * @param {number} flatIdx
  * @param {string} [excludeStepId]
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ *   maxCharsPerStep forwards as serializeStep's maxChars (default 2500).
  * @returns {string}
  */
-export function buildContext(subStages, run, flatIdx, excludeStepId) {
+export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
   const cur = subStages[flatIdx];
   const curMain = cur ? cur.mainIndex : 0;
   const blocks = [];
@@ -670,8 +766,8 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
-      if (!isStepComplete(step, getStepEntry(run, step.id), gateType)) return;
-      const block = serializeStep(sub, step, run);
+      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators)) return;
+      const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
   });
@@ -679,19 +775,28 @@ export function buildContext(subStages, run, flatIdx, excludeStepId) {
 }
 
 /**
- * Build a provider-agnostic prompt for drafting a step's text output.
+ * Build a provider-agnostic prompt for drafting a step's output (the
+ * draftTarget: first text output, else first data output, whose type
+ * shapes the closing response instruction).
  * Pass the result to any LLM; the engine does not call one itself.
  * @param {Definition} definition
  * @param {FlatSubStage[]} subStages
  * @param {Run} run
  * @param {number} subIdx
  * @param {Step} step
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ *   Forwarded to buildContext.
  * @returns {string}
  */
-export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
+export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
   const subStage = subStages[subIdx];
   const subject = resolveSubject(definition, run);
-  const ctx = buildContext(subStages, run, subIdx, step.id);
+  const ctx = buildContext(subStages, run, subIdx, step.id, opts);
+  const target = draftTarget(step);
+  const closing =
+    target && target.type === "data"
+      ? "Respond with valid JSON only: no preamble, no code fences, no commentary."
+      : `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`;
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
     `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
@@ -699,7 +804,7 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step) {
       ? `Outputs produced so far:\n\n${ctx}`
       : `No prior outputs exist yet; produce a strong first draft from general best practice.`,
     `Task: ${step.aiPrompt || `Draft the output for the step "${step.name}".`}`,
-    `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`,
+    closing,
   ].join("\n\n");
 }
 
@@ -889,11 +994,12 @@ export function deleteRun(store, runId) {
  * met. Skipped sub-stages are excluded from both counts.
  * @param {Definition} definition
  * @param {Run} run
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
  * @returns {{ met: number, total: number }}
  */
-export function runSummary(definition, run) {
+export function runSummary(definition, run, opts) {
   const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
-  return { met: subs.filter((ss) => gateProgress(ss, run).met).length, total: subs.length };
+  return { met: subs.filter((ss) => gateProgress(ss, run, opts).met).length, total: subs.length };
 }
 
 /*
@@ -902,6 +1008,11 @@ export function runSummary(definition, run) {
  * string never becomes a display name), else "Run N" by creation order
  * among the workflow's entries. N can shift after deletions; accepted
  * pre-launch.
+ * Deliberate asymmetry with resolveSubject (#50): a skipped subject
+ * sub-stage makes resolveSubject fall back (content channels must not
+ * leak not-applicable values), but the display name keeps the typed
+ * subject; it identifies the run, and renaming runs on skip would
+ * destabilize the runs list.
  */
 /**
  * @param {Definition} definition

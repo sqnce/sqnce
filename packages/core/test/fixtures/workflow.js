@@ -3,7 +3,8 @@
  * docs/specs/34-definitions-decoupling.md. Coverage floor: two main
  * stages, three sub-stages, both gate types, a skippable sub-stage,
  * all five output types,
- * a render hint, a subject with field and fallback, required steps,
+ * a render hint, a validated output (`validate`), a subject with field
+ * and fallback, required steps,
  * a checklist step, and an aiPrompt. Engine behavior tests assert
  * against this content, never against bundled definitions.
  */
@@ -31,6 +32,7 @@ export const FIXTURE = {
                   id: "facts",
                   type: "fields",
                   label: "Facts",
+                  validate: "facts",
                   fields: [
                     { key: "client", label: "Client" },
                     { key: "industry", label: "Industry" },

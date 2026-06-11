@@ -19,6 +19,8 @@ import {
   resolveSubject,
   buildContext,
   buildDraftPrompt,
+  draftTarget,
+  parseDraft,
   hasValue,
   serializeStep,
   reopenStep,
@@ -34,6 +36,11 @@ import { FIXTURE } from "./fixtures/workflow.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const defsDir = join(here, "..", "..", "..", "definitions");
+
+/* Resolves the fixture's validate: "facts" name in validator tests. */
+const FACTS_VALIDATORS = {
+  facts: (value) => (String(value.client || "").trim() ? null : "Client name missing"),
+};
 
 test("all bundled definitions validate", () => {
   const names = readdirSync(defsDir).filter((n) => n.endsWith(".json"));
@@ -235,6 +242,26 @@ test("buildDraftPrompt carries sibling context and the step task", () => {
   assert.match(prompt, /Summarize the evidence\./);
 });
 
+test("maxCharsPerStep threads from buildDraftPrompt and buildContext to serializeStep", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Acme", industry: "x".repeat(4000) });
+  const summary = subs[1].steps.find((s) => s.id === "summary");
+
+  const capped = buildContext(subs, run, 1, "summary");
+  assert.ok(capped.includes("[truncated]"), "default budget truncates the long block");
+
+  const full = buildContext(subs, run, 1, "summary", { maxCharsPerStep: Infinity });
+  assert.ok(full.includes("x".repeat(4000)), "Infinity budget passes the block whole");
+  assert.ok(!full.includes("[truncated]"));
+
+  const prompt = buildDraftPrompt(FIXTURE, subs, run, 1, summary, { maxCharsPerStep: Infinity });
+  assert.ok(prompt.includes("x".repeat(4000)), "the option reaches the prompt");
+
+  const defaultPrompt = buildDraftPrompt(FIXTURE, subs, run, 1, summary);
+  assert.ok(defaultPrompt.includes("[truncated]"), "omitting the option keeps the default budget");
+});
+
 test("hasValue treats empty values as absent across output types", () => {
   assert.equal(hasValue({ type: "text" }, "   "), false);
   assert.equal(hasValue({ type: "text" }, "x"), true);
@@ -312,7 +339,7 @@ test("hasValue for data outputs", () => {
   assert.equal(hasValue(spec, 0), true);
 });
 
-test("serializeStep serializes data outputs as capped JSON", () => {
+test("serializeStep truncates at maxChars with a marker, inner caps removed", () => {
   const sub = { mainName: "M", name: "S" };
   const step = { id: "st", name: "Step", outputs: [{ id: "o", type: "data", label: "Inventory" }] };
   let run = createRun();
@@ -320,9 +347,28 @@ test("serializeStep serializes data outputs as capped JSON", () => {
   const block = serializeStep(sub, step, run);
   assert.ok(block.includes("Inventory:"));
   assert.ok(block.includes('{"tables":[{"name":"Account"}]}'));
+  assert.ok(!block.includes("[truncated]"));
+
   run = setOutput(run, "st", "o", { big: "x".repeat(5000) });
   const capped = serializeStep(sub, step, run);
-  assert.ok(capped.length < 2700);
+  assert.ok(capped.endsWith("\n[truncated]"));
+  assert.ok(capped.length < 2600);
+
+  const unlimited = serializeStep(sub, step, run, { maxChars: Infinity });
+  assert.ok(unlimited.includes("x".repeat(5000)), "Infinity disables truncation entirely");
+  assert.ok(!unlimited.includes("[truncated]"));
+
+  const tight = serializeStep(sub, step, run, { maxChars: 10 });
+  assert.ok(tight.endsWith("\n[truncated]"));
+});
+
+test("serializeStep no longer inner-caps file content", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "Step", outputs: [{ id: "f", type: "file", label: "Doc" }] };
+  let run = createRun();
+  run = setOutput(run, "st", "f", { name: "big.txt", content: "y".repeat(3000) });
+  const block = serializeStep(sub, step, run, { maxChars: Infinity });
+  assert.ok(block.includes("y".repeat(3000)), "file content above 2000 chars survives a big budget");
 });
 
 test("reopenStep suppresses content completion under a hybrid gate", () => {
@@ -661,4 +707,131 @@ test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
       p.includes('duplicate sub-stage id "s"')
     )
   );
+});
+
+test("an invalid present output makes its step incomplete, done flag included", () => {
+  const step = FIXTURE.mainStages[0].subStages[0].steps[0]; // intake
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  const entry = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, entry, "hybrid"), true, "without validators: unchanged");
+  assert.equal(isStepComplete(step, entry, "hybrid", FACTS_VALIDATORS), false);
+
+  run = setCheckedDone(run, "intake", true);
+  const done = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, done, "hybrid", FACTS_VALIDATORS), false, "done cannot bless invalid");
+  assert.equal(isStepComplete(step, done, "strict", FACTS_VALIDATORS), false, "strict too");
+
+  run = setOutput(run, "intake", "facts", { client: "Acme" });
+  const fixed = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, fixed, "hybrid", FACTS_VALIDATORS), true);
+});
+
+test("validators run only on present values and only when resolvable", () => {
+  const step = FIXTURE.mainStages[0].subStages[0].steps[0]; // intake
+  let calls = 0;
+  const counting = { facts: () => { calls += 1; return "always invalid"; } };
+
+  const empty = getStepEntry(createRun(), "intake");
+  assert.equal(isStepComplete(step, empty, "hybrid", counting), false, "incomplete for emptiness, not validity");
+  assert.equal(calls, 0, "no value, validator never runs");
+
+  const run = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  const entry = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, entry, "hybrid", { other: () => "nope" }), true, "unresolvable name: unvalidated");
+  assert.equal(isStepComplete(step, entry, "hybrid", {}), true, "empty map: unvalidated");
+});
+
+test("gateProgress reports invalid outputs as unmet with the validator message", () => {
+  const start = FIXTURE.mainStages[0].subStages[0];
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  run = setCheckedDone(run, "kickoff", true);
+
+  const without = gateProgress(start, run);
+  assert.equal(without.met, true, "no validators: unchanged");
+
+  const p = gateProgress(start, run, { validators: FACTS_VALIDATORS });
+  assert.equal(p.met, false);
+  assert.equal(p.done, 1);
+  assert.deepEqual(p.missing, ["Intake: Client name missing"]);
+});
+
+test("validators thread through the boundary gate, advance, and runSummary", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  run = setCheckedDone(run, "kickoff", true);
+  run = skipSubStage(run, subs, "collect");
+
+  const main = mainGateProgress(FIXTURE.mainStages[0], run, { validators: FACTS_VALIDATORS });
+  assert.equal(main.met, false);
+  assert.deepEqual(main.missing, ["Start: Intake: Client name missing"]);
+
+  const blocked = advance(run, subs, { validators: FACTS_VALIDATORS });
+  assert.equal(blocked.advanced, false);
+  assert.deepEqual(blocked.missing, ["Start: Intake: Client name missing"]);
+
+  const forced = advance(run, subs, { force: true, validators: FACTS_VALIDATORS });
+  assert.equal(forced.advanced, true);
+  assert.equal(wasAdvanceForced(forced.run, 0), true, "force past invalid records the marker");
+
+  const plain = advance(run, subs, {});
+  assert.equal(plain.advanced, true, "without validators the gate is met");
+  assert.equal(wasAdvanceForced(plain.run, 0), false);
+
+  const sum = runSummary(FIXTURE, run, { validators: FACTS_VALIDATORS });
+  assert.equal(sum.met, 0);
+  assert.equal(runSummary(FIXTURE, run).met, 1, "no validators: unchanged");
+});
+
+test("buildContext excludes steps made incomplete by invalid outputs", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Acme" });
+  assert.ok(buildContext(subs, run, 0, "kickoff", { validators: FACTS_VALIDATORS }).includes("Acme"));
+
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  assert.equal(buildContext(subs, run, 0, "kickoff", { validators: FACTS_VALIDATORS }), "");
+  assert.ok(buildContext(subs, run, 0, "kickoff").includes("Retail"), "no validators: included");
+});
+
+test("validateDefinition checks the validate field", () => {
+  const def = JSON.parse(JSON.stringify(FIXTURE));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = "";
+  assert.ok(validateDefinition(def).some((p) => p.includes("validate")));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = 7;
+  assert.ok(validateDefinition(def).some((p) => p.includes("validate")));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = "anything-goes";
+  assert.deepEqual(validateDefinition(def), [], "names are never whitelisted");
+});
+
+test("draftTarget picks the first text output, else the first data output", () => {
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "data" }, { id: "b", type: "text" }] }).id, "b");
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "data" }, { id: "c", type: "data" }] }).id, "a");
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "fields", fields: [] }] }), null);
+  assert.equal(draftTarget({ id: "s" }), null);
+});
+
+test("parseDraft passes text through and parses data strictly with fence tolerance", () => {
+  const text = { id: "o", type: "text" };
+  assert.deepEqual(parseDraft(text, "  raw draft  "), { ok: true, value: "  raw draft  " });
+
+  const data = { id: "o", type: "data" };
+  assert.deepEqual(parseDraft(data, '[{"a":1}]'), { ok: true, value: [{ a: 1 }] });
+  assert.deepEqual(parseDraft(data, '```json\n[{"a":1}]\n```'), { ok: true, value: [{ a: 1 }] });
+  assert.deepEqual(parseDraft(data, '```\n{"a":1}\n```'), { ok: true, value: { a: 1 } });
+
+  const bad = parseDraft(data, "here is your JSON: [1]");
+  assert.equal(bad.ok, false);
+  assert.ok(bad.error.startsWith("Draft is not valid JSON:"));
+});
+
+test("buildDraftPrompt instructs JSON-only replies for data targets", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = createRun();
+  const inventory = subs[1].steps.find((s) => s.id === "inventory");
+  const summary = subs[1].steps.find((s) => s.id === "summary");
+  assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, inventory).includes("Respond with valid JSON only"));
+  assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, summary).includes("Respond with the draft output only"));
 });

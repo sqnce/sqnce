@@ -34,6 +34,21 @@ const DRAFTS = {
     `Grocery list for ${s}: Produce: peppers x3, onions x2, limes x4, basil, cucumbers x2, scallions. Meat and fish: chicken thighs 2 lb, ground beef 1 lb, salmon 4 fillets. Dry: pasta, rice, white beans x2 cans, burger buns. Dairy: butter, cheddar slices, yogurt. Pantry check last: gochujang, pesto, pickling vinegar, oil.`,
   "meal-prep-notes": (s) =>
     `Sunday prep for ${s}: marinate the fajita chicken; mix the gochujang sauce (keeps 7 days); quick-pickle the cucumbers; cook a double batch of rice and refrigerate flat; wash and dry the basil. Leave the salmon untouched until Friday. Total time: about 50 minutes with the rice unattended.`,
+  requirements: () =>
+    JSON.stringify([
+      { id: "R1", requirement: "Single sign-on via the customer's identity provider", type: "non-functional", priority: "must" },
+      { id: "R2", requirement: "Case intake form with file attachments", type: "functional", priority: "must" },
+      { id: "R3", requirement: "Automated assignment by region and workload", type: "functional", priority: "should" },
+      { id: "R4", requirement: "Monthly volume and SLA reporting", type: "functional", priority: "should" },
+    ]),
+  "win-themes": (s) =>
+    "```json\n" +
+    JSON.stringify([
+      { name: "Fastest time to value", purpose: `Lead with the six-week pilot plan for ${s}.` },
+      { name: "Platform consolidation", purpose: "One license replaces three point tools." },
+      { name: "Local delivery team", purpose: "Named consultants the customer already met." },
+    ]) +
+    "\n```",
 };
 
 const FALLBACK = (s) =>
