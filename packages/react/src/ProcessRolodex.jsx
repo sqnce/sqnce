@@ -412,7 +412,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setRun(makeInitialRun(activeId));
   };
 
-  const prevDoneBlocks = prevSub
+  const prevDoneBlocks = prevSub && !isSubStageSkipped(run, prevSub.id)
     ? prevSub.steps
         .map((s) => ({ step: s, entry: getStepEntry(run, s.id) }))
         .filter(
