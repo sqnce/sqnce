@@ -35,6 +35,11 @@ import { FIXTURE } from "./fixtures/workflow.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const defsDir = join(here, "..", "..", "..", "definitions");
 
+/* Resolves the fixture's validate: "facts" name in validator tests. */
+const FACTS_VALIDATORS = {
+  facts: (value) => (String(value.client || "").trim() ? null : "Client name missing"),
+};
+
 test("all bundled definitions validate", () => {
   const names = readdirSync(defsDir).filter((n) => n.endsWith(".json"));
   assert.ok(names.length > 0, "definitions/ contains no .json files");
@@ -700,4 +705,37 @@ test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
       p.includes('duplicate sub-stage id "s"')
     )
   );
+});
+
+test("an invalid present output makes its step incomplete, done flag included", () => {
+  const step = FIXTURE.mainStages[0].subStages[0].steps[0]; // intake
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { industry: "Retail" });
+  const entry = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, entry, "hybrid"), true, "without validators: unchanged");
+  assert.equal(isStepComplete(step, entry, "hybrid", FACTS_VALIDATORS), false);
+
+  run = setCheckedDone(run, "intake", true);
+  const done = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, done, "hybrid", FACTS_VALIDATORS), false, "done cannot bless invalid");
+  assert.equal(isStepComplete(step, done, "strict", FACTS_VALIDATORS), false, "strict too");
+
+  run = setOutput(run, "intake", "facts", { client: "Acme" });
+  const fixed = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, fixed, "hybrid", FACTS_VALIDATORS), true);
+});
+
+test("validators run only on present values and only when resolvable", () => {
+  const step = FIXTURE.mainStages[0].subStages[0].steps[0]; // intake
+  let calls = 0;
+  const counting = { facts: () => { calls += 1; return "always invalid"; } };
+
+  const empty = getStepEntry(createRun(), "intake");
+  assert.equal(isStepComplete(step, empty, "hybrid", counting), false, "incomplete for emptiness, not validity");
+  assert.equal(calls, 0, "no value, validator never runs");
+
+  const run = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  const entry = getStepEntry(run, "intake");
+  assert.equal(isStepComplete(step, entry, "hybrid", { other: () => "nope" }), true, "unresolvable name: unvalidated");
+  assert.equal(isStepComplete(step, entry, "hybrid", {}), true, "empty map: unvalidated");
 });

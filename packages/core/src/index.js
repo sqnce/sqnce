@@ -55,6 +55,7 @@
  * @property {string} [label]
  * @property {FieldSpec[]} [fields]
  * @property {RenderHint} [render]
+ * @property {string} [validate] Validator name resolved against a consumer-supplied validators map.
  */
 /**
  * @typedef {Object} Step
@@ -426,15 +427,44 @@ export function stepHasAnyOutput(step, entry) {
 }
 
 /**
+ * First invalid present output of a step, or null. An output is invalid
+ * when it names a validator (`spec.validate`), the validators map
+ * resolves the name, the value is present (`hasValue`), and the
+ * validator returns a string message. Validators must be pure and must
+ * not throw; the engine does not catch.
+ * @param {Step} step
+ * @param {StepEntry} entry
+ * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
+ * @returns {{ spec: OutputSpec, message: string } | null}
+ */
+function firstInvalidOutput(step, entry, validators) {
+  if (!validators) return null;
+  for (const spec of step.outputs || []) {
+    const fn = spec.validate && validators[spec.validate];
+    if (!fn) continue;
+    const val = (entry.outputs || {})[spec.id];
+    if (!hasValue(spec, val)) continue;
+    const message = fn(val, spec);
+    if (typeof message === "string") return { spec, message };
+  }
+  return null;
+}
+
+/**
  * Is a step complete under a gate type?
  * hybrid: explicit done OR (not reopened AND any output value).
  * strict: explicit done only.
+ * Either way, a present output value whose named validator rejects it
+ * makes the step incomplete; a done flag cannot bless invalid data
+ * (the advance force override remains the escape hatch).
  * @param {Step} step
  * @param {StepEntry} entry
  * @param {"hybrid"|"strict"} [gateType]
+ * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
  * @returns {boolean}
  */
-export function isStepComplete(step, entry, gateType = "hybrid") {
+export function isStepComplete(step, entry, gateType = "hybrid", validators) {
+  if (firstInvalidOutput(step, entry, validators)) return false;
   if (gateType === "strict") return !!entry.checkedDone;
   if (entry.checkedDone) return true;
   return !entry.reopened && stepHasAnyOutput(step, entry);
