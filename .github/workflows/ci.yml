@@ -18,3 +18,42 @@ jobs:
       - run: npm run types
       - run: npm test
       - run: npm run build -w examples/demo
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Pack both packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs"
+          npm pack -w packages/core -w packages/react --pack-destination "$RUNNER_TEMP/tarballs"
+      - name: Assert tarball contents
+        run: |
+          set -euo pipefail
+          tarballs=("$RUNNER_TEMP"/tarballs/*.tgz)
+          [ ${#tarballs[@]} -eq 2 ] || { echo "expected 2 tarballs, found ${#tarballs[@]}"; exit 1; }
+          for t in "${tarballs[@]}"; do
+            echo "== $t"
+            files=$(tar -tzf "$t")
+            echo "$files"
+            for required in package/package.json package/LICENSE package/README.md package/types/index.d.ts; do
+              echo "$files" | grep -qx "$required" || { echo "missing $required in $t"; exit 1; }
+            done
+            echo "$files" | grep -q "^package/src/" || { echo "missing src/ in $t"; exit 1; }
+            if echo "$files" | grep -q "^package/test/"; then echo "test/ leaked into $t"; exit 1; fi
+          done
+      - name: Install tarballs into a scratch consumer and bundle
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer"
+          cd "$consumer"
+          npm init -y
+          npm install "$RUNNER_TEMP"/tarballs/*.tgz react react-dom esbuild --no-audit --no-fund
+          node -e "import('@sqnce/core').then(m => { if (typeof m.createRun !== 'function') process.exit(1); })"
+          printf 'import { ProcessRolodex } from "@sqnce/react";\nconsole.log(typeof ProcessRolodex);\n' > entry.jsx
+          npx esbuild entry.jsx --bundle --format=esm --external:react --external:react-dom --outfile=/dev/null
