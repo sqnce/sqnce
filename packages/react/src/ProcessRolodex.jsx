@@ -41,6 +41,7 @@ import OutputView from "./OutputView.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
+import OverviewModal from "./OverviewModal.jsx";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -190,6 +191,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const [showInputs, setShowInputs] = useState(false);
   const [view, setView] = useState("rolodex");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const fileRef = useRef(null);
   const attachFor = useRef(null);
   const saveTimer = useRef(null);
@@ -301,6 +303,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setGenError(null);
     setShowInputs(false);
     setManualEdit([]);
+    setOverviewOpen(false);
   };
 
   const doBrowse = (dir) => {
@@ -347,6 +350,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   useEffect(() => {
     const onKey = (e) => {
+      if (overviewOpen) return;
       if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
       if (e.key === "ArrowLeft") doBrowse(-1);
       if (e.key === "ArrowRight") doBrowse(1);
@@ -505,6 +509,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               activeId={activeId}
               onSwitch={switchWorkflow}
             />
+          )}
+          {view === "rolodex" && (
+            <button
+              className="pf-reset"
+              onClick={() => setOverviewOpen(true)}
+              title="About this process"
+            >
+              About
+            </button>
           )}
           <button
             className="pf-reset"
@@ -882,6 +895,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
       </div>
       </div>
+      {overviewOpen && (
+        <OverviewModal
+          def={def}
+          run={run}
+          subs={subs}
+          idx={idx}
+          frontier={frontier}
+          validators={validators}
+          onClose={() => setOverviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1248,6 +1272,32 @@ const CSS = `
 .pf-md code { background: #EFEBDD; border-radius: 3px; padding: 0 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.92em; }
 .pf-md-pre code { background: none; padding: 0; }
 .pf-md table { margin: 8px 0; }
+
+/* ---------- overview modal ---------- */
+.pf-ov { max-width: 760px; margin: 0 auto; width: 100%; }
+.pf-ov-name { margin: 6px 0 2px; font-size: 24px; }
+.pf-ov-short { margin: 0 0 6px; color: #5E6772; font-size: 14px; }
+.pf-ov-heading { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #7A6A3C; margin: 22px 0 8px; }
+.pf-ov-rules { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; line-height: 1.5; }
+.pf-ov-stages-head { display: flex; align-items: baseline; justify-content: space-between; }
+.pf-ov-progress { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5E6772; }
+.pf-ov-stage { border: 1px solid #D8D3C2; border-radius: 8px; background: #FFFFFF; padding: 10px 14px; margin: 0 0 10px; }
+.pf-ov-stage-active { border-color: #D9A441; box-shadow: 0 0 0 1px #D9A441; }
+.pf-ov-stage-row { display: flex; align-items: center; gap: 8px; }
+.pf-ov-glyph {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid #23282F; font-family: 'IBM Plex Mono', monospace;
+}
+.pf-ov-stage-name { font-weight: 600; font-size: 14px; }
+.pf-ov-forced { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #D9A441; margin-left: auto; }
+.pf-ov-sub { padding: 7px 0 0 26px; }
+.pf-ov-sub-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pf-ov-sub-name { font-size: 13px; font-weight: 500; }
+.pf-ov-gate { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #8A8E96; }
+.pf-ov-status { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #5E6772; }
+.pf-ov-here { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #23282F; background: #D9A441; border-radius: 4px; padding: 1px 7px; }
+.pf-ov-sub-desc { margin: 3px 0 0; font-size: 12.5px; color: #5E6772; line-height: 1.45; }
 
 @media (max-width: 720px) {
   .pf-card-side { display: none; }
