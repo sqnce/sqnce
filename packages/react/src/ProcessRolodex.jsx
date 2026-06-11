@@ -15,6 +15,10 @@ import {
   browse as coreBrowse,
   jumpTo,
   advance as coreAdvance,
+  skipSubStage,
+  unskipSubStage,
+  isSubStageSkipped,
+  wasAdvanceForced,
   resolveSubject,
   serializeStep,
   buildDraftPrompt,
@@ -352,6 +356,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     if (readOnly) return;
     setRun(reopenStep(run, stepId));
   };
+  /* setRun, not setNav: a skip changes gate state, so it bumps
+     updatedAt and is blocked on archived runs. */
+  const toggleSkip = (subStageId, skipped) => {
+    if (readOnly) return;
+    setExpanded(null);
+    setRun(
+      skipped ? unskipSubStage(run, subs, subStageId) : skipSubStage(run, subs, subStageId)
+    );
+  };
 
   /* ---------- draft generation ---------- */
   const generate = async (sub, step) => {
@@ -530,11 +543,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           const locked = sub.mainIndex > frontier;
           const center = pos === 0;
           const p = gateProgress(sub, run);
+          const skipped = isSubStageSkipped(run, sub.id);
           const sideClickable = !center && Math.abs(pos) === 1 && sub.mainIndex <= frontier;
           return (
             <div
               key={sub.id}
-              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""} ${sideClickable ? "pf-card-clickable" : ""}`}
+              className={`pf-card ${center ? "pf-card-center" : "pf-card-side"} ${locked ? "pf-card-locked" : ""} ${sideClickable ? "pf-card-clickable" : ""} ${skipped ? "pf-card-skipped" : ""}`}
               style={{
                 transform: `translateX(calc(-50% + ${pos * 420}px)) rotateY(${pos * -24}deg) scale(${center ? 1 : 0.82})`,
                 opacity: Math.abs(pos) === 2 ? 0 : center ? 1 : 0.38,
@@ -564,7 +578,9 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   {sub.mainName.toUpperCase()} · S{sub.subIndex + 1}
                 </span>
                 <span className="pf-card-count">
-                  {p.done}/{p.total} required{p.gateType === "strict" ? " · strict gate" : ""}
+                  {skipped
+                    ? "Skipped"
+                    : `${p.done}/${p.total} required${p.gateType === "strict" ? " · strict gate" : ""}`}
                 </span>
               </div>
               <div className="pf-card-title">{sub.name}</div>
@@ -614,7 +630,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                       <div className="pf-step-row">
                         <button
                           className={`pf-dot-btn pf-dot-${status}`}
-                          disabled={!center || readOnly}
+                          disabled={!center || readOnly || skipped}
                           title={status === "done" ? "Reopen" : "Mark done"}
                           aria-label={status === "done" ? `Reopen ${step.name}` : `Mark ${step.name} done`}
                           onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
@@ -623,7 +639,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                         </button>
                         <button
                           className="pf-step-expand"
-                          disabled={!center}
+                          disabled={!center || skipped}
                           onClick={() => setExpanded(open ? null : step.id)}
                         >
                           <span className="pf-step-name">
@@ -761,13 +777,32 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           </button>
                         ))}
                     </>
-                  ) : p.met ? (
-                    <span className="pf-gate-state pf-gate-met">✓ Gate met</span>
                   ) : (
-                    <span className="pf-gate-state">
-                      🔒 {p.total - p.done} required {p.total - p.done === 1 ? "step" : "steps"} left
-                      · Gate unmet: {p.missing.join(", ")}
-                    </span>
+                    <>
+                      {skipped ? (
+                        <span className="pf-gate-state">Skipped, not applicable</span>
+                      ) : p.met ? (
+                        <span className="pf-gate-state pf-gate-met">✓ Gate met</span>
+                      ) : (
+                        <span className="pf-gate-state">
+                          🔒 {p.total - p.done} required {p.total - p.done === 1 ? "step" : "steps"} left
+                          · Gate unmet: {p.missing.join(", ")}
+                        </span>
+                      )}
+                      {wasAdvanceForced(run, sub.mainIndex) &&
+                        !mainGateProgress(def.mainStages[sub.mainIndex], run).met && (
+                          <span className="pf-gate-state pf-gate-forced">Advanced with open steps</span>
+                        )}
+                    </>
+                  )}
+                  {sub.skippable && (
+                    <button
+                      className="pf-skip-btn"
+                      disabled={readOnly}
+                      onClick={() => toggleSkip(sub.id, skipped)}
+                    >
+                      {skipped ? "Restore" : "Mark not applicable"}
+                    </button>
                   )}
                 </div>
               )}
@@ -792,7 +827,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             {subs.map((s, i) => (
               <span
                 key={s.id}
-                className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${s.mainIndex > frontier ? "pf-pip-locked" : ""}`}
+                className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${s.mainIndex > frontier ? "pf-pip-locked" : ""} ${isSubStageSkipped(run, s.id) ? "pf-pip-skipped" : ""}`}
                 onClick={() => setNav(jumpTo(run, subs, i))}
               />
             ))}
@@ -1098,6 +1133,16 @@ const CSS = `
   text-decoration: underline; font-family: 'IBM Plex Mono', monospace;
 }
 .pf-override:hover { color: #D9A441; }
+.pf-skip-btn {
+  background: none; border: none; color: #8A919B; font-size: 12px; cursor: pointer;
+  text-decoration: underline; font-family: 'IBM Plex Mono', monospace;
+}
+.pf-skip-btn:hover:not(:disabled) { color: #D9A441; }
+.pf-skip-btn:disabled { opacity: 0.4; cursor: default; }
+.pf-gate-forced { color: #D9A441; }
+.pf-card-skipped .pf-card-desc, .pf-card-skipped .pf-inputs { opacity: 0.5; }
+.pf-card-skipped .pf-steps { opacity: 0.5; pointer-events: none; }
+.pf-pip-skipped { background: transparent; border: 1px solid #4A535E; box-sizing: border-box; }
 .pf-gate-hint { font-size: 11.5px; color: #8A919B; font-family: 'IBM Plex Mono', monospace; text-align: center; }
 .pf-legend { font-size: 11px; color: #5E6772; margin: 2px 0 0; text-align: center; }
 
