@@ -30,13 +30,13 @@ ENGINE (@sqnce/core, pure functions, zero dependencies)
 
 UI (@sqnce/react)
   Rolodex: active sub-stage centered, neighbors faded,
-  locked beyond the frontier, gated "Advance" with override
+  locked beyond the frontier main stage, gated "Advance" at stage boundaries with override
 ```
 
 Core concepts:
 
-- **Gate**: a sub-stage's required steps must be complete before the next sub-stage unlocks. Under a `hybrid` gate a step is complete when it has any output or is marked done; under `strict` it must be explicitly marked done. An "advance anyway" override is always available, so the gate guides rather than blocks.
-- **Frontier**: the furthest committed sub-stage. Browsing back through history never loses your place; advancing the frontier is a deliberate action.
+- **Gate**: each sub-stage declares how its steps complete (`hybrid`: any output or marked done; `strict`: explicitly marked done). The hard gate sits at the main-stage boundary: every required step in the stage must be complete before the next main stage unlocks. An "advance anyway" override is always available, so the gate guides rather than blocks.
+- **Frontier**: the furthest committed main stage. Sub-stages within it are freely navigable; browsing back through history never loses your place; advancing to the next main stage is a deliberate action.
 - **Output flow**: completed outputs from earlier sub-stages are serialized into context for later ones, including any LLM draft prompts.
 - **Subject**: each definition declares which field names the thing the process is about (the client, the role, the customer, the product) so generated drafts reference it by name.
 
