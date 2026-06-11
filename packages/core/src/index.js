@@ -20,7 +20,7 @@
  *
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
- *      reopened?, generated? } } }
+ *      reopened?, generated? } }, skips?, forces? }
  *    `idx` is the flat sub-stage index of the centered card. `frontier`
  *    is the index of the furthest committed MAIN stage: browsing moves
  *    freely through committed main stages (no commit between sibling
@@ -29,6 +29,11 @@
  *    `reopened` suppresses hybrid content-completion until the step is
  *    touched again. `generated` maps outputId -> true for values
  *    written by draft generation; any hand edit clears the mark.
+ *    `skips` maps sub-stage id -> true for sub-stages this run marked
+ *    not applicable: excluded from boundary gates, runSummary, and
+ *    draft context. `forces` maps main-stage index -> true when the
+ *    run advanced past that stage's unmet gate with the override.
+ *    Both maps are optional and absent when empty.
  *
  * Every function here is pure: state in, new state out.
  */
@@ -109,6 +114,8 @@
  * @property {number} idx
  * @property {number} frontier
  * @property {Object<string, StepEntry>} stepState
+ * @property {Object<string, true>} [skips]
+ * @property {Object<string, true>} [forces]
  */
 /**
  * @typedef {Object} GateProgress
@@ -326,6 +333,52 @@ export function reopenStep(run, stepId) {
     ...run,
     stepState: { ...run.stepState, [stepId]: { ...cur, checkedDone: false, reopened: true } },
   };
+}
+
+/**
+ * Was this sub-stage marked not applicable in this run?
+ * @param {Run} run
+ * @param {string} subStageId
+ * @returns {boolean}
+ */
+export function isSubStageSkipped(run, subStageId) {
+  return !!(run.skips && run.skips[subStageId]);
+}
+
+/**
+ * Mark a sub-stage not applicable. Returns a new run. No-op (the same
+ * run back) when the id is unknown, the sub-stage is not declared
+ * skippable, it lies beyond the frontier, or it is already skipped.
+ * Skipping never touches stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function skipSubStage(run, subStages, subStageId) {
+  const sub = subStages.find((s) => s.id === subStageId);
+  if (!sub || !sub.skippable || sub.mainIndex > run.frontier) return run;
+  if (isSubStageSkipped(run, subStageId)) return run;
+  return { ...run, skips: { ...run.skips, [subStageId]: true } };
+}
+
+/**
+ * Undo a skip. Returns a new run with the entry removed; the skips
+ * field is dropped entirely when it empties. No-op when the id is not
+ * currently skipped. Outputs and done flags survive untouched.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function unskipSubStage(run, subStages, subStageId) {
+  if (!isSubStageSkipped(run, subStageId)) return run;
+  /** @type {Object<string, true>} */
+  const skips = { ...run.skips };
+  delete skips[subStageId];
+  const next = { ...run, skips };
+  if (!Object.keys(skips).length) delete next.skips;
+  return next;
 }
 
 /* ------------------------------------------------------------------ */

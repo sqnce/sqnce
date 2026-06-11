@@ -23,6 +23,10 @@ import {
   serializeStep,
   reopenStep,
   isOutputGenerated,
+  stepHasAnyOutput,
+  skipSubStage,
+  unskipSubStage,
+  isSubStageSkipped,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 
@@ -449,6 +453,47 @@ test("a generated write clears the reopened flag", () => {
   run = setOutput(run, "summary", "out", "Regenerated.", { generated: true });
   assert.equal(getStepEntry(run, "summary").reopened, undefined);
   assert.equal(isStepComplete(summary, getStepEntry(run, "summary"), "hybrid"), true);
+});
+
+test("skipSubStage records only legal skips", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = createRun();
+  assert.equal(skipSubStage(run, subs, "nope"), run); // unknown id
+  assert.equal(skipSubStage(run, subs, "start"), run); // not skippable
+  const skipped = skipSubStage(run, subs, "collect");
+  assert.equal(isSubStageSkipped(skipped, "collect"), true);
+  assert.equal(isSubStageSkipped(skipped, "start"), false);
+  assert.equal(skipSubStage(skipped, subs, "collect"), skipped); // idempotent
+});
+
+test("skipping beyond the frontier is a no-op", () => {
+  const def = {
+    id: "d", name: "D",
+    mainStages: [
+      { id: "m1", subStages: [{ id: "a", name: "A", steps: [] }] },
+      { id: "m2", subStages: [{ id: "b", name: "B", skippable: true, steps: [] }] },
+    ],
+  };
+  const subs = flattenSubStages(def);
+  const run = createRun();
+  assert.equal(skipSubStage(run, subs, "b"), run); // m2 not committed yet
+  const committed = advance(run, subs, { force: true }).run;
+  assert.equal(isSubStageSkipped(skipSubStage(committed, subs, "b"), "b"), true);
+});
+
+test("unskip restores state and drops the empty map", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
+  assert.equal(unskipSubStage(run, subs, "collect"), run); // not skipped: no-op
+  run = skipSubStage(run, subs, "collect");
+  assert.equal(getStepEntry(run, "evidence").outputs.doc.name, "report.pdf"); // skip never touches stepState
+  run = unskipSubStage(run, subs, "collect");
+  assert.equal(isSubStageSkipped(run, "collect"), false);
+  assert.equal(run.skips, undefined); // absent when empty
+  const collect = subs.find((s) => s.id === "collect");
+  const evidence = collect.steps.find((s) => s.id === "evidence");
+  assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true);
 });
 
 test("validateDefinition checks skippable and duplicate sub-stage ids", () => {
