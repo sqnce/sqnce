@@ -19,6 +19,8 @@ import {
   resolveSubject,
   buildContext,
   buildDraftPrompt,
+  draftTarget,
+  parseDraft,
   hasValue,
   serializeStep,
   reopenStep,
@@ -792,4 +794,44 @@ test("buildContext excludes steps made incomplete by invalid outputs", () => {
   run = setOutput(run, "intake", "facts", { industry: "Retail" });
   assert.equal(buildContext(subs, run, 0, "kickoff", { validators: FACTS_VALIDATORS }), "");
   assert.ok(buildContext(subs, run, 0, "kickoff").includes("Retail"), "no validators: included");
+});
+
+test("validateDefinition checks the validate field", () => {
+  const def = JSON.parse(JSON.stringify(FIXTURE));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = "";
+  assert.ok(validateDefinition(def).some((p) => p.includes("validate")));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = 7;
+  assert.ok(validateDefinition(def).some((p) => p.includes("validate")));
+  def.mainStages[0].subStages[0].steps[0].outputs[0].validate = "anything-goes";
+  assert.deepEqual(validateDefinition(def), [], "names are never whitelisted");
+});
+
+test("draftTarget picks the first text output, else the first data output", () => {
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "data" }, { id: "b", type: "text" }] }).id, "b");
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "data" }, { id: "c", type: "data" }] }).id, "a");
+  assert.equal(draftTarget({ id: "s", outputs: [{ id: "a", type: "fields", fields: [] }] }), null);
+  assert.equal(draftTarget({ id: "s" }), null);
+});
+
+test("parseDraft passes text through and parses data strictly with fence tolerance", () => {
+  const text = { id: "o", type: "text" };
+  assert.deepEqual(parseDraft(text, "  raw draft  "), { ok: true, value: "  raw draft  " });
+
+  const data = { id: "o", type: "data" };
+  assert.deepEqual(parseDraft(data, '[{"a":1}]'), { ok: true, value: [{ a: 1 }] });
+  assert.deepEqual(parseDraft(data, '```json\n[{"a":1}]\n```'), { ok: true, value: [{ a: 1 }] });
+  assert.deepEqual(parseDraft(data, '```\n{"a":1}\n```'), { ok: true, value: { a: 1 } });
+
+  const bad = parseDraft(data, "here is your JSON: [1]");
+  assert.equal(bad.ok, false);
+  assert.ok(bad.error.startsWith("Draft is not valid JSON:"));
+});
+
+test("buildDraftPrompt instructs JSON-only replies for data targets", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = createRun();
+  const inventory = subs[1].steps.find((s) => s.id === "inventory");
+  const summary = subs[1].steps.find((s) => s.id === "summary");
+  assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, inventory).includes("Respond with valid JSON only"));
+  assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, summary).includes("Respond with the draft output only"));
 });

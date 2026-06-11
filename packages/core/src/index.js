@@ -231,6 +231,11 @@ export function validateDefinition(definition) {
                 problems.push(`step "${st.id}": render.options must be an object`);
             }
           }
+          if (
+            o.validate !== undefined &&
+            (typeof o.validate !== "string" || !o.validate.trim())
+          )
+            problems.push(`step "${st.id}": validate must be a non-empty string`);
         });
       });
     });
@@ -655,6 +660,39 @@ export function resolveSubject(definition, run) {
 }
 
 /**
+ * The output spec draft generation writes into: the first "text"
+ * output, else the first "data" output, else null. The UI and the
+ * prompt builder share this single definition of the target.
+ * @param {Step} step
+ * @returns {OutputSpec|null}
+ */
+export function draftTarget(step) {
+  const outputs = step.outputs || [];
+  return outputs.find((o) => o.type === "text") || outputs.find((o) => o.type === "data") || null;
+}
+
+/**
+ * Turn a raw LLM reply into a storable value for a draft target.
+ * Text targets pass through unchanged. Data targets are trimmed,
+ * stripped of one surrounding markdown code fence when present, then
+ * parsed as strict JSON.
+ * @param {OutputSpec} spec
+ * @param {string} text
+ * @returns {{ ok: true, value: any } | { ok: false, error: string }}
+ */
+export function parseDraft(spec, text) {
+  if (spec.type !== "data") return { ok: true, value: text };
+  let body = String(text).trim();
+  const fence = body.match(/^```[A-Za-z0-9_-]*\s*\n([\s\S]*?)\n?```$/);
+  if (fence) body = fence[1].trim();
+  try {
+    return { ok: true, value: JSON.parse(body) };
+  } catch (e) {
+    return { ok: false, error: `Draft is not valid JSON: ${e.message}` };
+  }
+}
+
+/**
  * Serialize one step's outputs into a labeled text block, or null if empty.
  * @param {FlatSubStage} subStage
  * @param {Step} step
@@ -728,7 +766,9 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
 }
 
 /**
- * Build a provider-agnostic prompt for drafting a step's text output.
+ * Build a provider-agnostic prompt for drafting a step's output (the
+ * draftTarget: first text output, else first data output, whose type
+ * shapes the closing response instruction).
  * Pass the result to any LLM; the engine does not call one itself.
  * @param {Definition} definition
  * @param {FlatSubStage[]} subStages
@@ -743,6 +783,11 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
   const subStage = subStages[subIdx];
   const subject = resolveSubject(definition, run);
   const ctx = buildContext(subStages, run, subIdx, step.id, opts);
+  const target = draftTarget(step);
+  const closing =
+    target && target.type === "data"
+      ? "Respond with valid JSON only: no preamble, no code fences, no commentary."
+      : `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`;
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
     `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
@@ -750,7 +795,7 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
       ? `Outputs produced so far:\n\n${ctx}`
       : `No prior outputs exist yet; produce a strong first draft from general best practice.`,
     `Task: ${step.aiPrompt || `Draft the output for the step "${step.name}".`}`,
-    `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`,
+    closing,
   ].join("\n\n");
 }
 
