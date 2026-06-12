@@ -455,6 +455,7 @@ export function stepHasAnyOutput(step, entry) {
  * @param {Step} step
  * @param {StepEntry} entry
  * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @param {Run} [run] Threaded to validators as ctx.run for run-aware checks.
  * @returns {{ spec: OutputSpec, message: string } | null}
  */
 function firstInvalidOutput(step, entry, validators, run) {
@@ -481,6 +482,7 @@ function firstInvalidOutput(step, entry, validators, run) {
  * @param {StepEntry} entry
  * @param {"hybrid"|"strict"} [gateType]
  * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @param {Run} [run] Threaded to validators as ctx.run for run-aware checks.
  * @returns {boolean}
  */
 export function isStepComplete(step, entry, gateType = "hybrid", validators, run) {
