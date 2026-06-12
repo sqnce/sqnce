@@ -41,12 +41,17 @@ Fix (option 1 from the issue): extend the contract with a third argument carryin
 
 Net engine surface change: `firstInvalidOutput` (internal) and `isStepComplete` (exported) gain a `run` argument; no other exported signature changes. Validation stays pure, computed, never persisted, and unresolved or absent validators stay unvalidated, exactly as #54 established.
 
-ProcessRolodex passes the same third argument at its two direct validator call sites so the UI agrees with the engine:
+ProcessRolodex reaches validators four ways, all of which must carry the run so a run-aware validator resolves consistently (otherwise a value can be gate-valid while its step status reads draft and is dropped from the inputs panel). Two are direct validator calls:
 
 - the post-generation draft rejection (`generate()`, ~406): `fn(parsed.value, target, { run, stepId: step.id })`.
 - the per-output invalid line feeding `OutputView` (~741): `checkFn(outVal, spec, { run, stepId: step.id })`.
 
-Both already have `run` in scope. This is what closes the hand-paste hole: a pasted value's run-aware validator now rejects an untraceable ref in the inline error and in the boundary gate together.
+Two are indirect, through `isStepComplete`, which now takes `run` as its trailing argument:
+
+- `prevDoneBlocks` (~448): `isStepComplete(step, entry, gateTypeOf(prevSub), validators, run)`.
+- `statusOf` (~463): `isStepComplete(step, entry, gateTypeOf(sub), validators, run)`.
+
+All four already have `run` in scope. This is what closes the hand-paste hole: a pasted value's run-aware validator now rejects an untraceable ref in the inline error, the step status, the inputs panel, and the boundary gate together.
 
 ## #64 react: suppress Generate on manual steps
 
