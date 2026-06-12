@@ -398,7 +398,13 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         try {
           await persistence.save(store);
         } catch (e) {
+          // The flush is what lets a server-side generator resolve runId
+          // from the shared store. If it fails, the store is stale, so
+          // generating would risk the cross-run mixup this guards against:
+          // surface the failure instead of generating from old data.
           console.error("save failed", e);
+          setGenError({ stepId: step.id, message: "Could not save the current run before generating. Try again." });
+          return;
         }
       }
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });

@@ -24,7 +24,7 @@ Fix has two parts, because `runId` alone only disambiguates a run the store alre
 - Flush pending persistence before generating. In `generate()`, before calling `generateDraft`, clear the debounce and `await persistence.save(store)` when `persistence` is present, so the shared store reflects the current run (including a newly created entry and unsaved intake edits) before the server rebuilds from it. This closes the race for switch, create, and edit-before-flush; `runId` then tells the server which of the now-current runs to use. When `persistence` is omitted there is no shared store and nothing to flush.
 - Update the `generateDraft` JSDoc context type (~64, ~155) to include `runId: string`.
 
-The flush is best-effort and must not block generation on a transient save error: a failed flush is swallowed (the existing save effect already only logs), and generation proceeds; the server then rebuilds from whatever the store last held, the same as today.
+If the flush fails, generation stops rather than proceeding: the whole reason for the flush is to let a runId-based server resolve the current run from the shared store, so a stale store would risk the cross-run mixup this guards against (generating from the previous active run). The save failure is surfaced as the generation error (`genError`) and nothing is generated; the user can retry.
 
 Scope note: where the returned draft lands in the browser is unchanged. `setRun` already re-checks the entry inside the updater and only writes to a still-active entry (~244), so the browser-side landing is out of scope here.
 

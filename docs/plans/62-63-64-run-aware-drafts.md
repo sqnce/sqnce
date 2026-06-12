@@ -341,12 +341,18 @@ Insert the flush as the first statement inside the `try`, before `buildDraftProm
         try {
           await persistence.save(store);
         } catch (e) {
+          // The flush is what lets a server-side generator resolve runId
+          // from the shared store. If it fails, the store is stale, so
+          // generating would risk the cross-run mixup this guards against:
+          // surface the failure instead of generating from old data.
           console.error("save failed", e);
+          setGenError({ stepId: step.id, message: "Could not save the current run before generating. Try again." });
+          return;
         }
       }
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
 ```
-(`persistence`, `saveTimer`, and `store` are all in component scope; `generate()` closes over the current `store`, which already holds a newly created or switched run by the time the user can click Generate. The flush is best-effort: a save error is logged and generation still proceeds, matching the existing save effect.)
+(`persistence`, `saveTimer`, and `store` are all in component scope; `generate()` closes over the current `store`, which already holds a newly created or switched run by the time the user can click Generate. The `return` is inside the outer `try`, so the `finally` below still clears the generating spinner. When the flush fails, generation stops with the error rather than proceeding from a stale store, which is the cross-run mixup the flush exists to prevent.)
 
 - [ ] **Step 3: Update the generateDraft JSDoc**
 
