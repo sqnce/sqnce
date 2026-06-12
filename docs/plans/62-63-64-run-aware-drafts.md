@@ -119,7 +119,9 @@ test("a run-aware validator rejects based on another step's output", () => {
 test("a run-aware rejection blocks the gate and force still advances", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun(FIXTURE);
-  run = setOutput(run, "intake", "facts", { client: "" });
+  // industry is present so hasValue(facts) is true and the validator runs;
+  // client is blank so the run-aware check rejects.
+  run = setOutput(run, "intake", "facts", { client: "", industry: "Tools" });
   run = setCheckedDone(run, "kickoff", true);
   // facts rejects when the run-derived client is blank.
   const validators = {
@@ -341,8 +343,10 @@ git commit -m "feat(react): include the active runId in the generateDraft contex
 
 ## Task 4: react run-aware validator call sites (#63) (inline)
 
+`ProcessRolodex` reaches validators four ways: two direct calls (draft rejection, per-output invalid line) and two indirect calls through `isStepComplete` (`prevDoneBlocks`, `statusOf`). All four must pass `{ run, stepId }` (direct) or `run` (indirect) so a run-aware validator resolves consistently; otherwise a value can be gate-valid (gateProgress passes run) while the step status still reads draft and is excluded from the previous-context panel.
+
 **Files:**
-- Modify: `packages/react/src/ProcessRolodex.jsx` (post-generation rejection, per-output invalid line)
+- Modify: `packages/react/src/ProcessRolodex.jsx` (post-generation rejection, per-output invalid line, `prevDoneBlocks`, `statusOf`)
 
 - [ ] **Step 1: Pass the third argument at the post-generation validator call**
 
@@ -371,16 +375,39 @@ to:
 ```
 (`run` is the component-scope run; `step` is the current step in the `sub.steps.map` callback.)
 
-- [ ] **Step 3: Syntax check**
+- [ ] **Step 3: Pass run through the indirect isStepComplete call in prevDoneBlocks**
+
+In `prevDoneBlocks` (around line 448), change:
+```js
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators) && stepHasAnyOutput(step, entry)
+```
+to:
+```js
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators, run) && stepHasAnyOutput(step, entry)
+```
+
+- [ ] **Step 4: Pass run through the indirect isStepComplete call in statusOf**
+
+In `statusOf` (around line 463), change:
+```js
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators)) return "done";
+```
+to:
+```js
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators, run)) return "done";
+```
+(`run` is in component scope in both functions; these are the only two `isStepComplete` call sites in the file besides the import.)
+
+- [ ] **Step 5: Syntax check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: no output, exit 0.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
-git commit -m "feat(react): pass { run, stepId } to validators in draft rejection and output checks (#63)"
+git commit -m "feat(react): pass run context to validators in all four call sites (#63)"
 ```
 
 ---
