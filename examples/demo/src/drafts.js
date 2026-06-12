@@ -36,17 +36,17 @@ const DRAFTS = {
     `Sunday prep for ${s}: marinate the fajita chicken; mix the gochujang sauce (keeps 7 days); quick-pickle the cucumbers; cook a double batch of rice and refrigerate flat; wash and dry the basil. Leave the salmon untouched until Friday. Total time: about 50 minutes with the rice unattended.`,
   requirements: () =>
     JSON.stringify([
-      { id: "R1", requirement: "Single sign-on via the customer's identity provider", type: "non-functional", priority: "must" },
-      { id: "R2", requirement: "Case intake form with file attachments", type: "functional", priority: "must" },
-      { id: "R3", requirement: "Automated assignment by region and workload", type: "functional", priority: "should" },
-      { id: "R4", requirement: "Monthly volume and SLA reporting", type: "functional", priority: "should" },
+      { id: "R-01", requirement: "Single sign-on via the customer's identity provider", type: "non-functional", priority: "must" },
+      { id: "R-02", requirement: "Case intake form with file attachments", type: "functional", priority: "must" },
+      { id: "R-03", requirement: "Automated assignment by region and workload", type: "functional", priority: "should" },
+      { id: "R-04", requirement: "Monthly volume and SLA reporting", type: "functional", priority: "should" },
     ]),
   "win-themes": (s) =>
     "```json\n" +
     JSON.stringify([
-      { name: "Fastest time to value", purpose: `Lead with the six-week pilot plan for ${s}.` },
-      { name: "Platform consolidation", purpose: "One license replaces three point tools." },
-      { name: "Local delivery team", purpose: "Named consultants the customer already met." },
+      { name: "Fastest time to value", purpose: `Lead with the six-week pilot plan for ${s}.`, requirement: "R-01" },
+      { name: "Platform consolidation", purpose: "One license replaces three point tools.", requirement: "R-02" },
+      { name: "Local delivery team", purpose: "Named consultants the customer already met.", requirement: "R-03" },
     ]) +
     "\n```",
 };
