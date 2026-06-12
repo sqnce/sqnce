@@ -65,7 +65,7 @@ Append to `packages/core/test/engine.test.js`:
 ```js
 test("validators receive { run, stepId } as a third argument", () => {
   const subs = flattenSubStages(FIXTURE);
-  let run = createRun(FIXTURE);
+  let run = createRun();
   run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
   let seen = null;
   const validators = {
@@ -96,7 +96,7 @@ test("validators omitted run is undefined, not missing", () => {
 
 test("a run-aware validator rejects based on another step's output", () => {
   const subs = flattenSubStages(FIXTURE);
-  let run = createRun(FIXTURE);
+  let run = createRun();
   run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
   run = setOutput(run, "inventory", "data", [{ item: "laptop" }]);
   // traceable passes only when the run's intake step names a client.
@@ -110,7 +110,7 @@ test("a run-aware validator rejects based on another step's output", () => {
   assert.equal(isStepComplete(inv, getStepEntry(run, "inventory"), "hybrid", traceable, run), true);
 
   // Clear the client: the same inventory value now fails its run-aware check.
-  let run2 = createRun(FIXTURE);
+  let run2 = createRun();
   run2 = setOutput(run2, "inventory", "data", [{ item: "laptop" }]);
   assert.equal(isStepComplete(inv, getStepEntry(run2, "inventory"), "hybrid", traceable, run2), false);
   assert.equal(buildContext(subs, run2, subs.length - 1, null, { validators: traceable }).includes("Inventory"), false);
@@ -118,7 +118,7 @@ test("a run-aware validator rejects based on another step's output", () => {
 
 test("a run-aware rejection blocks the gate and force still advances", () => {
   const subs = flattenSubStages(FIXTURE);
-  let run = createRun(FIXTURE);
+  let run = createRun();
   // industry is present so hasValue(facts) is true and the validator runs;
   // client is blank so the run-aware check rejects.
   run = setOutput(run, "intake", "facts", { client: "", industry: "Tools" });
@@ -133,9 +133,11 @@ test("a run-aware rejection blocks the gate and force still advances", () => {
   const gp = gateProgress(subs[0], run, { validators });
   assert.equal(gp.met, false);
   assert.ok(gp.missing.some((m) => m.includes("Intake: Client name missing")));
+  // advance returns { run, advanced, missing }, not the Run itself.
   const forced = advance(run, subs, { force: true, validators });
-  assert.equal(forced.frontier, 1);
-  assert.equal(wasAdvanceForced(forced, 0), true);
+  assert.equal(forced.advanced, true);
+  assert.equal(forced.run.frontier, 1);
+  assert.equal(wasAdvanceForced(forced.run, 0), true);
 });
 ```
 
