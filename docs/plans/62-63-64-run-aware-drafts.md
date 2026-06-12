@@ -294,8 +294,10 @@ git commit -m "feat(core): validate the manual step flag (#64)"
 
 ## Task 3: react runId in the generateDraft context (#62) (inline)
 
+`runId` alone only disambiguates a run the server's shared store already holds. To also close the race for a newly created run (clicked before the 500 ms save debounce), `generate()` flushes pending persistence before calling `generateDraft`.
+
 **Files:**
-- Modify: `packages/react/src/ProcessRolodex.jsx` (`generate()` context, JSDoc)
+- Modify: `packages/react/src/ProcessRolodex.jsx` (`generate()` flush + context, JSDoc)
 
 - [ ] **Step 1: Add runId to the draft context**
 
@@ -318,7 +320,35 @@ to:
 ```
 (`entry` is the component-scope active run entry from `const entry = activeRunEntry(store, activeId);`, which `generate()` closes over.)
 
-- [ ] **Step 2: Update the generateDraft JSDoc**
+- [ ] **Step 2: Flush pending persistence before generating**
+
+In `generate()` (around line 386), the function opens:
+```js
+  const generate = async (sub, step) => {
+    if (!generateDraft || readOnly) return;
+    const target = draftTarget(step);
+    if (!target) return;
+    setGenerating(step.id);
+    setGenError(null);
+    try {
+      const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
+```
+Insert the flush as the first statement inside the `try`, before `buildDraftPrompt`:
+```js
+    try {
+      if (persistence) {
+        clearTimeout(saveTimer.current);
+        try {
+          await persistence.save(store);
+        } catch (e) {
+          console.error("save failed", e);
+        }
+      }
+      const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
+```
+(`persistence`, `saveTimer`, and `store` are all in component scope; `generate()` closes over the current `store`, which already holds a newly created or switched run by the time the user can click Generate. The flush is best-effort: a save error is logged and generation still proceeds, matching the existing save effect.)
+
+- [ ] **Step 3: Update the generateDraft JSDoc**
 
 In the same file, update the two context-type mentions in the prop JSDoc (around lines 64 and 155) so the context reads `{ workflowId, stepId, subject, runId }`. For the line ~64 prose:
 ```
@@ -329,16 +359,16 @@ In the same file, update the two context-type mentions in the prop JSDoc (around
 ```
 For the `@param` typedef around line 155, add `runId: string` to the context object type.
 
-- [ ] **Step 3: Syntax check**
+- [ ] **Step 4: Syntax check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: no output, exit 0.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
-git commit -m "feat(react): include the active runId in the generateDraft context (#62)"
+git commit -m "feat(react): flush persistence and include runId in the generateDraft context (#62)"
 ```
 
 ---
@@ -620,7 +650,7 @@ In `CLAUDE.md`, under "Architecture" point 2 (engine), the validators sentence: 
 
 Under "Key behaviors to preserve", add two bullets (matching the existing voice, no em dashes):
 ```
-- The generateDraft context carries the active run entry id as `runId`, so a server-side generator resolving the run from a shared store does not race the save debounce.
+- The generateDraft context carries the active run entry id as `runId`, and `generate()` flushes pending persistence before calling the generator, so a server-side generator resolving the run from a shared store does not race the save debounce, even for a newly created run.
 - A step may be marked `manual: true` to suppress the Generate affordance entirely (both the invite and the action-row button); manual steps are human-entered. Validators receive a third argument `{ run, stepId }` and can relate one step's output to another via `getStepEntry`.
 ```
 

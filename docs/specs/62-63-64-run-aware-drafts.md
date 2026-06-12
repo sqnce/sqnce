@@ -16,15 +16,17 @@ const text = await generateDraft(prompt, {
 });
 ```
 
-A server-side generator that resolves "the active run" from the persisted store races the 500 ms save debounce (`saveTimer`, ~282): switch or create a run, click Generate before the flush, and the server builds the prompt from the previous active run.
+A server-side generator that resolves "the active run" from the persisted store races the 500 ms save debounce (`saveTimer`, ~282): switch or create a run, click Generate before the flush, and the server builds the prompt from the previous active run (or, for a brand-new run, from a store that has never seen it).
 
-Fix: add the active run entry id to the context.
+Fix has two parts, because `runId` alone only disambiguates a run the store already holds:
 
-- The active run entry is already in hand at the component scope (`const entry = activeRunEntry(store, activeId)`, ~208) and is the entry `generate()` closes over. Pass `runId: entry.id`.
-- The context becomes `{ workflowId, stepId, subject, runId }`. Backward compatible: existing consumers ignore the extra key.
+- Pass the active run entry id in the context. The active run entry is already in hand at the component scope (`const entry = activeRunEntry(store, activeId)`, ~208) and is the entry `generate()` closes over. Pass `runId: entry.id`. The context becomes `{ workflowId, stepId, subject, runId }`. Backward compatible: existing consumers ignore the extra key.
+- Flush pending persistence before generating. In `generate()`, before calling `generateDraft`, clear the debounce and `await persistence.save(store)` when `persistence` is present, so the shared store reflects the current run (including a newly created entry and unsaved intake edits) before the server rebuilds from it. This closes the race for switch, create, and edit-before-flush; `runId` then tells the server which of the now-current runs to use. When `persistence` is omitted there is no shared store and nothing to flush.
 - Update the `generateDraft` JSDoc context type (~64, ~155) to include `runId: string`.
 
-Scope note: where the returned draft lands in the browser is unchanged. `setRun` already re-checks the entry inside the updater and only writes to a still-active entry (~244), so the browser-side landing is out of scope here; #62 is exactly the context payload.
+The flush is best-effort and must not block generation on a transient save error: a failed flush is swallowed (the existing save effect already only logs), and generation proceeds; the server then rebuilds from whatever the store last held, the same as today.
+
+Scope note: where the returned draft lands in the browser is unchanged. `setRun` already re-checks the entry inside the updater and only writes to a still-active entry (~244), so the browser-side landing is out of scope here.
 
 ## #63 core: run-aware validators (third argument)
 
