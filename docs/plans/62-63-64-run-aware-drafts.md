@@ -196,7 +196,7 @@ if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators, run)
 In `packages/core/src/index.js`, replace every occurrence of the substring
 `(value: any, spec: OutputSpec) => (string|null)`
 with
-`(value: any, spec: OutputSpec, ctx: { run: Run, stepId: string }) => (string|null)`
+`(value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)`
 (9 occurrences: the `@param` lines for `firstInvalidOutput`, `isStepComplete`, `gateProgress`, `mainGateProgress`, the aggregate gate, `advance`, `buildContext`, `buildDraftPrompt`, and `runSummary`).
 
 In the file header, change the validators line (around line 17) from
@@ -418,7 +418,7 @@ becomes:
 ```
 becomes:
 ```js
- * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
 ```
 
 - [ ] **Step 6: Syntax check**
@@ -520,21 +520,34 @@ git commit -m "feat(demo): mark the presales demo-data step manual (#64)"
 - Modify: `examples/demo/src/App.jsx` (import `getStepEntry`, run-aware `win-themes` validator)
 - Modify: `examples/demo/src/drafts.js` (win-themes draft references requirement ids)
 
-- [ ] **Step 1: Add requirement references to the canned win-themes draft**
+- [ ] **Step 1: Align the requirements draft ids to the seed scheme**
 
-In `examples/demo/src/drafts.js`, change the `"win-themes"` entry so each theme carries a `requirement` referencing an id the `requirements` draft produces (R1, R2, R3):
+The seeded presales run (`examples/demo/src/seeds.js`, around line 231) seeds the requirements output with ids `R-01`..`R-13`. The canned requirements draft (`examples/demo/src/drafts.js`) uses `R1`..`R4`, so a win-themes draft referencing one scheme would not resolve against the other. Align the draft to the seed's `R-0N` scheme. In `examples/demo/src/drafts.js`, change the `requirements` ids:
+```js
+  requirements: () =>
+    JSON.stringify([
+      { id: "R-01", requirement: "Single sign-on via the customer's identity provider", type: "non-functional", priority: "must" },
+      { id: "R-02", requirement: "Case intake form with file attachments", type: "functional", priority: "must" },
+      { id: "R-03", requirement: "Automated assignment by region and workload", type: "functional", priority: "should" },
+      { id: "R-04", requirement: "Monthly volume and SLA reporting", type: "functional", priority: "should" },
+    ]),
+```
+
+- [ ] **Step 2: Add requirement references to the canned win-themes draft**
+
+In `examples/demo/src/drafts.js`, change the `"win-themes"` entry so each theme carries a `requirement` referencing a seed id (`R-01`, `R-02`, `R-03`, present in both the seed and the aligned requirements draft, so the reference resolves whether requirements came from the seed or a regeneration):
 ```js
   "win-themes": (s) =>
     "```json\n" +
     JSON.stringify([
-      { name: "Fastest time to value", purpose: `Lead with the six-week pilot plan for ${s}.`, requirement: "R1" },
-      { name: "Platform consolidation", purpose: "One license replaces three point tools.", requirement: "R2" },
-      { name: "Local delivery team", purpose: "Named consultants the customer already met.", requirement: "R3" },
+      { name: "Fastest time to value", purpose: `Lead with the six-week pilot plan for ${s}.`, requirement: "R-01" },
+      { name: "Platform consolidation", purpose: "One license replaces three point tools.", requirement: "R-02" },
+      { name: "Local delivery team", purpose: "Named consultants the customer already met.", requirement: "R-03" },
     ]) +
     "\n```",
 ```
 
-- [ ] **Step 2: Make the win-themes validator run-aware**
+- [ ] **Step 3: Make the win-themes validator run-aware**
 
 In `examples/demo/src/App.jsx`, extend the import from `@sqnce/react`. The demo imports `ProcessRolodex` from `@sqnce/react`; `getStepEntry` is a core export, so add a core import at the top:
 ```js
@@ -552,14 +565,14 @@ Then replace the `"win-themes"` validator in the `validators` map with a run-awa
     return bad ? `Win theme "${bad.name}" references requirement ${bad.requirement}, which the requirements step does not define.` : null;
   },
 ```
-(The two-argument `requirements` validator above it is unchanged, demonstrating both contracts coexisting. When the requirements step is empty, `ids` is empty and any present `requirement` ref is reported, which is the intended run-aware behavior.)
+(The two-argument `requirements` validator above it is unchanged, demonstrating both contracts coexisting. When the requirements step is empty, `ids` is empty and any present `requirement` ref is reported, which is the intended run-aware behavior. `ctx.run` may be undefined if a standalone caller omits it, so the guard checks `ctx && ctx.run` before resolving.)
 
-- [ ] **Step 3: Build the demo**
+- [ ] **Step 4: Build the demo**
 
 Run: `npm run build -w examples/demo`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add examples/demo/src/App.jsx examples/demo/src/drafts.js
