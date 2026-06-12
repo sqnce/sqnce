@@ -388,6 +388,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   /* ---------- draft generation ---------- */
   const generate = async (sub, step) => {
     if (!generateDraft || readOnly) return;
+    // Before load resolves, the store is the initial placeholder; flushing
+    // it (below) would overwrite saved runs. loaded is true when there is
+    // no persistence, so this only blocks during a pending load.
+    if (!loaded) return;
     const target = draftTarget(step);
     if (!target) return;
     setGenerating(step.id);

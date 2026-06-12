@@ -333,7 +333,13 @@ In `generate()` (around line 386), the function opens:
     try {
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
 ```
-Insert the flush as the first statement inside the `try`, before `buildDraftPrompt`:
+Also add an early return before the flush can run, guarding against a click during a pending load (which would otherwise flush the placeholder store over saved runs). After the `if (!target) return;` guard near the top of `generate()`, add:
+```js
+    // loaded is true when there is no persistence, so this only blocks
+    // during a pending persistence.load().
+    if (!loaded) return;
+```
+Then insert the flush as the first statement inside the `try`, before `buildDraftPrompt`:
 ```js
     try {
       if (persistence) {
