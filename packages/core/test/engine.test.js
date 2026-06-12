@@ -835,3 +835,80 @@ test("buildDraftPrompt instructs JSON-only replies for data targets", () => {
   assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, inventory).includes("Respond with valid JSON only"));
   assert.ok(buildDraftPrompt(FIXTURE, subs, run, 1, summary).includes("Respond with the draft output only"));
 });
+
+test("validators receive { run, stepId } as a third argument", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  let seen = null;
+  const validators = {
+    facts: (value, spec, ctx) => {
+      seen = ctx;
+      return null;
+    },
+  };
+  gateProgress(subs[0], run, { validators });
+  assert.equal(seen.stepId, "intake");
+  assert.equal(seen.run, run);
+});
+
+test("validators omitted run is undefined, not missing", () => {
+  let captured = "absent";
+  const entry = { outputs: { facts: { client: "x" } } };
+  const step = { id: "intake", outputs: [{ id: "facts", type: "fields", validate: "facts" }] };
+  const validators = {
+    facts: (value, spec, ctx) => {
+      captured = ctx;
+      return null;
+    },
+  };
+  isStepComplete(step, entry, "hybrid", validators);
+  assert.equal(captured.run, undefined);
+  assert.equal(captured.stepId, "intake");
+});
+
+test("a run-aware validator rejects based on another step's output", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setOutput(run, "inventory", "data", [{ item: "laptop" }]);
+  // traceable passes only when the run's intake step names a client.
+  const traceable = {
+    traceable: (value, spec, { run }) => {
+      const facts = getStepEntry(run, "intake").outputs.facts;
+      return facts && String(facts.client || "").trim() ? null : "Inventory is untraceable: intake has no client.";
+    },
+  };
+  const inv = FIXTURE.mainStages[0].subStages[1].steps[2];
+  assert.equal(isStepComplete(inv, getStepEntry(run, "inventory"), "hybrid", traceable, run), true);
+
+  // Clear the client: the same inventory value now fails its run-aware check.
+  let run2 = createRun();
+  run2 = setOutput(run2, "inventory", "data", [{ item: "laptop" }]);
+  assert.equal(isStepComplete(inv, getStepEntry(run2, "inventory"), "hybrid", traceable, run2), false);
+  assert.equal(buildContext(subs, run2, subs.length - 1, null, { validators: traceable }).includes("Inventory"), false);
+});
+
+test("a run-aware rejection blocks the gate and force still advances", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  // industry is present so hasValue(facts) is true and the validator runs;
+  // client is blank so the run-aware check rejects.
+  run = setOutput(run, "intake", "facts", { client: "", industry: "Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  // facts rejects when the run-derived client is blank.
+  const validators = {
+    facts: (value, spec, { run }) => {
+      const facts = getStepEntry(run, "intake").outputs.facts;
+      return facts && String(facts.client || "").trim() ? null : "Client name missing";
+    },
+  };
+  const gp = gateProgress(subs[0], run, { validators });
+  assert.equal(gp.met, false);
+  assert.ok(gp.missing.some((m) => m.includes("Intake: Client name missing")));
+  // advance returns { run, advanced, missing }, not the Run itself.
+  const forced = advance(run, subs, { force: true, validators });
+  assert.equal(forced.advanced, true);
+  assert.equal(forced.run.frontier, 1);
+  assert.equal(wasAdvanceForced(forced.run, 0), true);
+});
