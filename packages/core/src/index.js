@@ -24,6 +24,8 @@
  *      done. strict: it must be explicitly marked done.
  *    - definition.subject points at the field that names the thing
  *      the process is about, so generated drafts can reference it.
+ *    - A step may carry an optional manual: true; the engine ignores it,
+ *      the UI layer suppresses the draft action on that step.
  *
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
@@ -74,6 +76,7 @@
  * @property {string} [description]
  * @property {boolean} [required]
  * @property {string} [aiPrompt]
+ * @property {boolean} [manual] When true, the UI suppresses the Generate affordance; the step is human-entered.
  * @property {OutputSpec[]} [outputs]
  */
 /**
@@ -221,6 +224,8 @@ export function validateDefinition(definition) {
         if (!st.id) problems.push(`a step in sub-stage "${ss.id}" is missing an id`);
         if (st.id && stepIds.has(st.id)) problems.push(`duplicate step id "${st.id}"`);
         stepIds.add(st.id);
+        if (st.manual !== undefined && typeof st.manual !== "boolean")
+          problems.push(`step "${st.id}": manual must be a boolean`);
         (st.outputs || []).forEach((o) => {
           if (!["text", "fields", "file", "link", "data"].includes(o.type))
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);

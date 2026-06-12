@@ -912,3 +912,16 @@ test("a run-aware rejection blocks the gate and force still advances", () => {
   assert.equal(forced.run.frontier, 1);
   assert.equal(wasAdvanceForced(forced.run, 0), true);
 });
+
+test("validateDefinition checks the manual step flag", () => {
+  const mk = (manual) => ({
+    id: "d", name: "D",
+    mainStages: [{ id: "m", subStages: [{ id: "s", steps: [
+      { id: "st", manual, outputs: [{ id: "o", type: "text", label: "T" }] },
+    ] }] }],
+  });
+  assert.deepEqual(validateDefinition(mk(true)), []);
+  assert.deepEqual(validateDefinition(mk(undefined)), []);
+  assert.ok(validateDefinition(mk("false")).some((p) => p.includes("manual must be a boolean")));
+  assert.ok(validateDefinition(mk(1)).some((p) => p.includes("manual must be a boolean")));
+});
