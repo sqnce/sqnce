@@ -62,7 +62,9 @@ function newId() {
  *      Anything that is not a version 3 store is discarded on load.
  *      Omit for in-memory only.
  *  - generateDraft (optional): async (prompt, context) => string where
- *      context is { workflowId, stepId, subject }. The second argument
+ *      context is { workflowId, stepId, subject, runId }. runId is the
+ *      active run entry id, for server-side generators that resolve the
+ *      run from a shared store. The second argument
  *      is informational; single-argument implementations keep working.
  *      Wire this to any LLM provider. Omit to hide the
  *      "Generate draft" action entirely. Generation targets the step's
@@ -152,7 +154,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @typedef {Object} ProcessRolodexProps
  * @property {import("@sqnce/core").Definition[]} workflows
  * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
- * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string }) => Promise<string>} [generateDraft]
+ * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string, runId: string }) => Promise<string>} [generateDraft]
  * @property {{ label: string, ids: string[] }[]} [workflowGroups]
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
@@ -390,11 +392,20 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     setGenerating(step.id);
     setGenError(null);
     try {
+      if (persistence) {
+        clearTimeout(saveTimer.current);
+        try {
+          await persistence.save(store);
+        } catch (e) {
+          console.error("save failed", e);
+        }
+      }
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
       const text = await generateDraft(prompt, {
         workflowId: def.id,
         stepId: step.id,
         subject: subjectName,
+        runId: entry.id,
       });
       if (!text) throw new Error("Empty response");
       const parsed = parseDraft(target, text);
