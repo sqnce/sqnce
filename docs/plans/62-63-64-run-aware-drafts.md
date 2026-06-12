@@ -398,12 +398,35 @@ to:
 ```
 (`run` is in component scope in both functions; these are the only two `isStepComplete` call sites in the file besides the import.)
 
-- [ ] **Step 5: Syntax check**
+- [ ] **Step 5: Update the validators prop JSDoc (the source for `npm run types`)**
+
+In `packages/react/src/ProcessRolodex.jsx`, update both the prose bullet (around line 86) and the `@param` type (around line 159) so generated `.d.ts` advertises the three-argument signature.
+
+Prose (line 86):
+```
+ *  - validators (optional): map of validator name -> (value, spec) =>
+```
+becomes:
+```
+ *  - validators (optional): map of validator name -> (value, spec,
+ *      { run, stepId }) =>
+```
+
+`@param` (line 159):
+```js
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec) => (string|null)>} [validators]
+```
+becomes:
+```js
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+```
+
+- [ ] **Step 6: Syntax check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: no output, exit 0.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
