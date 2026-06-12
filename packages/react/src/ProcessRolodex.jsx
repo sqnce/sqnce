@@ -62,7 +62,9 @@ function newId() {
  *      Anything that is not a version 3 store is discarded on load.
  *      Omit for in-memory only.
  *  - generateDraft (optional): async (prompt, context) => string where
- *      context is { workflowId, stepId, subject }. The second argument
+ *      context is { workflowId, stepId, subject, runId }. runId is the
+ *      active run entry id, for server-side generators that resolve the
+ *      run from a shared store. The second argument
  *      is informational; single-argument implementations keep working.
  *      Wire this to any LLM provider. Omit to hide the
  *      "Generate draft" action entirely. Generation targets the step's
@@ -83,7 +85,8 @@ function newId() {
  *      (JSON tree for data outputs, default editor otherwise). A renderer
  *      receives { spec, value, onChange, context } and must treat
  *      onChange as value-mutations-only. Omit to use built-ins alone.
- *  - validators (optional): map of validator name -> (value, spec) =>
+ *  - validators (optional): map of validator name -> (value, spec,
+ *      { run, stepId }) =>
  *      string | null, resolving the validate names declared on output
  *      specs. A returned string is the problem message: it makes the
  *      owning step incomplete (gates, status, draft context) and
@@ -152,11 +155,11 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @typedef {Object} ProcessRolodexProps
  * @property {import("@sqnce/core").Definition[]} workflows
  * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
- * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string }) => Promise<string>} [generateDraft]
+ * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string, runId: string }) => Promise<string>} [generateDraft]
  * @property {{ label: string, ids: string[] }[]} [workflowGroups]
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
- * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec) => (string|null)>} [validators]
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
  */
 
 /** @param {ProcessRolodexProps} props */
@@ -385,16 +388,35 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   /* ---------- draft generation ---------- */
   const generate = async (sub, step) => {
     if (!generateDraft || readOnly) return;
+    // Before load resolves, the store is the initial placeholder; flushing
+    // it (below) would overwrite saved runs. loaded is true when there is
+    // no persistence, so this only blocks during a pending load.
+    if (!loaded) return;
     const target = draftTarget(step);
     if (!target) return;
     setGenerating(step.id);
     setGenError(null);
     try {
+      if (persistence) {
+        clearTimeout(saveTimer.current);
+        try {
+          await persistence.save(store);
+        } catch (e) {
+          // The flush is what lets a server-side generator resolve runId
+          // from the shared store. If it fails, the store is stale, so
+          // generating would risk the cross-run mixup this guards against:
+          // surface the failure instead of generating from old data.
+          console.error("save failed", e);
+          setGenError({ stepId: step.id, message: "Could not save the current run before generating. Try again." });
+          return;
+        }
+      }
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
       const text = await generateDraft(prompt, {
         workflowId: def.id,
         stepId: step.id,
         subject: subjectName,
+        runId: entry.id,
       });
       if (!text) throw new Error("Empty response");
       const parsed = parseDraft(target, text);
@@ -403,7 +425,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         return;
       }
       const fn = target.validate && validators && validators[target.validate];
-      const message = fn ? fn(parsed.value, target) : null;
+      const message = fn ? fn(parsed.value, target, { run, stepId: step.id }) : null;
       if (typeof message === "string") {
         setGenError({ stepId: step.id, message: `Draft failed validation: ${message}` });
         return;
@@ -445,7 +467,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         .map((s) => ({ step: s, entry: getStepEntry(run, s.id) }))
         .filter(
           ({ step, entry }) =>
-            isStepComplete(step, entry, gateTypeOf(prevSub), validators) && stepHasAnyOutput(step, entry)
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators, run) && stepHasAnyOutput(step, entry)
         )
     : [];
 
@@ -460,7 +482,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const statusOf = (sub, step) => {
     const entry = getStepEntry(run, step.id);
-    if (isStepComplete(step, entry, gateTypeOf(sub), validators)) return "done";
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators, run)) return "done";
     if (stepHasAnyOutput(step, entry)) return "draft";
     return "open";
   };
@@ -666,6 +688,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   const entry = getStepEntry(run, step.id);
                   const status = statusOf(sub, step);
                   const target = draftTarget(step);
+                  const canGenerate = !!generateDraft && !!target && !step.manual;
                   const open = center && expanded === step.id;
                   return (
                     <div key={step.id} className={`pf-step pf-step-${status}`}>
@@ -700,7 +723,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
                           {(step.outputs || []).map((spec) => {
-                            const isGenTarget = !!generateDraft && spec === target;
+                            const isGenTarget = canGenerate && spec === target;
                             if (
                               isGenTarget &&
                               !hasValue(spec, (entry.outputs || {})[spec.id]) &&
@@ -738,7 +761,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             }
                             const outVal = (entry.outputs || {})[spec.id];
                             const checkFn = spec.validate && validators && validators[spec.validate];
-                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec) : null;
+                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec, { run, stepId: step.id }) : null;
                             return (
                               <OutputView
                                 key={spec.id}
@@ -764,7 +787,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           )}
 
                           <div className="pf-actions">
-                            {generateDraft && target && (
+                            {canGenerate && (
                               <button
                                 className="pf-btn"
                                 disabled={generating === step.id || readOnly}

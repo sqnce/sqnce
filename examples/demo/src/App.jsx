@@ -1,5 +1,6 @@
 import { lazy } from "react";
 import { ProcessRolodex } from "@sqnce/react";
+import { getStepEntry } from "@sqnce/core";
 import carBuying from "../../../definitions/car-buying.json";
 import moving from "../../../definitions/moving.json";
 import tripPlanning from "../../../definitions/trip-planning.json";
@@ -37,10 +38,15 @@ const validators = {
     Array.isArray(value) && value.length > 0 && value.every((r) => r && typeof r === "object" && !Array.isArray(r))
       ? null
       : "Requirements must be a non-empty array of row objects.",
-  "win-themes": (value) =>
-    Array.isArray(value) && value.length > 0 && value.every((t) => t && typeof t.name === "string" && typeof t.purpose === "string")
-      ? null
-      : "Win themes must be an array of { name, purpose } objects.",
+  "win-themes": (value, spec, ctx) => {
+    if (!(Array.isArray(value) && value.length > 0 && value.every((t) => t && typeof t.name === "string" && typeof t.purpose === "string")))
+      return "Win themes must be an array of { name, purpose } objects.";
+    const reqEntry = ctx && ctx.run ? getStepEntry(ctx.run, "requirements") : null;
+    const reqs = reqEntry && Array.isArray(reqEntry.outputs && reqEntry.outputs.out) ? reqEntry.outputs.out : [];
+    const ids = new Set(reqs.map((r) => r && r.id));
+    const bad = value.find((t) => t.requirement && !ids.has(t.requirement));
+    return bad ? `Win theme "${bad.name}" references requirement ${bad.requirement}, which the requirements step does not define.` : null;
+  },
 };
 
 export default function App() {

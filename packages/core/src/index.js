@@ -14,7 +14,9 @@
  *      UI layer's renderer registry; the engine never interprets it.
  *    - Any output spec may carry an optional validate: "<name>", a
  *      free string resolved against a consumer-supplied validators map
- *      { [name]: (value, spec) => string | null }. A returned string
+ *      { [name]: (value, spec, { run, stepId }) => string | null }. The
+ *      third argument carries the run (read other steps via
+ *      getStepEntry) and the stepId. A returned string
  *      is the problem message. Validators are pure, never persisted,
  *      and unresolvable names mean unvalidated.
  *    - SubStage gate: { type: "hybrid" | "strict" }
@@ -22,6 +24,8 @@
  *      done. strict: it must be explicitly marked done.
  *    - definition.subject points at the field that names the thing
  *      the process is about, so generated drafts can reference it.
+ *    - A step may carry an optional manual: true; the engine ignores it,
+ *      the UI layer suppresses the draft action on that step.
  *
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
@@ -72,6 +76,7 @@
  * @property {string} [description]
  * @property {boolean} [required]
  * @property {string} [aiPrompt]
+ * @property {boolean} [manual] When true, the UI suppresses the Generate affordance; the step is human-entered.
  * @property {OutputSpec[]} [outputs]
  */
 /**
@@ -219,6 +224,8 @@ export function validateDefinition(definition) {
         if (!st.id) problems.push(`a step in sub-stage "${ss.id}" is missing an id`);
         if (st.id && stepIds.has(st.id)) problems.push(`duplicate step id "${st.id}"`);
         stepIds.add(st.id);
+        if (st.manual !== undefined && typeof st.manual !== "boolean")
+          problems.push(`step "${st.id}": manual must be a boolean`);
         (st.outputs || []).forEach((o) => {
           if (!["text", "fields", "file", "link", "data"].includes(o.type))
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);
@@ -447,17 +454,18 @@ export function stepHasAnyOutput(step, entry) {
  * not throw; the engine does not catch.
  * @param {Step} step
  * @param {StepEntry} entry
- * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
+ * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @param {Run} [run] Threaded to validators as ctx.run for run-aware checks.
  * @returns {{ spec: OutputSpec, message: string } | null}
  */
-function firstInvalidOutput(step, entry, validators) {
+function firstInvalidOutput(step, entry, validators, run) {
   if (!validators) return null;
   for (const spec of step.outputs || []) {
     const fn = spec.validate && validators[spec.validate];
     if (!fn) continue;
     const val = (entry.outputs || {})[spec.id];
     if (!hasValue(spec, val)) continue;
-    const message = fn(val, spec);
+    const message = fn(val, spec, { run, stepId: step.id });
     if (typeof message === "string") return { spec, message };
   }
   return null;
@@ -473,11 +481,12 @@ function firstInvalidOutput(step, entry, validators) {
  * @param {Step} step
  * @param {StepEntry} entry
  * @param {"hybrid"|"strict"} [gateType]
- * @param {Object<string, (value: any, spec: OutputSpec) => (string|null)>} [validators]
+ * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @param {Run} [run] Threaded to validators as ctx.run for run-aware checks.
  * @returns {boolean}
  */
-export function isStepComplete(step, entry, gateType = "hybrid", validators) {
-  if (firstInvalidOutput(step, entry, validators)) return false;
+export function isStepComplete(step, entry, gateType = "hybrid", validators, run) {
+  if (firstInvalidOutput(step, entry, validators, run)) return false;
   if (gateType === "strict") return !!entry.checkedDone;
   if (entry.checkedDone) return true;
   return !entry.reopened && stepHasAnyOutput(step, entry);
@@ -498,7 +507,7 @@ export function gateTypeOf(subStage) {
  * because a present output failed its named validator.
  * @param {SubStage} subStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {GateProgress}
  */
 export function gateProgress(subStage, run, { validators } = {}) {
@@ -508,8 +517,8 @@ export function gateProgress(subStage, run, { validators } = {}) {
   const missing = [];
   required.forEach((s) => {
     const entry = getStepEntry(run, s.id);
-    if (isStepComplete(s, entry, gateType, validators)) return;
-    const invalid = firstInvalidOutput(s, entry, validators);
+    if (isStepComplete(s, entry, gateType, validators, run)) return;
+    const invalid = firstInvalidOutput(s, entry, validators, run);
     missing.push(invalid ? `${s.name}: ${invalid.message}` : s.name);
   });
   return {
@@ -527,7 +536,7 @@ export function gateProgress(subStage, run, { validators } = {}) {
  * single-sub-stage main stages read as before.
  * @param {SubStage[]} subStagesOfMain
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
 function aggregateGate(subStagesOfMain, run, opts) {
@@ -553,7 +562,7 @@ function aggregateGate(subStagesOfMain, run, opts) {
  * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {MainGateProgress}
  */
 export function mainGateProgress(mainStage, run, opts) {
@@ -616,7 +625,7 @@ export function jumpTo(run, subStages, index) {
  * a met gate records nothing.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
- * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {AdvanceResult}
  */
 export function advance(run, subStages, { force = false, validators } = {}) {
@@ -752,7 +761,7 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * @param {Run} run
  * @param {number} flatIdx
  * @param {string} [excludeStepId]
- * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  *   maxCharsPerStep forwards as serializeStep's maxChars (default 2500).
  * @returns {string}
  */
@@ -766,7 +775,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
-      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators)) return;
+      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators, run)) return;
       const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
@@ -784,7 +793,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
  * @param {Run} run
  * @param {number} subIdx
  * @param {Step} step
- * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  *   Forwarded to buildContext.
  * @returns {string}
  */
@@ -994,7 +1003,7 @@ export function deleteRun(store, runId) {
  * met. Skipped sub-stages are excluded from both counts.
  * @param {Definition} definition
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {{ met: number, total: number }}
  */
 export function runSummary(definition, run, opts) {
