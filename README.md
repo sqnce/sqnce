@@ -85,11 +85,11 @@ export default function App() {
 }
 ```
 
-Both `persistence` and `generateDraft` are optional. Omit `persistence` for in-memory runs; omit `generateDraft` to hide the draft action entirely.
+Both `persistence` and `generateDraft` are optional. Omit `persistence` for in-memory runs; omit `generateDraft` to hide the draft action entirely. The draft context passed to `generateDraft` is `{ workflowId, stepId, subject, runId }`; `runId` is the active run entry id, for server-side generators that resolve the run from a shared store. A step marked `manual: true` shows no Generate affordance at all.
 
 Draft generation targets a step's first `text` output, or its first `data` output when it has no text output. Data drafts are parsed as strict JSON (one surrounding code fence is tolerated) and, when the output declares a `validate` name, checked by your validator before anything is stored; failures surface as the generation error and write nothing.
 
-A `validators` prop resolves the `validate` names declared on output specs: `validators={{ "win-themes": (value, spec) => Array.isArray(value) ? null : "Expected an array." }}`. A returned string is the problem message: the owning step reads incomplete (gates, status, draft context) until the value is fixed, and the message appears in the gate footer. Validators are pure functions; omit the prop to validate nothing.
+A `validators` prop resolves the `validate` names declared on output specs: `validators={{ "win-themes": (value, spec, { run, stepId }) => Array.isArray(value) ? null : "Expected an array." }}`. The third argument carries the run (read other steps with `getStepEntry`) and the stepId, so a validator can relate one step's output to another. A returned string is the problem message: the owning step reads incomplete (gates, status, draft context) until the value is fixed, and the message appears in the gate footer. Validators are pure functions; omit the prop to validate nothing.
 
 `@sqnce/react` ships raw JSX. Vite and esbuild consumers work out of the box; webpack/Next.js consumers add `transpilePackages: ["@sqnce/react"]` (or a babel-loader include) because bundlers usually skip transpiling `node_modules`.
 

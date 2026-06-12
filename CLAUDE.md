@@ -22,8 +22,10 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 - Run state lives in a versioned run store (multiple named runs per workflow); switching workflows or runs is non-destructive. Archiving is manual only and archived runs open read-only; nothing archives a run automatically.
 - Unknown render kinds never render blank: JSON tree fallback for data outputs, default editor otherwise.
 - Renderer onChange carries value mutations only; renderer view state (selection, pan, zoom) never enters the value, because serializeStep leaks values into LLM draft prompts.
-- Validators are consumer-supplied pure functions resolved by name from output specs; an invalid present value makes its step incomplete everywhere (gates, status, draft context) regardless of the done flag, with the message reported in `missing`. Unresolvable names mean unvalidated; validation results are never persisted.
+- Validators are consumer-supplied pure functions resolved by name from output specs; an invalid present value makes its step incomplete everywhere (gates, status, draft context) regardless of the done flag, with the message reported in `missing`. Unresolvable names mean unvalidated; validation results are never persisted. Validators receive a third argument `{ run, stepId }` and can relate one step's output to another via `getStepEntry`.
 - Draft generation targets the first text output, else the first data output. Data drafts parse as strict JSON with single-fence tolerance and run the target's validator; any failure surfaces as the generation error and never writes a value.
+- The generateDraft context carries the active run entry id as `runId`, and the component flushes pending persistence before calling the generator, so a server-side generator resolving the run from a shared store does not race the save debounce, even for a newly created run.
+- A step may be marked `manual: true` to suppress the Generate affordance entirely (both the invite and the action-row button); manual steps are human-entered.
 - Serialization budget: `maxCharsPerStep` threads from `buildDraftPrompt`/`buildContext` into `serializeStep`; the block-level budget is the single truncation point and truncated blocks end with a `[truncated]` marker.
 
 ## Conventions
