@@ -36,7 +36,7 @@ Fix (option 1 from the issue): extend the contract with a third argument carryin
 - `firstInvalidOutput(step, entry, validators)` gains a `run` parameter and calls `fn(val, spec, { run, stepId: step.id })`.
 - `isStepComplete(step, entry, gateType, validators)` gains an optional 5th parameter `run`, forwarded to `firstInvalidOutput`. Public API; additive, so omitting it keeps today's behavior (the third arg is then `{ run: undefined, stepId }`, which a run-aware validator treats as no run context).
 - `gateProgress(subStage, run, { validators })` already holds `run`; it forwards `run` to both `isStepComplete` (~511) and the direct `firstInvalidOutput` call that builds the missing message (~512).
-- The advance completion check (~769) already holds `run`; it forwards `run` to `isStepComplete`.
+- `buildContext` (the completion filter at ~769) already holds `run`; it forwards `run` to `isStepComplete`, so a run-aware rejection excludes the step from generated draft prompts.
 - `mainGateProgress`, `runSummary`, and `advance` reach validation only through `gateProgress`, to which they already pass `run`, so they need no signature change.
 
 Net engine surface change: `firstInvalidOutput` (internal) and `isStepComplete` (exported) gain a `run` argument; no other exported signature changes. Validation stays pure, computed, never persisted, and unresolved or absent validators stay unvalidated, exactly as #54 established.
