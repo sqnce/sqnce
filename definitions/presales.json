@@ -360,6 +360,7 @@
             {
               "id": "demo-data",
               "name": "Demo Data",
+              "manual": true,
               "description": "Realistic records that mirror the customer's world.",
               "outputs": [
                 {
