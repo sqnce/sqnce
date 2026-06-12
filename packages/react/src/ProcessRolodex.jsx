@@ -678,6 +678,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                   const entry = getStepEntry(run, step.id);
                   const status = statusOf(sub, step);
                   const target = draftTarget(step);
+                  const canGenerate = !!generateDraft && !!target && !step.manual;
                   const open = center && expanded === step.id;
                   return (
                     <div key={step.id} className={`pf-step pf-step-${status}`}>
@@ -712,7 +713,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           {step.description && <div className="pf-step-desc">{step.description}</div>}
 
                           {(step.outputs || []).map((spec) => {
-                            const isGenTarget = !!generateDraft && spec === target;
+                            const isGenTarget = canGenerate && spec === target;
                             if (
                               isGenTarget &&
                               !hasValue(spec, (entry.outputs || {})[spec.id]) &&
@@ -776,7 +777,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           )}
 
                           <div className="pf-actions">
-                            {generateDraft && target && (
+                            {canGenerate && (
                               <button
                                 className="pf-btn"
                                 disabled={generating === step.id || readOnly}
