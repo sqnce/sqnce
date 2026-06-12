@@ -85,7 +85,8 @@ function newId() {
  *      (JSON tree for data outputs, default editor otherwise). A renderer
  *      receives { spec, value, onChange, context } and must treat
  *      onChange as value-mutations-only. Omit to use built-ins alone.
- *  - validators (optional): map of validator name -> (value, spec) =>
+ *  - validators (optional): map of validator name -> (value, spec,
+ *      { run, stepId }) =>
  *      string | null, resolving the validate names declared on output
  *      specs. A returned string is the problem message: it makes the
  *      owning step incomplete (gates, status, draft context) and
@@ -158,7 +159,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {{ label: string, ids: string[] }[]} [workflowGroups]
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
- * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec) => (string|null)>} [validators]
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
  */
 
 /** @param {ProcessRolodexProps} props */
@@ -414,7 +415,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         return;
       }
       const fn = target.validate && validators && validators[target.validate];
-      const message = fn ? fn(parsed.value, target) : null;
+      const message = fn ? fn(parsed.value, target, { run, stepId: step.id }) : null;
       if (typeof message === "string") {
         setGenError({ stepId: step.id, message: `Draft failed validation: ${message}` });
         return;
@@ -456,7 +457,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         .map((s) => ({ step: s, entry: getStepEntry(run, s.id) }))
         .filter(
           ({ step, entry }) =>
-            isStepComplete(step, entry, gateTypeOf(prevSub), validators) && stepHasAnyOutput(step, entry)
+            isStepComplete(step, entry, gateTypeOf(prevSub), validators, run) && stepHasAnyOutput(step, entry)
         )
     : [];
 
@@ -471,7 +472,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   const statusOf = (sub, step) => {
     const entry = getStepEntry(run, step.id);
-    if (isStepComplete(step, entry, gateTypeOf(sub), validators)) return "done";
+    if (isStepComplete(step, entry, gateTypeOf(sub), validators, run)) return "done";
     if (stepHasAnyOutput(step, entry)) return "draft";
     return "open";
   };
@@ -749,7 +750,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             }
                             const outVal = (entry.outputs || {})[spec.id];
                             const checkFn = spec.validate && validators && validators[spec.validate];
-                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec) : null;
+                            const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec, { run, stepId: step.id }) : null;
                             return (
                               <OutputView
                                 key={spec.id}
