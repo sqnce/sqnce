@@ -27,6 +27,7 @@ sqnce (pronounced "sequence") is a reusable framework for staged, gated workflow
 - The generateDraft context carries the active run entry id as `runId`, and the component flushes pending persistence before calling the generator, so a server-side generator resolving the run from a shared store does not race the save debounce, even for a newly created run.
 - A step may be marked `manual: true` to suppress the Generate affordance entirely (both the invite and the action-row button); manual steps are human-entered.
 - Serialization budget: `maxCharsPerStep` threads from `buildDraftPrompt`/`buildContext` into `serializeStep`; the block-level budget is the single truncation point and truncated blocks end with a `[truncated]` marker.
+- `cloneRun(store, { fromId, newId, name, now, uptoStageId, definition })` forks a run into a distinct run-id, deep-copying the full run state (or truncating to the accepted work up to and including a main stage via `uptoStageId` + `definition`). The new entry's id equals its store key equals `newId` by construction, so state updates never silently no-op against a clone; the clone is always active and the active-run mapping is untouched (it does not route through `addRun`). It throws on a bad or colliding `newId`, an unknown `fromId`, a definition that is not the run's workflow, an unknown or ambiguous `uptoStageId`, an `uptoStageId` beyond the frontier, or a retained step or kept skip the definition no longer describes.
 
 ## Conventions
 
