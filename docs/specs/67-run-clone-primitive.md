@@ -42,7 +42,11 @@ Each throw is a clear `Error` naming the cause.
 
 ### Truncation semantics
 
-`uptoStageId` is a **main-stage id**, resolved against `definition` to a main-stage index `k`. The fork point is a main stage because the engine only ever marks progress accepted at main-stage boundaries (`frontier` is a main-stage index; there is no per-sub-stage commit). Given the guards above, `k <= source.frontier`. The cloned run is:
+`uptoStageId` is a **main-stage id**, resolved against `definition` to a main-stage index `k`. The fork point is a main stage because the engine only ever marks progress accepted at main-stage boundaries (`frontier` is a main-stage index; there is no per-sub-stage commit). Given the guards above, `k <= source.frontier`.
+
+Precondition: the supplied `definition` is the run's own current definition. Its `id` must equal the run's `workflowId` (enforced above), and `cloneRun` further requires every step and skip id to resolve. Beyond that, `cloneRun` (like every engine function that takes a definition: `advance`, `gateProgress`, `runSummary`, `resolveSubject`) assumes the definition matches the run. It does not detect in-place definition drift, for example a step relocated to a different main stage under a stable `workflowId`, because run entries record only `workflowId`, not a definition revision. That class of drift is a framework-wide assumption (the engine has no revision concept and persisted runs already assume a stable definition); detecting it is out of scope here (see below). The checks `cloneRun` does enforce are the boundary checks possible without that machinery.
+
+The cloned run is:
 
 - `frontier = k`.
 - `stepState`: keep an entry iff its step's main-stage index is `<= k`; drop the rest. Step-to-stage is resolved from `flattenSubStages(definition)` (each flattened sub-stage carries `mainIndex` and its `steps`).
@@ -77,6 +81,7 @@ The root `README.md` and `packages/react/README.md` do not enumerate the run-sto
 - The consumer-side artifact-renumbering failure and any CLI surfacing of fork (presales-sqnce#97).
 - Any persistence version bump, migration, or compat shim. The function is purely additive; older stores are already discarded by loaders, and the pre-publish stance ships breaking changes clean without shims.
 - Any demo/UI affordance for forking. `cloneRun` is a pure core primitive; engine tests are its proof.
+- Definition-revision tracking or drift detection. `cloneRun`, like the rest of the engine, assumes the supplied `definition` is the run's current definition; it cannot detect in-place changes such as a step moved between main stages under a stable `workflowId`. Recording a definition revision per run and validating it is a framework-wide concern, not part of this primitive (it would also need a `@sqnce/core`-internal hash, which the dependency-free engine deliberately avoids).
 
 ## Acceptance
 
