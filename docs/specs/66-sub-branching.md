@@ -1,6 +1,6 @@
 # spec: engine sub-branching in @sqnce/core
 
-Issue: #66. Closes #66.
+Issue: #66. (The closing keyword lives in the PR body, the merge vehicle; this file does not carry it.)
 
 Driving need: today the engine is strictly linear. A `Run` carries a single integer `frontier` over a flat `mainStages[]` list, and `advance` only ever does `frontier + 1` when the current stage's gate is met. There is no track / branch concept. The presales-sqnce "RFP response drafting" epic needs one pursuit that shares an upstream spine, then **forks into independent tracks that each finish at their own terminal**, with no requirement to rejoin. This issue adds that capability to the pure engine only.
 
@@ -36,9 +36,9 @@ MainStage.track?: string   // track id; absent = shared spine
 
 The fork is **derived**, not a separate node: the **spine** is the untagged main stages (a non-empty contiguous prefix); the fork sits after the last spine stage; each **track** is the contiguous run of main stages tagged with its id; a track's **terminal** is its last main stage (implicit, no explicit field). `optional: true` marks a track skippable per run; absent/`false` means required. Sub-stages inherit their main stage's track; track membership lives at main-stage grain because that is the engine's only gate boundary (`frontier` is a main-stage index).
 
-### Validation (`validateDefinition`, only when `tracks` is present)
+### Validation (`validateDefinition`)
 
-Rejections (each a clear problem string), covering the issue's named cases and the boundaries pinned in the intent gate:
+When `tracks` is **absent**, the definition is linear and validated exactly as today, with one addition: a `mainStage.track` present without a `tracks` declaration is **rejected** (a stray track tag with no fork is a misconfiguration, not a silent linear run; track fields and the `tracks` declaration must both be present or both absent). When `tracks` is **present**, the following must hold, each rejection a clear problem string, covering the issue's named cases and the boundaries pinned in the intent gate:
 
 1. fewer than 2 tracks (a fork needs at least two); a track missing a non-empty `id`/`name`; duplicate track ids.
 2. a `mainStage.track` referencing an undeclared track.
@@ -115,7 +115,7 @@ A definition with no `tracks` (and no `track` on any stage) takes the existing c
 
 `npm test` passes with new tests covering:
 
-- **Validation:** rejects each malformed topology in the list above (fewer than 2 tracks, empty spine, shared stage after the fork, non-contiguous track, undeclared track reference, track with no stage, subject outside the spine) and accepts a well-formed fork. All 8 bundled definitions and the linear fixture still validate (suite unchanged).
+- **Validation:** rejects each malformed topology in the list above (a stray `mainStage.track` with no `tracks` declaration, fewer than 2 tracks, empty spine, shared stage after the fork, non-contiguous track, undeclared track reference, track with no stage, subject outside the spine) and accepts a well-formed fork. All 8 bundled definitions and the linear fixture still validate (suite unchanged).
 - **Flatten:** annotates each flat sub-stage with its track (spine entries carry none).
 - **Advance:** the spine advances as today; advancing past the last spine stage opens the fork with every track at its first stage and `frontier` unchanged; advancing one track moves only that track's frontier (the sibling is untouched); a track terminal is a no-op; a forced advance records `forces` by stage index.
 - **Navigation:** `browse` / `jumpTo` are bounded per region, move between the spine and an open track, and are identical to today for the linear fixture.
