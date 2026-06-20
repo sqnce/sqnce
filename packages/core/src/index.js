@@ -1000,6 +1000,7 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
     const subMain = new Map(subs.map((ss) => [ss.id, ss.mainIndex]));
     const skippable = new Map(subs.map((ss) => [ss.id, !!ss.skippable]));
 
+    /** @type {Object<string, StepEntry>} */
     const stepState = {};
     for (const [stepId, entry] of Object.entries(run.stepState)) {
       if (!stepMain.has(stepId))
@@ -1007,6 +1008,7 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
       if (stepMain.get(stepId) <= k) stepState[stepId] = entry;
     }
 
+    /** @type {Object<string, true>} */
     const skips = {};
     for (const subId of Object.keys(run.skips || {})) {
       if (!subMain.has(subId))
@@ -1017,6 +1019,7 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
       }
     }
 
+    /** @type {Object<string, true>} */
     const forces = {};
     for (const i of Object.keys(run.forces || {})) {
       if (Number(i) < k) forces[i] = true;
@@ -1027,6 +1030,7 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
     if (Object.keys(forces).length) run.forces = forces;
   }
 
+  /** @type {RunEntry} */
   const entry = {
     id: newId,
     workflowId: source.workflowId,
