@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+The full dev-workflow lifecycle lives in the global `~/.claude/CLAUDE.md`; this file holds only what is specific to this repo.
+
 ## What this is
 
 sqnce (pronounced "sequence") is a reusable framework for staged, gated workflows. A process is defined as data (a "sqnce"), executed by a pure engine, and visualized as a rolodex UI that centers the active sub-stage and feeds each stage's outputs into the next. Repo: github.com/sqnce/sqnce.
