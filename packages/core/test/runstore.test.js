@@ -51,6 +51,41 @@ export const DEF = {
   ],
 };
 
+/* Three-main-stage fixture for truncation. Flat sub-stage indices:
+   a0=0, a0x=1 (skippable) in m0; a1=2 in m1; a2=3 in m2. */
+const MULTI = {
+  id: "multi",
+  name: "Multi",
+  mainStages: [
+    { id: "m0", name: "M0", subStages: [
+      { id: "a0", name: "A0", gate: { type: "hybrid" }, steps: [{ id: "p0", name: "P0" }] },
+      { id: "a0x", name: "A0x", skippable: true, gate: { type: "hybrid" }, steps: [{ id: "px", name: "PX" }] },
+    ] },
+    { id: "m1", name: "M1", subStages: [
+      { id: "a1", name: "A1", gate: { type: "hybrid" }, steps: [{ id: "p1", name: "P1" }] },
+    ] },
+    { id: "m2", name: "M2", subStages: [
+      { id: "a2", name: "A2", gate: { type: "hybrid" }, steps: [{ id: "p2", name: "P2" }] },
+    ] },
+  ],
+};
+
+const multiSource = () => ({
+  idx: 3,
+  frontier: 2,
+  stepState: {
+    p0: { checkedDone: true, outputs: { v: 0 } },
+    px: { checkedDone: true, outputs: {} },
+    p1: { checkedDone: true, outputs: { v: 1 } },
+    p2: { checkedDone: false, outputs: { v: 2 } },
+  },
+  skips: { a0x: true },
+  forces: { 0: true, 1: true },
+});
+
+const multiStore = (run) =>
+  addRun(createRunStore(), createRunEntry({ id: "r1", workflowId: "multi", run, now: 100 }));
+
 export const entryAt = (id, workflowId, now) =>
   createRunEntry({ id, workflowId, run: createRun(), now });
 
@@ -318,4 +353,103 @@ test("cloneRun does not mutate the input store", () => {
   const snapshot = structuredClone(s);
   cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
   assert.deepEqual(s, snapshot);
+});
+
+test("cloneRun truncated fork keeps work up to the fork main stage", () => {
+  let s = multiStore(multiSource());
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1", definition: MULTI });
+  const r = s.entries["r2"].run;
+  assert.equal(r.frontier, 1);
+  assert.deepEqual(Object.keys(r.stepState).sort(), ["p0", "p1", "px"]);
+  assert.equal(r.idx, 2);
+  assert.deepEqual(r.skips, { a0x: true });
+  assert.deepEqual(r.forces, { 0: true });
+});
+
+test("cloneRun truncated to the current frontier keeps the whole committed prefix", () => {
+  let s = multiStore(multiSource());
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m2", definition: MULTI });
+  const r = s.entries["r2"].run;
+  assert.equal(r.frontier, 2);
+  assert.deepEqual(Object.keys(r.stepState).sort(), ["p0", "p1", "p2", "px"]);
+  assert.deepEqual(r.forces, { 0: true, 1: true });
+  assert.equal(r.idx, 3);
+});
+
+test("cloneRun truncated fork drops empty skips/forces maps", () => {
+  const run = { idx: 1, frontier: 1, stepState: {
+    p0: { checkedDone: true, outputs: {} }, p1: { checkedDone: true, outputs: {} },
+  } };
+  let s = multiStore(run);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0", definition: MULTI });
+  const r = s.entries["r2"].run;
+  assert.equal(r.frontier, 0);
+  assert.deepEqual(Object.keys(r.stepState), ["p0"]);
+  assert.ok(!("skips" in r));
+  assert.ok(!("forces" in r));
+});
+
+test("cloneRun truncated clone is drivable and isolated from the source", () => {
+  let s = multiStore(multiSource());
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1", definition: MULTI });
+  const driven = setOutput(s.entries["r2"].run, "p1", "v", 99);
+  s = updateRunState(s, "r2", driven, 300);
+  assert.equal(getStepEntry(s.entries["r2"].run, "p1").outputs.v, 99);
+  assert.equal(s.entries["r1"].run.stepState.p1.outputs.v, 1);
+});
+
+test("cloneRun throws when uptoStageId is given without a definition", () => {
+  const s = multiStore(multiSource());
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1" }),
+    /requires a definition/);
+});
+
+test("cloneRun throws when the definition is not the run's workflow", () => {
+  const s = multiStore(multiSource());
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1",
+    definition: { ...MULTI, id: "other" } }), /not the run's workflow/);
+});
+
+test("cloneRun throws on an unknown uptoStageId", () => {
+  const s = multiStore(multiSource());
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "ghost",
+    definition: MULTI }), /no main stage/);
+});
+
+test("cloneRun throws on an ambiguous (duplicate) uptoStageId", () => {
+  const dup = { ...MULTI, mainStages: [...MULTI.mainStages,
+    { id: "m0", name: "dup", subStages: [{ id: "az", name: "AZ", gate: { type: "hybrid" }, steps: [{ id: "pz", name: "PZ" }] }] }] };
+  const s = multiStore(multiSource());
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0",
+    definition: dup }), /ambiguous/);
+});
+
+test("cloneRun throws when uptoStageId is beyond the frontier", () => {
+  const run = { idx: 0, frontier: 0, stepState: { p0: { checkedDone: true, outputs: {} } } };
+  const s = multiStore(run);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m2",
+    definition: MULTI }), /beyond the run frontier/);
+});
+
+test("cloneRun throws when the run holds a step absent from the definition", () => {
+  const run = { idx: 0, frontier: 0, stepState: {
+    p0: { checkedDone: true, outputs: {} }, ghost: { checkedDone: true, outputs: {} },
+  } };
+  const s = multiStore(run);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0",
+    definition: MULTI }), /step "ghost" is not in definition/);
+});
+
+test("cloneRun throws when a kept skip's sub-stage is no longer skippable", () => {
+  const run = { idx: 0, frontier: 0, stepState: { p0: { checkedDone: true, outputs: {} } }, skips: { a0: true } };
+  const s = multiStore(run);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0",
+    definition: MULTI }), /no longer skippable/);
+});
+
+test("cloneRun throws when the run holds a skip sub-stage absent from the definition", () => {
+  const run = { idx: 0, frontier: 0, stepState: { p0: { checkedDone: true, outputs: {} } }, skips: { ghost: true } };
+  const s = multiStore(run);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0",
+    definition: MULTI }), /skip sub-stage "ghost" is not in definition/);
 });
