@@ -17,6 +17,8 @@ import {
   deleteRun,
   runSummary,
   runDisplayName,
+  getStepEntry,
+  cloneRun,
 } from "../src/index.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
@@ -227,4 +229,88 @@ test("runDisplayName numbers unnamed runs by creation order and ignores unknown 
   const s2 = deleteRun(s, "r1");
   assert.equal(runDisplayName(DEF, s2, "r2"), "Run 1");
   assert.equal(runDisplayName(DEF, s, "nope"), "");
+});
+
+test("cloneRun full fork copies the run under a new id with id === key", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = updateRunState(s, "r1", setOutput(createRun(), "s1", "facts", { client: "Acme" }), 150);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", name: "  variant-a  ", now: 200 });
+  const c = s.entries["r2"];
+  assert.equal(c.id, "r2");
+  assert.equal(c.workflowId, "wf");
+  assert.equal(c.status, "active");
+  assert.equal(c.name, "variant-a");
+  assert.equal(c.createdAt, 200);
+  assert.equal(c.updatedAt, 200);
+  assert.deepEqual(c.run, s.entries["r1"].run);
+  assert.equal(Object.keys(s.entries).length, 2);
+});
+
+test("cloneRun leaves the active-run mapping untouched", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  const beforeActive = { ...s.activeRunByWorkflow };
+  const beforeWf = s.activeWorkflowId;
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  assert.equal(s.activeWorkflowId, beforeWf);
+  assert.deepEqual(s.activeRunByWorkflow, beforeActive);
+  assert.equal(s.activeRunByWorkflow["wf"], "r1");
+});
+
+test("cloneRun clone is a native run: setOutput advances its own state, not the source", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  const driven = setOutput(s.entries["r2"].run, "s1", "facts", { client: "Beta" });
+  s = updateRunState(s, "r2", driven, 300);
+  assert.deepEqual(getStepEntry(s.entries["r2"].run, "s1").outputs, { facts: { client: "Beta" } });
+  assert.deepEqual(s.entries["r1"].run.stepState, {});
+  assert.equal(Object.keys(s.entries).length, 2);
+});
+
+test("cloneRun deep-copies: clone and source do not alias", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = updateRunState(s, "r1", {
+    idx: 0, frontier: 0,
+    stepState: { s1: { checkedDone: false, outputs: { facts: { client: "Acme" } } } },
+    skips: { b: true }, forces: { 0: true },
+  }, 150);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  const src = s.entries["r1"].run, cl = s.entries["r2"].run;
+  assert.notEqual(cl, src);
+  assert.notEqual(cl.stepState, src.stepState);
+  assert.notEqual(cl.skips, src.skips);
+  assert.notEqual(cl.forces, src.forces);
+  assert.notEqual(cl.stepState.s1, src.stepState.s1);
+});
+
+test("cloneRun forks an archived run into an active clone", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = archiveRun(s, "r1", 150);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  assert.equal(s.entries["r1"].status, "archived");
+  assert.equal(s.entries["r2"].status, "active");
+});
+
+test("cloneRun throws on unknown fromId", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.throws(() => cloneRun(s, { fromId: "nope", newId: "r2", now: 200 }), /no run with id/);
+});
+
+test("cloneRun throws on an existing newId", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  s = addRun(s, entryAt("r2", "wf", 150));
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200 }), /already exists/);
+});
+
+test("cloneRun throws on a non-string or empty newId", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "", now: 200 }), /non-empty string/);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "   ", now: 200 }), /non-empty string/);
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: 42, now: 200 }), /non-empty string/);
+});
+
+test("cloneRun does not mutate the input store", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  const snapshot = structuredClone(s);
+  cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  assert.deepEqual(s, snapshot);
 });

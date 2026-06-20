@@ -833,6 +833,10 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
  * entry.name holds manual renames only (display names are derived by
  * runDisplayName). Every function taking a runId returns the store
  * unchanged when the id is unknown.
+ * cloneRun forks an entry into a new id: the new entry's id, its store key,
+ * and the newId argument are one value by construction, so updates never
+ * silently no-op against a clone, and cloning never changes the active-run
+ * mapping (it does not route through addRun).
  */
 
 /** @returns {RunStore} */
@@ -938,6 +942,37 @@ export function updateRunState(store, runId, run, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
   return withEntry(store, { ...entry, run, updatedAt: now });
+}
+
+/**
+ * Fork a run into a new run-id. Deep-copies the source run under newId and
+ * returns a new store the caller can drive normally. The new entry's id,
+ * its store key, and newId are one value by construction, so the silent
+ * no-op trap (updates landing on the wrong record because entry.id drifted
+ * from its key) is impossible. The clone is always active (even from an
+ * archived source) and the active-run mapping is left untouched: a consumer
+ * that wants the fork open calls setActiveRun itself. Throws rather than
+ * silently producing a broken store on bad or colliding input.
+ * @param {RunStore} store
+ * @param {{ fromId: string, newId: string, name?: string, now: number }} opts
+ * @returns {RunStore}
+ */
+export function cloneRun(store, { fromId, newId, name = "", now }) {
+  if (typeof newId !== "string" || !newId.trim())
+    throw new Error("cloneRun: newId must be a non-empty string");
+  const source = store.entries[fromId];
+  if (!source) throw new Error(`cloneRun: no run with id "${fromId}"`);
+  if (store.entries[newId]) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
+  const entry = {
+    id: newId,
+    workflowId: source.workflowId,
+    name: String(name || "").trim(),
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+    run: structuredClone(source.run),
+  };
+  return { ...store, entries: { ...store.entries, [newId]: entry } };
 }
 
 /**
