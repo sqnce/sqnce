@@ -969,9 +969,10 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
   if (typeof newId !== "string" || !newId.trim())
     throw new Error("cloneRun: newId must be a non-empty string");
   if (newId === fromId) throw new Error(`cloneRun: newId must differ from fromId ("${fromId}")`);
+  const has = (id) => Object.prototype.hasOwnProperty.call(store.entries, id);
+  if (!has(fromId)) throw new Error(`cloneRun: no run with id "${fromId}"`);
   const source = store.entries[fromId];
-  if (!source) throw new Error(`cloneRun: no run with id "${fromId}"`);
-  if (store.entries[newId]) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
+  if (has(newId)) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
 
   let run = structuredClone(source.run);
 

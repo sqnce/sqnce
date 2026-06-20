@@ -453,3 +453,11 @@ test("cloneRun throws when the run holds a skip sub-stage absent from the defini
   assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m0",
     definition: MULTI }), /skip sub-stage "ghost" is not in definition/);
 });
+
+test("cloneRun treats inherited property names as absent run ids", () => {
+  let s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.throws(() => cloneRun(s, { fromId: "toString", newId: "r2", now: 200 }), /no run with id/);
+  s = cloneRun(s, { fromId: "r1", newId: "constructor", now: 200 });
+  assert.equal(s.entries["constructor"].id, "constructor");
+  assert.equal(s.entries["constructor"].workflowId, "wf");
+});
