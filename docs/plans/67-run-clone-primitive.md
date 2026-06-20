@@ -205,7 +205,7 @@ Extend the function from Task 1 with `uptoStageId` (a main-stage id, requires `d
 - Test: `packages/core/test/runstore.test.js` (add a multi-main-stage fixture + the tests below; add `createRunEntry` to the import block if not already imported)
 
 **Interfaces:**
-- Consumes: `cloneRun(store, { fromId, newId, name, now }) => RunStore` from Task 1; the existing exports `flattenSubStages(definition)` (returns flat sub-stages each carrying `mainIndex` and `steps`), `createRunEntry`, `createRunStore`, `addRun`, `setOutput`, `getStepEntry`, `updateRunState`.
+- Consumes: `cloneRun(store, { fromId, newId, name, now }) => RunStore` from Task 1; the existing exports `flattenSubStages(definition)` (returns flat sub-stages each carrying `mainIndex` and `steps`), `createRunEntry`, `createRunStore`, `addRun`, `setOutput`, `getStepEntry`, `updateRunState`. Note: Task 1's review added a self-clone guard (`if (newId === fromId) throw ...`) plus its test; the function body below already includes that line, and the existing self-clone test stays.
 - Produces: the final signature `cloneRun(store, { fromId, newId, name = "", now, uptoStageId, definition }) => RunStore`. When `uptoStageId` is set, the clone's run is `{ idx, frontier, stepState }` plus `skips`/`forces` when non-empty, truncated to main stage `k`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -386,6 +386,7 @@ In `packages/core/src/index.js`, change `cloneRun` to add the two new options an
 export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, definition }) {
   if (typeof newId !== "string" || !newId.trim())
     throw new Error("cloneRun: newId must be a non-empty string");
+  if (newId === fromId) throw new Error(`cloneRun: newId must differ from fromId ("${fromId}")`);
   const source = store.entries[fromId];
   if (!source) throw new Error(`cloneRun: no run with id "${fromId}"`);
   if (store.entries[newId]) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
