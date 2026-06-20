@@ -33,9 +33,10 @@ The new entry's `id`, its store key, and the `newId` argument are one and the sa
 - unknown `fromId` (nothing to fork).
 - `newId` already present in `store.entries` (forking must never overwrite or merge into an existing run).
 - `uptoStageId` given without a `definition`.
-- `uptoStageId` that matches no main stage in `definition`.
+- a `definition` whose `id` is not the source entry's `workflowId` (the definition must be the run's own workflow; otherwise `frontier`, `idx`, step retention, skips, and forces would be computed against another workflow's stages, silently dropping or mis-accepting state in a multi-workflow store).
+- `uptoStageId` that matches no main stage in `definition`, or that matches more than one (an ambiguous fork point). `cloneRun` enforces a unique main-stage match itself rather than trusting the definition was validated, because `validateDefinition` checks sub-stage and step id uniqueness but does not currently reject duplicate main-stage ids.
 - `uptoStageId` resolving to a main-stage index `k` greater than the source run's `frontier` (cannot share state that was never accepted).
-- a truncated fork whose source run holds a `stepState` step id, or a `skips` sub-stage id, absent from the supplied `definition` (the definition must describe the run being forked; we never silently drop accepted state we cannot classify).
+- a truncated fork whose source run holds a `stepState` step id absent from the supplied `definition`, or a `skips` sub-stage id that is absent from the definition, or a kept skip (main-stage index `<= k`) whose sub-stage the definition does not mark `skippable`. The definition must currently describe every accepted artifact and every kept skip as legal: we never silently drop accepted state we cannot classify, and (because the engine's `isSubStageSkipped` never re-checks `skippable`) a stale skip on a now-required sub-stage would otherwise silently exclude it from the clone's gates.
 
 Each throw is a clear `Error` naming the cause.
 
@@ -45,7 +46,7 @@ Each throw is a clear `Error` naming the cause.
 
 - `frontier = k`.
 - `stepState`: keep an entry iff its step's main-stage index is `<= k`; drop the rest. Step-to-stage is resolved from `flattenSubStages(definition)` (each flattened sub-stage carries `mainIndex` and its `steps`).
-- `skips`: keep a sub-stage's skip iff its main-stage index is `<= k`; drop the rest. (A skip at the fork stage itself is content within a kept stage, so it is kept.)
+- `skips`: every skip's sub-stage must resolve in the definition, and a kept skip's sub-stage must be `skippable` (else throw, above). Keep a skip iff its main-stage index is `<= k`; drop the rest. (A skip at the fork stage itself is content within a kept stage, so it is kept.)
 - `forces`: keep `forces[i]` iff numeric `i < k`; drop the rest. The force at the fork stage's own outgoing boundary (`forces[k]`, if any) is dropped, because that `k -> k+1` advance is exactly what the rewind undoes.
 - `idx`: set to the flat index of the first sub-stage whose `mainIndex === k`, matching the engine's own convention (`advance` lands the cursor on the first sub-stage of the newly committed stage). The source's browse position is not preserved; the fork is defined by its truncation point.
 
@@ -84,7 +85,7 @@ The root `README.md` and `packages/react/README.md` do not enumerate the run-sto
   - **The no-op trap regression (core acceptance):** after a full fork, `updateRunState(store, newId, setOutput(clone.run, ...))` changes `entries[newId].run` and leaves `entries[fromId]` untouched, with no stray key created. A `setOutput` driven into the clone advances the clone's own state, proving it is indistinguishable from a native run.
   - **Isolation:** the clone and source do not alias; driving one does not mutate the other.
   - **Active pointer untouched:** `activeWorkflowId` and `activeRunByWorkflow` are identical before and after a fork; forking an archived run yields an `active` clone.
-  - **Fail loud:** throws on unknown `fromId`, on an existing `newId`, on a non-string/empty `newId`, on `uptoStageId` without `definition`, on an unknown `uptoStageId`, on `uptoStageId` beyond the source frontier, and on a truncated fork whose run references a step/sub-stage absent from `definition`.
+  - **Fail loud:** throws on unknown `fromId`, on an existing `newId`, on a non-string/empty `newId`, on `uptoStageId` without `definition`, on a `definition` whose `id` is not the source `workflowId`, on an unknown `uptoStageId`, on an `uptoStageId` matching more than one main stage (duplicate-id definition), on `uptoStageId` beyond the source frontier, on a truncated fork whose run references a step or skip sub-stage absent from `definition`, and on a truncated fork whose kept skip names a sub-stage the definition does not mark `skippable`.
   - **Truncated fork:** with `uptoStageId` naming an earlier main stage, the clone keeps `stepState` for steps in stages `<= k` and drops the rest; `frontier === k`; `idx` is the first sub-stage of stage `k`; `forces` are kept for `i < k` and dropped otherwise; `skips` are kept for stages `<= k` and dropped otherwise; the truncated clone is drivable (a `setOutput` advances its own state). Truncating to the current frontier keeps the whole committed prefix.
 - `npm run types` passes and the generated declaration includes `cloneRun`.
 - No existing test is modified (additive surface); all bundled definitions still pass `validateDefinition` (suite unchanged).
