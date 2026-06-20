@@ -833,6 +833,10 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
  * entry.name holds manual renames only (display names are derived by
  * runDisplayName). Every function taking a runId returns the store
  * unchanged when the id is unknown.
+ * cloneRun forks an entry into a new id: the new entry's id, its store key,
+ * and the newId argument are one value by construction, so updates never
+ * silently no-op against a clone, and cloning never changes the active-run
+ * mapping (it does not route through addRun).
  */
 
 /** @returns {RunStore} */
@@ -938,6 +942,106 @@ export function updateRunState(store, runId, run, now) {
   const entry = store.entries[runId];
   if (!entry) return store;
   return withEntry(store, { ...entry, run, updatedAt: now });
+}
+
+/**
+ * Fork a run into a new run-id. Deep-copies the source run under newId and
+ * returns a new store the caller can drive normally. The new entry's id,
+ * its store key, and newId are one value by construction, so the silent
+ * no-op trap (updates landing on the wrong record because entry.id drifted
+ * from its key) is impossible. The clone is always active (even from an
+ * archived source) and the active-run mapping is left untouched: a consumer
+ * that wants the fork open calls setActiveRun itself.
+ *
+ * With uptoStageId (a main-stage id, requires definition), the clone keeps
+ * accepted work only up to and including that main stage; later stages are
+ * blank, idx lands on the first sub-stage of the fork stage, the force at
+ * the fork stage's own outgoing boundary is dropped, and skips/forces past
+ * the fork stage are dropped. The supplied definition must be the run's own
+ * workflow and must currently describe every retained step and kept skip.
+ * Throws rather than silently producing a broken store on bad, colliding,
+ * mismatched, or too-far input.
+ * @param {RunStore} store
+ * @param {{ fromId: string, newId: string, name?: string, now: number, uptoStageId?: string, definition?: Definition }} opts
+ * @returns {RunStore}
+ */
+export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, definition }) {
+  if (typeof newId !== "string" || !newId.trim())
+    throw new Error("cloneRun: newId must be a non-empty string");
+  if (newId === fromId) throw new Error(`cloneRun: newId must differ from fromId ("${fromId}")`);
+  const has = (id) => Object.prototype.hasOwnProperty.call(store.entries, id);
+  if (!has(fromId)) throw new Error(`cloneRun: no run with id "${fromId}"`);
+  const source = store.entries[fromId];
+  if (has(newId)) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
+
+  let run = structuredClone(source.run);
+
+  if (uptoStageId !== undefined) {
+    if (!definition) throw new Error("cloneRun: uptoStageId requires a definition");
+    if (definition.id !== source.workflowId)
+      throw new Error(
+        `cloneRun: definition "${definition.id}" is not the run's workflow "${source.workflowId}"`
+      );
+    const matches = (definition.mainStages || []).reduce(
+      (acc, ms, i) => (ms.id === uptoStageId ? [...acc, i] : acc),
+      []
+    );
+    if (matches.length === 0) throw new Error(`cloneRun: no main stage "${uptoStageId}"`);
+    if (matches.length > 1)
+      throw new Error(`cloneRun: main stage "${uptoStageId}" is ambiguous (${matches.length} matches)`);
+    const k = matches[0];
+    if (k > run.frontier)
+      throw new Error(
+        `cloneRun: uptoStageId "${uptoStageId}" (stage ${k}) is beyond the run frontier ${run.frontier}`
+      );
+
+    const subs = flattenSubStages(definition);
+    const stepMain = new Map();
+    subs.forEach((ss) => (ss.steps || []).forEach((st) => stepMain.set(st.id, ss.mainIndex)));
+    const subMain = new Map(subs.map((ss) => [ss.id, ss.mainIndex]));
+    const skippable = new Map(subs.map((ss) => [ss.id, !!ss.skippable]));
+
+    /** @type {Object<string, StepEntry>} */
+    const stepState = {};
+    for (const [stepId, entry] of Object.entries(run.stepState)) {
+      if (!stepMain.has(stepId))
+        throw new Error(`cloneRun: step "${stepId}" is not in definition "${definition.id}"`);
+      if (stepMain.get(stepId) <= k) stepState[stepId] = entry;
+    }
+
+    /** @type {Object<string, true>} */
+    const skips = {};
+    for (const subId of Object.keys(run.skips || {})) {
+      if (!subMain.has(subId))
+        throw new Error(`cloneRun: skip sub-stage "${subId}" is not in definition "${definition.id}"`);
+      if (subMain.get(subId) <= k) {
+        if (!skippable.get(subId)) throw new Error(`cloneRun: sub-stage "${subId}" is no longer skippable`);
+        skips[subId] = true;
+      }
+    }
+
+    /** @type {Object<string, true>} */
+    const forces = {};
+    for (const i of Object.keys(run.forces || {})) {
+      if (Number(i) < k) forces[i] = true;
+    }
+
+    run = { idx: subs.findIndex((ss) => ss.mainIndex === k), frontier: k, stepState };
+    if (Object.keys(skips).length) run.skips = skips;
+    if (Object.keys(forces).length) run.forces = forces;
+  }
+
+  /** @type {RunEntry} */
+  const entry = {
+    id: newId,
+    workflowId: source.workflowId,
+    name: String(name || "").trim(),
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+    run,
+  };
+  return { ...store, entries: { ...store.entries, [newId]: entry } };
 }
 
 /**
