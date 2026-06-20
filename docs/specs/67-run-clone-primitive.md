@@ -80,15 +80,15 @@ The root `README.md` and `packages/react/README.md` do not enumerate the run-sto
 - Switching the active run to the fork. `cloneRun` only inserts; the consumer calls `setActiveRun` if it wants the fork open.
 - The consumer-side artifact-renumbering failure and any CLI surfacing of fork (presales-sqnce#97).
 - Any persistence version bump, migration, or compat shim. The function is purely additive; older stores are already discarded by loaders, and the pre-publish stance ships breaking changes clean without shims.
-- Any demo/UI affordance for forking. `cloneRun` is a pure core primitive; engine tests are its proof.
+- Any demo/UI affordance for forking. `cloneRun` is a pure core primitive; its run-store tests are its proof.
 - Definition-revision tracking or drift detection. `cloneRun`, like the rest of the engine, assumes the supplied `definition` is the run's current definition; it cannot detect in-place changes such as a step moved between main stages under a stable `workflowId`. Recording a definition revision per run and validating it is a framework-wide concern, not part of this primitive (it would also need a `@sqnce/core`-internal hash, which the dependency-free engine deliberately avoids).
 
 ## Acceptance
 
-- `npm test` passes with new engine tests covering:
+- `npm test` passes with new run-store tests (in `runstore.test.js`) covering:
   - **Full fork:** the clone's run equals the source's run; the new entry has `id === newId`, the same `workflowId`, `status: "active"`, `createdAt === updatedAt === now`, and the supplied (trimmed) name; the store gains exactly one entry at key `newId`.
   - **The no-op trap regression (core acceptance):** after a full fork, `updateRunState(store, newId, setOutput(clone.run, ...))` changes `entries[newId].run` and leaves `entries[fromId]` untouched, with no stray key created. A `setOutput` driven into the clone advances the clone's own state, proving it is indistinguishable from a native run.
-  - **Isolation:** the clone and source do not alias; driving one does not mutate the other.
+  - **Isolation:** the clone and source do not alias, asserted structurally (`clone.run !== source.run`, `clone.run.stepState !== source.run.stepState`, and the `skips`/`forces` maps are distinct objects when present) as well as behaviorally (driving one does not mutate the other), so a future regression to a shallow copy is caught directly.
   - **Active pointer untouched:** `activeWorkflowId` and `activeRunByWorkflow` are identical before and after a fork; forking an archived run yields an `active` clone.
   - **Fail loud:** throws on unknown `fromId`, on an existing `newId`, on a non-string/empty `newId`, on `uptoStageId` without `definition`, on a `definition` whose `id` is not the source `workflowId`, on an unknown `uptoStageId`, on an `uptoStageId` matching more than one main stage (duplicate-id definition), on `uptoStageId` beyond the source frontier, on a truncated fork whose run references a step or skip sub-stage absent from `definition`, and on a truncated fork whose kept skip names a sub-stage the definition does not mark `skippable`.
   - **Truncated fork:** with `uptoStageId` naming an earlier main stage, the clone keeps `stepState` for steps in stages `<= k` and drops the rest; `frontier === k`; `idx` is the first sub-stage of stage `k`; `forces` are kept for `i < k` and dropped otherwise; `skips` are kept for stages `<= k` and dropped otherwise; the truncated clone is drivable (a `setOutput` advances its own state). Truncating to the current frontier keeps the whole committed prefix.
