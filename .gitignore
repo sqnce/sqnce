@@ -7,3 +7,4 @@ dist/
 .claude/
 graphify-out/
 packages/*/types/
+.pwf/
