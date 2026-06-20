@@ -40,7 +40,7 @@ The fork is **derived**, not a separate node: the **spine** is the untagged main
 
 When `tracks` is **absent**, the definition is linear and validated exactly as today, with one addition: a `mainStage.track` present without a `tracks` declaration is **rejected** (a stray track tag with no fork is a misconfiguration, not a silent linear run; track fields and the `tracks` declaration must both be present or both absent). When `tracks` is **present**, the following must hold, each rejection a clear problem string, covering the issue's named cases and the boundaries pinned in the intent gate:
 
-1. fewer than 2 tracks (a fork needs at least two); a track missing a non-empty `id`/`name`; duplicate track ids.
+1. fewer than 2 tracks (a fork needs at least two); a track missing a non-empty `id`/`name`; duplicate track ids; a track's `optional` present and not a boolean (mirrors the existing `skippable` boolean check).
 2. a `mainStage.track` referencing an undeclared track.
 3. an **empty spine** (stage 0 already tagged: the fork would have nothing shared before it; AC says "fork after a shared stage").
 4. a **shared stage after the fork** (an untagged main stage appearing after the first tagged stage = an implicit rejoin).
@@ -76,7 +76,7 @@ Run.skippedTracks?: { [trackId: string]: true }      // optional tracks marked n
 
 New pure helpers (all derived, none persisted):
 
-- `isRunComplete(definition, run, opts)`: true iff every required, non-skipped track has its terminal stage's boundary gate met (a forced or unmet terminal does **not** count). For a linear definition this is the last stage's gate being met, a new but inert signal.
+- `isRunComplete(definition, run, opts)`: true iff every required, non-skipped track has **both** reached its terminal (its `trackFrontier` equals the track's terminal stage index) **and** that terminal stage's boundary gate met. Requiring the terminal to be reached, not merely gated, stops a prefilled or imported terminal output (`stepState` is independent of `frontier` / `trackFrontier`) from reporting completion before the run actually advanced there; a forced or gate-unmet terminal also does not count. For a linear definition this is `frontier` at the last main stage with its gate met, a new but inert signal.
 - `trackStatus(definition, run, trackId)`: `"not-open" | "active" | "complete" | "skipped"`, derived for "active / complete-track tracking".
 - `skipTrack(run, definition, trackId)` / `unskipTrack(run, definition, trackId)` / `isTrackSkipped(run, trackId)`: mirror the sub-stage skip API. `skipTrack` is a no-op unless the track exists and is declared `optional` (required tracks cannot be skipped, exactly as non-skippable sub-stages cannot); it sets `skippedTracks[trackId]` and never touches `stepState`. `unskipTrack` removes the entry and drops the map when empty. Gates, `runSummary`, `buildContext`, and `isRunComplete` exclude a skipped track's sub-stages by extending the existing skipped-sub-stage exclusion to also test the sub-stage's track.
 
@@ -115,12 +115,12 @@ A definition with no `tracks` (and no `track` on any stage) takes the existing c
 
 `npm test` passes with new tests covering:
 
-- **Validation:** rejects each malformed topology in the list above (a stray `mainStage.track` with no `tracks` declaration, fewer than 2 tracks, empty spine, shared stage after the fork, non-contiguous track, undeclared track reference, track with no stage, subject outside the spine) and accepts a well-formed fork. All 8 bundled definitions and the linear fixture still validate (suite unchanged).
+- **Validation:** rejects each malformed topology in the list above (a stray `mainStage.track` with no `tracks` declaration, fewer than 2 tracks, a non-boolean `track.optional`, empty spine, shared stage after the fork, non-contiguous track, undeclared track reference, track with no stage, subject outside the spine) and accepts a well-formed fork. All 8 bundled definitions and the linear fixture still validate (suite unchanged).
 - **Flatten:** annotates each flat sub-stage with its track (spine entries carry none).
 - **Advance:** the spine advances as today; advancing past the last spine stage opens the fork with every track at its first stage and `frontier` unchanged; advancing one track moves only that track's frontier (the sibling is untouched); a track terminal is a no-op; a forced advance records `forces` by stage index.
 - **Navigation:** `browse` / `jumpTo` are bounded per region, move between the spine and an open track, and are identical to today for the linear fixture.
 - **Context scoping:** a draft for a step in one track includes the spine and that track, and excludes the sibling track; linear context is unchanged.
 - **Optional / required:** `skipTrack` works only on an optional track and is a no-op on a required or unknown track; a skipped track is excluded from `runSummary`, context, and `isRunComplete`; `unskipTrack` restores it; neither touches `stepState`.
-- **Run-complete:** false until every required (plus kept optional) track's terminal gate is met; true when they are; a forced or gate-unmet terminal does not count; a skipped optional track is excluded; a linear run is complete when its last stage's gate is met.
+- **Run-complete:** false until every required (plus kept optional) track has reached its terminal and that terminal's gate is met; true when they have; completion stays false when a terminal's outputs are prefilled but the frontier has not reached that terminal (`stepState` present, `trackFrontier` / `frontier` still earlier); a forced or gate-unmet terminal does not count; a skipped optional track is excluded; a linear run is complete when `frontier` is at the last main stage with its gate met.
 - **cloneRun:** a full clone deep-copies `trackFrontier` / `skippedTracks` (distinct objects, drivable); truncating at a tracked stage throws; truncating at a spine stage works and drops the track maps.
 - **Regression:** the existing engine and run-store suites pass unmodified; `npm run types` includes the new exports; `npm run build -w examples/demo` is green.
