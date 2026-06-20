@@ -960,6 +960,7 @@ export function updateRunState(store, runId, run, now) {
 export function cloneRun(store, { fromId, newId, name = "", now }) {
   if (typeof newId !== "string" || !newId.trim())
     throw new Error("cloneRun: newId must be a non-empty string");
+  if (newId === fromId) throw new Error(`cloneRun: newId must differ from fromId ("${fromId}")`);
   const source = store.entries[fromId];
   if (!source) throw new Error(`cloneRun: no run with id "${fromId}"`);
   if (store.entries[newId]) throw new Error(`cloneRun: a run with id "${newId}" already exists`);

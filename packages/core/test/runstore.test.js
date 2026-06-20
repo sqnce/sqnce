@@ -301,6 +301,11 @@ test("cloneRun throws on an existing newId", () => {
   assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r2", now: 200 }), /already exists/);
 });
 
+test("cloneRun throws when newId === fromId", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.throws(() => cloneRun(s, { fromId: "r1", newId: "r1", now: 200 }), /must differ/);
+});
+
 test("cloneRun throws on a non-string or empty newId", () => {
   const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
   assert.throws(() => cloneRun(s, { fromId: "r1", newId: "", now: 200 }), /non-empty string/);
