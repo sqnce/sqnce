@@ -1,6 +1,15 @@
 # CLAUDE.md
 
-The full dev-workflow lifecycle lives in the global `~/.claude/CLAUDE.md`; this file holds only what is specific to this repo.
+The full dev-workflow lifecycle lives in the global `~/.claude/CLAUDE.md`. Apart from the shared working preferences captured just below (committed here so they travel with the checkout), this file holds only what is specific to this repo.
+
+## Working preferences
+
+These shared operating rules apply across my repos. They also live in the machine-global `~/.claude/CLAUDE.md`, but are committed here so they travel with the checkout and survive a machine rebuild.
+
+- **Presenting decision options.** When presenting design or decision options (including via the AskUserQuestion tool), every option must do three things. Avoid detailed code or function names, and describe behavior in plain language. Show a concrete worked example, meaning a named scenario and what happens. Give pros, cons, and a recommendation. Put the analysis in the prose preamble above the question, lead with the recommended option, and say why.
+- **Plain-language writing.** Use full sentences, each with a clear subject and a verb. Do not compress a whole idea into a stacked hyphenated noun phrase. Write out what moves and what happens, prefer plain words over coined shorthand or symbols, and define a term of art the first time it appears. Keep the connective words ("so", "because", "which means") that show how ideas relate. This applies to chat, specs, and committed prompts.
+- **Autonomy and human gates.** Drive multi-step work autonomously and report what happened, rather than asking permission to advance between steps of an agreed workflow. Pause only at a genuine human review or approval gate, or before a truly irreversible or outward action (for example a merge to a main branch, or a push to a shared repo). Do not present equivalent-option forks for non-gate decisions. Pick the sensible default, state it in one line, and proceed. Scale or token cost is not a gate.
+- **Second-model review is report-only.** An independent review model (for example Codex) only reports findings, and must not edit, create, or delete files. Tell it "review only", run `git status` after each pass to confirm it changed nothing, and apply every fix yourself.
 
 ## What this is
 
