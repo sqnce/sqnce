@@ -38,7 +38,7 @@
 
 ## Internal helper inventory (added to `index.js`, not exported)
 
-These back the public functions. Defined in Task 2, used thereafter.
+These back the public functions. All are defined in Task 2 and used thereafter, except `scopeValidatorRun`, which is introduced in Task 9 (the validator-scoping task) where it is first needed.
 
 - `isForked(definition)` -> boolean: `!!(definition.tracks && definition.tracks.length)`.
 - `lastSpineIndex(definition)` -> number: index of the last untagged main stage. For a linear definition, `mainStages.length - 1`.
@@ -1424,12 +1424,25 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
     // tracked step collapses with it: the engine refuses to draft a tracked
     // card from stale state, so neither a tracked-card draft nor track context
     // can leak. Target the fallback sub-stage's draft-eligible step (the first
-    // step with a draftTarget), else its first step, else the original.
+    // step with a draftTarget), else its first step. If that spine sub-stage is
+    // a stepless checklist, walk earlier reachable spine sub-stages for one that
+    // has a step, so the tracked step is never retained (every flat index at or
+    // below the last spine sub-stage is itself spine; a valid forked definition
+    // always has a spine step, the subject, so this resolves). The original
+    // tracked `step` is a last resort only for a degenerate spine with no steps
+    // anywhere, which a forked definition cannot have.
     let spineEnd = -1;
     subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
     idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
-    const steps = (subStages[idx] && subStages[idx].steps) || [];
-    effStep = steps.find((st) => draftTarget(st)) || steps[0] || step;
+    effStep = undefined;
+    for (let j = idx; j >= 0 && !effStep; j--) {
+      const cand = subStages[j];
+      if (cand && cand.track === undefined && (cand.steps || []).length) {
+        effStep = cand.steps.find((st) => draftTarget(st)) || cand.steps[0];
+        idx = j;
+      }
+    }
+    if (!effStep) effStep = step;
   }
   const subStage = subStages[idx];
   const subject = resolveSubject(definition, r);
@@ -1748,7 +1761,7 @@ git commit -m "docs(core): sub-branching notes, exports, and regenerated types (
 
 - [ ] **Step 4: Confirm no em dashes and clean tree.**
 ```bash
-grep -rnP "\xe2\x80\x94" packages/core/src/index.js packages/core/test docs/specs/66-sub-branching.md CLAUDE.md && echo "FOUND em dash" || echo "clean"
+grep -rnP "\xe2\x80\x94" packages/core/src/index.js packages/core/test packages/core/README.md docs/specs/66-sub-branching.md CLAUDE.md && echo "FOUND em dash" || echo "clean"
 git status --short
 ```
 
