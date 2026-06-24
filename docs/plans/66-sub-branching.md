@@ -48,8 +48,8 @@ These back the public functions. Defined in Task 2, used thereafter.
 - `hasOwn(obj, key)` -> boolean: `Object.prototype.hasOwnProperty.call(obj || {}, key)`.
 - `isTrackSkippedEffective(definition, run, trackId)` -> boolean: declared, `optional`, and `hasOwn(run.skippedTracks, trackId)`.
 - `effectiveSkippedTrackIds(definition, run)` -> `Set<string>`.
-- `normalizeForkedRun(definition, run)` -> Run: for a forked definition, clamp `frontier` to `lastSpineIndex(definition)`, and if `idx` lands on a flat sub-stage outside the reachable region, recenter `idx` to the last spine sub-stage. For a linear definition, return `run` unchanged.
-- `reachableIndices(definition, subStages, run)` -> sorted `number[]` of reachable flat indices: the spine prefix (`mainIndex <= frontier`) plus, for each open non-skipped track, its flat range up to `trackFrontier[t]`.
+- `normalizeFlat(subStages, run)` -> Run: for a forked flat list, clamp `frontier` to the last spine index, and if `idx` lands outside the reachable region, recenter `idx` to the last spine sub-stage. For a linear flat list, return `run` unchanged (same reference). Topology is read from the flat `track`/`optional` annotations, so no definition argument is needed.
+- `reachableFlat(subStages, run)` -> sorted `number[]` of reachable flat indices: the spine prefix (`mainIndex <= frontier`) plus, for each open non-skipped track, its flat range up to `trackFrontier[t]`. Linear collapses to the contiguous prefix.
 - `scopeValidatorRun(definition, subStages, run, stepFlatIdx)` -> Run: the sanitized relation-set allowlist run (Task 9), built from the normalized run.
 
 ---
@@ -141,15 +141,20 @@ export const FORKED = {
 };
 ```
 
-- [ ] **Step 3: Write a sanity test** in `engine.test.js` (import `FORKED` at top: `import { FORKED } from "./fixtures/forked.js";`):
+- [ ] **Step 3: Write a structural test** in `engine.test.js` (import `FORKED` at top: `import { FORKED } from "./fixtures/forked.js";`). This asserts the fixture's exact shape (it fails with an import error until the fixture exists); the "does it validate" assertion belongs in Task 3, where `validateDefinition` actually gains fork rules:
 
 ```js
-test("the forked fixture validates", () => {
-  assert.deepEqual(validateDefinition(FORKED), []);
+test("the forked fixture has the expected fork shape", () => {
+  assert.equal(FORKED.mainStages.length, 8);
+  assert.equal(FORKED.tracks.length, 2);
+  // spine 0,1; demo 2,3,4 (terminal 4); response 5,6,7 (terminal 7)
+  assert.equal(FORKED.mainStages[1].track, undefined);
+  assert.equal(FORKED.mainStages[2].track, "demo");
+  assert.equal(FORKED.mainStages[5].track, "response");
 });
 ```
 
-- [ ] **Step 4: Run.** `npm test`, Expected: FAIL. Current `validateDefinition` does not know `tracks`, but it also does not reject them yet, so this may PASS accidentally. The real assertion is wired in Task 3. If it passes here, that is acceptable (the fixture is well-formed); the failing-first contract for validation lands in Task 3.
+- [ ] **Step 4: Run.** `npm test`, Expected: FAIL before the fixture file exists (import error), PASS once it does. The validation assertion (`validateDefinition(FORKED)` returns `[]`) is the first test in Task 3, where it is meaningfully fail-then-pass.
 
 - [ ] **Step 5: Commit.**
 ```bash
@@ -166,7 +171,7 @@ git commit -m "feat(core): add track/forked typedefs and forked test fixture (#6
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Produces: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `hasOwn`, `isTrackSkippedEffective`, `effectiveSkippedTrackIds`, `firstNonSkippedTrack`, `normalizeForkedRun`, `reachableIndices`. These are internal (not exported), so they are tested indirectly through the public functions in later tasks. This task adds them and a small set of exported wrappers only where the spec exports a helper.
+- Produces: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `hasOwn`, `isTrackSkippedEffective`, `effectiveSkippedTrackIds`, `firstNonSkippedTrack`, `normalizeFlat`, `reachableFlat`. These are internal (not exported), exercised through the public functions in later tasks. None are exported; the spec's exported helpers are added in Tasks 5 and 10.
 
 - [ ] **Step 1: Add the helpers.** Insert after `flattenSubStages`:
 
@@ -247,7 +252,7 @@ function firstNonSkippedTrack(definition, run) {
 }
 ```
 
-- [ ] **Step 2: Add `reachableIndices` and `normalizeForkedRun`.** Append:
+- [ ] **Step 2: Add `reachableFlat` and `normalizeFlat`.** Append:
 
 ```js
 /**
@@ -256,54 +261,61 @@ function firstNonSkippedTrack(definition, run) {
  * the single contiguous prefix [0..lastIndexInMain(frontier)].
  * @param {Definition} definition @param {FlatSubStage[]} subStages @param {Run} run @returns {number[]}
  */
-function reachableIndices(definition, subStages, run) {
-  if (!isForked(definition)) {
+function reachableFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) {
     const last = lastIndexInMain(subStages, run.frontier);
     const out = [];
     for (let i = 0; i <= last; i++) out.push(i);
     return out;
   }
-  const spineEnd = lastSpineIndex(definition);
-  const skipped = effectiveSkippedTrackIds(definition, run);
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  const ranges = new Map();
+  subStages.forEach((s) => {
+    if (s.track === undefined) return;
+    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
+    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
+    ranges.set(s.track, e);
+  });
+  const skipped = new Set();
+  ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
   const tf = run.trackFrontier || {};
   const out = [];
   subStages.forEach((s, i) => {
-    const tid = trackIdOfStage(definition, s.mainIndex);
-    if (tid === null) {
-      if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i);
-      return;
-    }
-    if (skipped.has(tid)) return;
-    if (!hasOwn(tf, tid)) return;
-    const tm = trackMap(definition).get(tid);
-    const committed = typeof tf[tid] === "number" && tf[tid] >= tm.first && tf[tid] <= tm.terminal ? tf[tid] : -1;
+    if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
+    if (skipped.has(s.track) || !hasOwn(tf, s.track)) return;
+    const r = ranges.get(s.track);
+    const committed = typeof tf[s.track] === "number" && tf[s.track] >= r.first && tf[s.track] <= r.terminal ? tf[s.track] : -1;
     if (committed >= s.mainIndex) out.push(i);
   });
   return out;
 }
 
 /**
- * Clamp a stale frontier to the spine and recenter a now-unreachable idx.
- * Linear definitions are returned unchanged.
- * @param {Definition} definition @param {FlatSubStage[]} subStages @param {Run} run @returns {Run}
+ * Clamp a stale frontier to the spine and recenter a now-unreachable idx,
+ * derived purely from the flat annotations. A linear flat list is returned
+ * unchanged (same reference), so linear callers stay byte-identical.
+ * @param {FlatSubStage[]} subStages @param {Run} run @returns {Run}
  */
-function normalizeForkedRun(definition, subStages, run) {
-  if (!isForked(definition)) return run;
-  const spineEnd = lastSpineIndex(definition);
+function normalizeFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) return run;
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
   let next = run;
   if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
-  const reach = reachableIndices(definition, subStages, next);
-  if (!reach.includes(next.idx)) {
-    const lastSpineSub = lastIndexInMain(subStages, spineEnd);
-    next = { ...next, idx: lastSpineSub };
-  }
+  const reach = reachableFlat(subStages, next);
+  if (!reach.includes(next.idx)) next = { ...next, idx: lastIndexInMain(subStages, spineEnd) };
   return next;
 }
 ```
 
-- [ ] **Step 3: Write an indirect test** (these are exercised fully later; one direct smoke test through a future export is deferred). Add a placeholder-free behavioral test via `flattenSubStages` topology in Task 3. No separate test commit here.
+These two are `subStages`-driven (topology read from the flat `track`/`optional` annotations added in Task 4), so there is a single canonical pair: `advance` (Task 6), `browse`/`jumpTo` (Task 7), `skipSubStage` (Task 8), `buildContext`/`buildDraftPrompt` (Task 9) call them directly; the definition-holding callers (`runSummary`, `isRunComplete`, `trackStatus` in Task 10) call `flattenSubStages(definition)` first and pass the result. No second definition-driven copy exists.
 
-- [ ] **Step 4: Run** `npm test`, Expected: PASS (helpers are unused dead code so far; existing tests unaffected). If lint/types complain about unused functions, that is fine for this intermediate commit; they are consumed in Tasks 3 onward.
+- [ ] **Step 3: No standalone test.** These helpers carry no behavior a caller cannot observe; each is exercised by the first task that consumes it (`reachableFlat`/`normalizeFlat` by Task 6's advance and Task 7's navigation tests, the topology helpers by Task 3's validation tests). This commit is deliberate internal scaffolding, not untested production logic.
+
+- [ ] **Step 4: Run** `npm test`, Expected: PASS (helpers are unused so far; existing tests unaffected). They are consumed from Task 3 onward. Note: `flattenSubStages` does not yet annotate tracks (Task 4), so on a forked definition before Task 4 these helpers see no `track` field and treat it as linear; no forked test runs before Task 6, so the ordering is safe.
 
 - [ ] **Step 5: Commit.**
 ```bash
@@ -352,6 +364,15 @@ test("validateDefinition rejects fewer than 2 tracks", () => {
 test("validateDefinition rejects a non-boolean track.optional", () => {
   const d = clone(FORKED); d.tracks[0].optional = "yes";
   assert.ok(validateDefinition(d).some((p) => /optional.*boolean/i.test(p)));
+});
+
+test("validateDefinition rejects a whitespace-only or non-string track id/name", () => {
+  const blankId = clone(FORKED); blankId.tracks[0].id = "   ";
+  assert.ok(validateDefinition(blankId).some((p) => /id must be a non-empty string/i.test(p)));
+  const numId = clone(FORKED); numId.tracks[0].id = 7;
+  assert.ok(validateDefinition(numId).some((p) => /id must be a non-empty string/i.test(p)));
+  const blankName = clone(FORKED); blankName.tracks[0].name = "  ";
+  assert.ok(validateDefinition(blankName).some((p) => /name must be a non-empty string/i.test(p)));
 });
 
 test("validateDefinition rejects a non-string mainStage.track", () => {
@@ -428,14 +449,16 @@ test("validateDefinition rejects a subject pointing at a non-fields output", () 
     const ids = new Set();
     if (definition.tracks.length < 2) problems.push("definition.tracks needs at least two tracks");
     definition.tracks.forEach((t, ti) => {
-      if (!t || !t.id) problems.push(`tracks[${ti}].id is required`);
-      if (!t || !t.name) problems.push(`tracks[${ti}].name is required`);
+      const idOk = t && typeof t.id === "string" && t.id.trim();
+      if (!idOk) problems.push(`tracks[${ti}].id must be a non-empty string`);
+      if (!(t && typeof t.name === "string" && t.name.trim()))
+        problems.push(`tracks[${ti}].name must be a non-empty string`);
       if (t && t.optional !== undefined && typeof t.optional !== "boolean")
         problems.push(`track "${t && t.id}": optional must be a boolean`);
-      if (t && t.id && reserved.has(t.id))
+      if (idOk && reserved.has(t.id))
         problems.push(`track id "${t.id}" is a reserved object-prototype key`);
-      if (t && t.id && ids.has(t.id)) problems.push(`duplicate track id "${t.id}"`);
-      if (t && t.id) ids.add(t.id);
+      if (idOk && ids.has(t.id)) problems.push(`duplicate track id "${t.id}"`);
+      if (idOk) ids.add(t.id);
     });
     // stage track references must be non-empty strings naming a declared track
     (definition.mainStages || []).forEach((ms, mi) => {
@@ -702,7 +725,7 @@ git commit -m "feat(core): track skip API (skipTrack/unskipTrack/isTrackSkipped)
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `firstNonSkippedTrack`, `effectiveSkippedTrackIds`, `hasOwn`, `normalizeForkedRun` (Tasks 2), `aggregateGate` (existing).
+- Consumes: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `firstNonSkippedTrack`, `effectiveSkippedTrackIds`, `hasOwn`, `normalizeFlat` (Task 2), `aggregateGate` (existing).
 - Produces: `advance` opens/repairs the fork at the last spine stage, advances within a track, no-ops at terminals/skipped tracks; `frontier` stays at the spine; track progress in `trackFrontier`.
 
 - [ ] **Step 1: Write failing tests.** Helper to drive the spine to the fork:
@@ -780,11 +803,29 @@ test("fork-open with the first track skipped lands idx on the next non-skipped t
   assert.equal(subs[res.run.idx].track, "response");
 });
 
+test("a stale forked run normalizes before the boundary advance opens the fork", () => {
+  const subs = flattenSubStages(FORKED);
+  // a run persisted when the definition was still linear: frontier and idx point
+  // past the new spine (last spine index is 1)
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setOutput(r, "findings", "notes", "n");
+  r = { ...r, frontier: 5, idx: subs.findIndex((s) => s.mainIndex === 5) };
+  const res = advance(r, subs);
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.frontier, 1); // clamped to the spine before opening
+  assert.equal(res.run.trackFrontier.demo, 2);
+  assert.equal(res.run.trackFrontier.response, 5);
+});
+
 test("the linear fixture advances exactly as before (regression)", () => {
   const subs = flattenSubStages(FIXTURE);
+  // mirror the existing passing advance test: stage 0 (alpha) has start + collect,
+  // so the boundary gate needs intake + kickoff + evidence.
   let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
   r = setCheckedDone(r, "kickoff", true);
+  r = setOutput(r, "evidence", "doc", { name: "report.pdf", content: "" });
   const res = advance(r, subs);
+  assert.equal(res.advanced, true);
   assert.equal(res.run.frontier, 1);
   assert.equal("trackFrontier" in res.run, false);
 });
@@ -799,19 +840,22 @@ export function advance(run, subStages, { force = false, validators } = {}) {
   // Infer the definition-less topology from the flat list: a tracked card
   // carries `track`; the spine end is the last untracked mainIndex.
   const forked = subStages.some((s) => s.track !== undefined);
+  // Normalize a stale run before consuming idx/frontier. For a linear flat
+  // list normalizeFlat returns the same reference, so this path is byte-identical.
+  const r = normalizeFlat(subStages, run);
   if (!forked) {
-    // unchanged linear path
-    const cur = subStages[run.idx];
+    // unchanged linear path (r === run)
+    const cur = subStages[r.idx];
     const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
-    if (!cur || cur.mainIndex !== run.frontier || run.frontier >= maxMain)
+    if (!cur || cur.mainIndex !== r.frontier || r.frontier >= maxMain)
       return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators });
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators });
     if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
-    const next = { ...run, idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1), frontier: run.frontier + 1 };
-    if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+    const next = { ...r, idx: subStages.findIndex((s) => s.mainIndex === r.frontier + 1), frontier: r.frontier + 1 };
+    if (!progress.met) next.forces = { ...r.forces, [r.frontier]: true };
     return { run: next, advanced: true, missing: [] };
   }
-  return advanceForked(run, subStages, { force, validators });
+  return advanceForked(r, subStages, { force, validators });
 }
 ```
 
@@ -908,7 +952,7 @@ git commit -m "feat(core): fork-aware advance (open/repair, per-track, terminals
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `reachableIndices`, `normalizeForkedRun` (Task 2).
+- Consumes: `reachableFlat`, `normalizeFlat` (Task 2).
 - Produces: `browse` moves `|direction|` reachable positions in the sign direction, skipping gaps; `jumpTo` accepts only reachable members; both no-op out of range; linear behavior unchanged. Stale-run normalization recenters idx and clamps frontier.
 
 - [ ] **Step 1: Write failing tests.**
@@ -937,9 +981,10 @@ test("jumpTo rejects an unreachable gap index and accepts a reachable one", () =
 
 test("browse/jumpTo on the linear fixture are identical to today", () => {
   const subs = flattenSubStages(FIXTURE);
-  const r = { ...createRun(), frontier: 1, idx: 0 };
+  const r = { ...createRun(), frontier: 1, idx: 0 }; // FIXTURE has flat indices 0,1,2
   assert.equal(browse(r, subs, 2).idx, 2); // magnitude preserved on contiguous prefix
-  assert.equal(jumpTo(r, subs, 3).idx, 3);
+  assert.equal(jumpTo(r, subs, 2).idx, 2); // reachable target
+  assert.equal(jumpTo(r, subs, 3), r); // index 3 is out of range: no-op (same reference)
 });
 ```
 
@@ -947,52 +992,9 @@ test("browse/jumpTo on the linear fixture are identical to today", () => {
 
 - [ ] **Step 2: Run** `npm test`, Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Make `browse`/`jumpTo` take the definition-free flat topology. They already receive `subStages`. Rewrite to use a reachable set computed from the flat annotations (mirroring `reachableIndices` but driven by `subStages`):
+- [ ] **Step 3: Implement.** `browse`/`jumpTo` already receive `subStages`; rewrite them to use the canonical `reachableFlat`/`normalizeFlat` helpers added in Task 2 (no redefinition here):
 
 ```js
-function reachableFlat(subStages, run) {
-  const forked = subStages.some((s) => s.track !== undefined);
-  if (!forked) {
-    const last = lastIndexInMain(subStages, run.frontier);
-    const out = [];
-    for (let i = 0; i <= last; i++) out.push(i);
-    return out;
-  }
-  let spineEnd = -1;
-  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-  const skipped = new Set();
-  const ranges = new Map();
-  subStages.forEach((s) => {
-    if (s.track === undefined) return;
-    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
-    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
-    ranges.set(s.track, e);
-  });
-  ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
-  const tf = run.trackFrontier || {};
-  const out = [];
-  subStages.forEach((s, i) => {
-    if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
-    if (skipped.has(s.track) || !hasOwn(tf, s.track)) return;
-    const r = ranges.get(s.track);
-    const committed = typeof tf[s.track] === "number" && tf[s.track] >= r.first && tf[s.track] <= r.terminal ? tf[s.track] : -1;
-    if (committed >= s.mainIndex) out.push(i);
-  });
-  return out;
-}
-
-function normalizeFlat(subStages, run) {
-  const forked = subStages.some((s) => s.track !== undefined);
-  if (!forked) return run;
-  let spineEnd = -1;
-  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-  let next = run;
-  if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
-  const reach = reachableFlat(subStages, next);
-  if (!reach.includes(next.idx)) next = { ...next, idx: lastIndexInMain(subStages, spineEnd) };
-  return next;
-}
-
 export function browse(run, subStages, direction) {
   const r = normalizeFlat(subStages, run);
   const reach = reachableFlat(subStages, r);
@@ -1012,7 +1014,7 @@ export function jumpTo(run, subStages, index) {
 }
 ```
 
-Note: `reachableFlat`/`normalizeFlat` are the `subStages`-driven twins of Task 2's `reachableIndices`/`normalizeForkedRun`; the definition-driven versions stay for callers that hold the definition (`runSummary`, `isRunComplete`, `trackStatus`). Keep both; they share the same logic. (If preferred during implementation, collapse to a single `subStages`-driven helper and have the definition-holding callers pass `flattenSubStages(definition)`; do so only if it does not change behavior.)
+`browse` and `jumpTo` call the single canonical `reachableFlat`/`normalizeFlat` from Task 2; there is no second copy. The `r === run ? run : r` guards preserve the existing same-reference no-op contract for an out-of-range linear move.
 
 - [ ] **Step 4: Run** `npm test`, Expected: PASS, including the linear browse/jumpTo regression.
 
@@ -1113,6 +1115,16 @@ test("buildContext for a track step excludes the sibling track", () => {
   assert.equal(/RESPONSE-ONLY/.test(ctx), true);
 });
 
+test("buildContext ignores a corrupted required-track entry in skippedTracks", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "respDraft", "d", "RESPONSE-ONLY");
+  r = { ...r, skippedTracks: { response: true } }; // response is required: not an effective skip
+  const respIdx = subs.findIndex((s) => s.id === "resp-review-sub");
+  const ctx = buildContext(subs, r, respIdx, "respReview");
+  assert.equal(/RESPONSE-ONLY/.test(ctx), true); // still present: required-track skip is ignored
+});
+
 test("buildContext for a linear definition is unchanged", () => {
   const subs = flattenSubStages(FIXTURE);
   let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
@@ -1166,12 +1178,14 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
   const stepState = {};
   Object.keys(r.stepState || {}).forEach((sid) => {
     const mi = stepStage.get(sid);
-    if (mi === undefined || inScope(mi)) stepState[sid] = r.stepState[sid];
+    // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
+    if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
   });
   const skips = {};
   Object.keys(r.skips || {}).forEach((sub) => {
     const s = subStages.find((x) => x.id === sub);
-    if (!s || inScope(s.mainIndex)) skips[sub] = true;
+    // allowlist: keep only known, in-scope sub-stage skips
+    if (s && inScope(s.mainIndex)) skips[sub] = true;
   });
   const forces = {};
   Object.keys(r.forces || {}).forEach((mi) => { if (inScope(Number(mi))) forces[mi] = true; });
@@ -1210,10 +1224,20 @@ export function gateProgress(subStage, run, { validators, subStages } = {}) {
 
 ```js
 export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
-  const r = normalizeFlat(subStages, run);
   const forked = subStages.some((s) => s.track !== undefined);
-  const card = subStages[r.idx >= 0 && forked ? flatIdx : flatIdx]; // flatIdx is explicit
-  const cur = subStages[flatIdx];
+  const r = normalizeFlat(subStages, run);
+  // a stale or unreachable requested index falls back to the last spine sub-stage,
+  // so a stale run.idx passed straight through cannot draft a tracked card or leak track context
+  let idx = flatIdx;
+  if (forked) {
+    const reach = reachableFlat(subStages, r);
+    if (!reach.includes(flatIdx)) {
+      let spineEnd = -1;
+      subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+      idx = lastIndexInMain(subStages, spineEnd);
+    }
+  }
+  const cur = subStages[idx];
   const curMain = cur ? cur.mainIndex : 0;
   const ownTrack = cur && cur.track !== undefined ? cur.track : null;
   const blocks = [];
@@ -1222,7 +1246,8 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
     if (forked) {
       const tid = sub.track === undefined ? null : sub.track;
       if (tid !== null && tid !== ownTrack) return; // exclude sibling tracks
-      if (tid !== null && hasOwn(r.skippedTracks, tid)) return;
+      // effective skip only: a corrupted required/unknown id in skippedTracks must not suppress context
+      if (tid !== null && sub.optional === true && hasOwn(r.skippedTracks, tid)) return;
     }
     if (isSubStageSkipped(r, sub.id)) return;
     const gateType = gateTypeOf(sub);
@@ -1273,7 +1298,7 @@ git commit -m "feat(core): track-scoped context and validator relation-set isola
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `isForked`, `lastSpineIndex`, `trackMap`, `effectiveSkippedTrackIds`, `normalizeForkedRun`, `mainGateProgress`/`aggregateGate` with `opts.subStages`.
+- Consumes: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `effectiveSkippedTrackIds`, `isTrackSkippedEffective`, `normalizeFlat`, `mainGateProgress`/`aggregateGate` with `opts.subStages`.
 - Produces:
   - `isRunComplete(definition, run, opts)` -> boolean.
   - `trackStatus(definition, run, trackId, opts)` -> `"not-open" | "active" | "complete" | "skipped"`.
@@ -1360,16 +1385,24 @@ export function isRunComplete(definition, run, opts = {}) {
     return mainGateProgress(definition.mainStages[last], run, o).met &&
       definition.mainStages.every((ms) => mainGateProgress(ms, run, o).met);
   }
-  const r = normalizeForkedRun(definition, subs, run);
+  const r = normalizeFlat(subs, run);
   const spineEnd = lastSpineIndex(definition);
-  if (r.frontier !== spineEnd) return false;
+  if (r.frontier !== spineEnd) return false; // spine fully committed
   const tm = trackMap(definition);
   const skipped = effectiveSkippedTrackIds(definition, r);
-  // fork opened: every kept track has a valid trackFrontier entry
+  // fork OPENED: the boundary advance initialized a valid in-range trackFrontier
+  // entry for EVERY declared track, including skipped ones. Without this, a run
+  // sitting at the last spine stage is only ready-to-open, not complete; this is
+  // also what stops an all-optional, all-skipped run from completing before the
+  // boundary advance ever ran.
+  for (const [id, t] of tm) {
+    const v = r.trackFrontier && r.trackFrontier[id];
+    if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
+  }
+  // every KEPT track has reached its terminal
   for (const [id, t] of tm) {
     if (skipped.has(id)) continue;
-    const v = r.trackFrontier && r.trackFrontier[id];
-    if (!(typeof v === "number" && v === t.terminal)) return false;
+    if (r.trackFrontier[id] !== t.terminal) return false;
   }
   // every non-skipped gate along the kept path is met (spine + kept tracks)
   for (let i = 0; i < definition.mainStages.length; i++) {
@@ -1391,11 +1424,14 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   const o = { ...opts, subStages: subs };
   const tm = trackMap(definition).get(trackId);
   if (!tm) return "not-open";
-  const r = normalizeForkedRun(definition, subs, run);
-  if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
+  const r = normalizeFlat(subs, run);
+  // the fork must be OPEN before any other status: spine committed AND a valid
+  // in-range trackFrontier entry for this track (so a skipped track still reads
+  // not-open until the boundary advance has run).
   if (r.frontier !== lastSpineIndex(definition)) return "not-open";
   const v = r.trackFrontier && r.trackFrontier[trackId];
   if (!(typeof v === "number" && v >= tm.first && v <= tm.terminal)) return "not-open";
+  if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
   if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
   return "active";
 }
@@ -1469,12 +1505,13 @@ test("cloneRun truncating at a spine stage works and drops track maps", () => {
 
 - [ ] **Step 2: Run** `npm test`, Expected: FAIL (the tracked-stage throw is not implemented).
 
-- [ ] **Step 3: Implement.** In `cloneRun`, after resolving `k` (the truncation main-stage index) and before rebuilding the run, add a tracked-stage guard:
+- [ ] **Step 3: Implement.** In `cloneRun`, the tracked-stage guard must go immediately after `k` is resolved (after the ambiguity check) and **before** the existing `if (k > run.frontier)` beyond-frontier throw (packages/core/src/index.js, the `if (k > run.frontier) throw ...` line). Placing it before matters: a tracked stage with `frontier: 1` and `uptoStageId: "demo-qa"` (stage 4) is both tracked and beyond the frontier; the tracked error is the intended, more specific one and must win, so the test asserting a `tracked|fork` error passes rather than getting "beyond the run frontier" first.
 
 ```js
-    // (existing) matches/ambiguity/beyond-frontier checks resolve k
+    // ...matches/ambiguity checks resolve k...
     if (definition.mainStages[k] && definition.mainStages[k].track !== undefined)
       throw new Error(`cloneRun: uptoStageId "${uptoStageId}" is a tracked (post-fork) stage; fork-aware truncation is not supported`);
+    // ...existing `if (k > run.frontier) throw ...` and the rebuild follow unchanged...
 ```
 
 The existing truncation already rebuilds `run = { idx, frontier: k, stepState }` (a fresh object without `trackFrontier`/`skippedTracks`), so a spine truncation naturally drops the track maps. The full-clone path uses `structuredClone(source.run)`, which deep-copies the track maps. No further change.
@@ -1546,7 +1583,7 @@ git status --short
 
 1. **Spec coverage:** every spec section maps to a task, validation (Task 3), flatten (Task 4), track skip API (Task 5), advance (Task 6), navigation + normalization (Task 7), region-aware skipSubStage (Task 8), context + validator scoping + draft prompt (Task 9), isRunComplete + trackStatus + runSummary (Task 10), cloneRun (Task 11), docs + types (Task 12), backward-compat regression (Tasks 6/7/8/10 linear assertions + Task 13).
 2. **Placeholder scan:** no "TBD"/"add validation"/"similar to", every step shows real code or an exact command.
-3. **Type consistency:** the helper names (`isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `effectiveSkippedTrackIds`, `firstNonSkippedTrack`, `normalizeForkedRun`/`normalizeFlat`, `reachableIndices`/`reachableFlat`, `scopeValidatorRun`) and public signatures (`isRunComplete(definition, run, opts)`, `trackStatus(definition, run, trackId, opts)`, `skipTrack(run, definition, trackId)`, `unskipTrack(run, definition, trackId)`, `isTrackSkipped(run, definition, trackId)`) are used consistently across tasks. The `subStages`-driven twins (`normalizeFlat`/`reachableFlat`) and definition-driven versions (`normalizeForkedRun`/`reachableIndices`) are deliberately paired; consolidate to one if behavior is identical (note in Task 7).
+3. **Type consistency:** the helper names (`isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `effectiveSkippedTrackIds`, `isTrackSkippedEffective`, `firstNonSkippedTrack`, `normalizeFlat`, `reachableFlat`, `scopeValidatorRun`) and public signatures (`isRunComplete(definition, run, opts)`, `trackStatus(definition, run, trackId, opts)`, `skipTrack(run, definition, trackId)`, `unskipTrack(run, definition, trackId)`, `isTrackSkipped(run, definition, trackId)`) are used consistently across tasks. There is a single canonical `subStages`-driven normalization pair (`normalizeFlat`/`reachableFlat`) defined in Task 2; definition-holding callers (`runSummary`, `isRunComplete`, `trackStatus`) call `flattenSubStages(definition)` and pass the result. No definition-driven copy exists.
 
 ## Known implementation risks (resolve with systematic-debugging, not guessing)
 
