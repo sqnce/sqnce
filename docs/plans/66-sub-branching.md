@@ -259,7 +259,9 @@ function firstNonSkippedTrack(definition, run) {
  * Sorted reachable flat indices: the spine prefix plus each open
  * non-skipped track's committed range. For a linear definition this is
  * the single contiguous prefix [0..lastIndexInMain(frontier)].
- * @param {Definition} definition @param {FlatSubStage[]} subStages @param {Run} run @returns {number[]}
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @returns {number[]}
  */
 function reachableFlat(subStages, run) {
   const forked = subStages.some((s) => s.track !== undefined);
@@ -271,6 +273,13 @@ function reachableFlat(subStages, run) {
   }
   let spineEnd = -1;
   subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  // A track is reachable only once the fork is genuinely open, meaning the
+  // whole spine is committed (frontier has reached the last spine stage). A
+  // corrupted or imported run can carry trackFrontier entries while frontier
+  // still sits inside the spine (for example a definition that gained more
+  // spine stages after the run was saved); those track entries must not be
+  // treated as navigable until the spine is committed.
+  const forkOpen = run.frontier >= spineEnd;
   const ranges = new Map();
   subStages.forEach((s) => {
     if (s.track === undefined) return;
@@ -284,7 +293,7 @@ function reachableFlat(subStages, run) {
   const out = [];
   subStages.forEach((s, i) => {
     if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
-    if (skipped.has(s.track) || !hasOwn(tf, s.track)) return;
+    if (!forkOpen || skipped.has(s.track) || !hasOwn(tf, s.track)) return;
     const r = ranges.get(s.track);
     const committed = typeof tf[s.track] === "number" && tf[s.track] >= r.first && tf[s.track] <= r.terminal ? tf[s.track] : -1;
     if (committed >= s.mainIndex) out.push(i);
@@ -306,7 +315,12 @@ function normalizeFlat(subStages, run) {
   let next = run;
   if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
   const reach = reachableFlat(subStages, next);
-  if (!reach.includes(next.idx)) next = { ...next, idx: lastIndexInMain(subStages, spineEnd) };
+  // Recenter to the last committed spine sub-stage. After the clamp above,
+  // next.frontier <= spineEnd, so Math.min keeps the target inside the
+  // committed spine even for a corrupted run whose frontier sits before the
+  // spine end (it must not land idx on an un-committed spine stage).
+  if (!reach.includes(next.idx))
+    next = { ...next, idx: lastIndexInMain(subStages, Math.min(next.frontier, spineEnd)) };
   return next;
 }
 ```
@@ -780,8 +794,16 @@ test("advancing inside one track moves only that track's frontier", () => {
 test("a track terminal is a no-op", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run;
-  r = { ...r, trackFrontier: { ...r.trackFrontier, demo: 4 } }; // demo at terminal
-  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-qa-sub"));
+  // demo at its terminal (stage 4), centered on the terminal card. Set idx
+  // directly rather than via jumpTo: fork-aware navigation only lands in
+  // Task 7, so a jumpTo to mainIndex 4 here would be a linear no-op and leave
+  // idx on demo's first stage, exercising the not-at-frontier guard instead of
+  // the terminal guard this test is asserting.
+  r = {
+    ...r,
+    trackFrontier: { ...r.trackFrontier, demo: 4 },
+    idx: subs.findIndex((s) => s.id === "demo-qa-sub"),
+  };
   const res = advance(r, subs);
   assert.equal(res.advanced, false);
   assert.equal(res.run.trackFrontier.demo, 4);
@@ -913,7 +935,12 @@ function advanceForked(run, subStages, { force, validators }) {
     return { run: next, advanced: true, missing: [] };
   }
 
-  // inside a track
+  // inside a track. `run` here is the normalized run (advance passed
+  // normalizeFlat's result), and normalizeFlat recenters idx onto a reachable
+  // card. With reachableFlat's fork-open guard, a track card is reachable only
+  // when the fork is open (frontier === spineEnd), so reaching this branch
+  // already implies the fork is open; no separate frontier-vs-spineEnd check is
+  // needed (and an explicit one would be dead code).
   if (curTrack !== null) {
     if (skipped.has(curTrack)) return { run, advanced: false, missing: [] };
     const r = ranges.get(curTrack);
@@ -1071,8 +1098,14 @@ export function skipSubStage(run, subStages, subStageId) {
   if (sub.track === undefined) {
     committed = sub.mainIndex <= r.frontier;
   } else {
+    // A tracked sub-stage is committed only once the fork is open (the whole
+    // spine is committed) AND its track frontier has reached it. The fork-open
+    // guard mirrors reachableFlat: a corrupted run carrying a trackFrontier
+    // entry while its spine is not yet committed must not become skippable.
+    let spineEnd = -1;
+    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
     const tfv = r.trackFrontier && r.trackFrontier[sub.track];
-    committed = typeof tfv === "number" && sub.mainIndex <= tfv;
+    committed = r.frontier >= spineEnd && typeof tfv === "number" && sub.mainIndex <= tfv;
   }
   if (!committed) return run;
   if (isSubStageSkipped(r, subStageId)) return run;
@@ -1097,18 +1130,23 @@ git commit -m "feat(core): region-aware skipSubStage for tracked sub-stages (#66
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `trackIdOfStage`-style flat topology, `normalizeFlat`, `scopeValidatorRun`.
-- Produces: `buildContext` excludes sibling tracks; validators on a forked gate receive a sanitized relation-set run (allowlist) built from the normalized run; gate-helper signatures unchanged (scoping rides `opts.subStages`).
+- Consumes: `trackIdOfStage`-style flat topology, `normalizeFlat`, `reachableFlat`, `lastIndexInMain`, `draftTarget`, `scopeValidatorRun`.
+- Produces: `buildContext` excludes sibling tracks and falls a stale/unreachable index back to the last committed spine sub-stage; `buildDraftPrompt` collapses both the card and the drafted step to that spine fallback on a stale tracked index (no tracked-card draft); validators on a forked gate receive a sanitized relation-set run (allowlist) built from the normalized run; gate-helper signatures unchanged (scoping rides `opts.subStages`).
 
 - [ ] **Step 1: Write failing tests.**
 
 ```js
 test("buildContext for a track step excludes the sibling track", () => {
   const subs = flattenSubStages(FORKED);
-  let r = advance(commitSpine(createRun(), subs), subs).run;
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
   r = setOutput(r, "demoScript", "s", "DEMO-ONLY");
   r = setOutput(r, "respDraft", "d", "RESPONSE-ONLY");
-  // draft a response step; context must not include the demo output
+  // Advance response one stage so resp-review-sub is reachable and respDraft is
+  // an earlier (committed) response output. Without this the card would be
+  // unreachable and buildContext would fall back to the spine, dropping the
+  // response output entirely (the assertion under test would then be vacuous).
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs).run; // response = 6 (resp-review-sub)
   const respIdx = subs.findIndex((s) => s.id === "resp-review-sub");
   const ctx = buildContext(subs, r, respIdx, "respReview");
   assert.equal(/DEMO-ONLY/.test(ctx), false);
@@ -1119,6 +1157,8 @@ test("buildContext ignores a corrupted required-track entry in skippedTracks", (
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run;
   r = setOutput(r, "respDraft", "d", "RESPONSE-ONLY");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs).run; // response = 6, so resp-review-sub is reachable
   r = { ...r, skippedTracks: { response: true } }; // response is required: not an effective skip
   const respIdx = subs.findIndex((s) => s.id === "resp-review-sub");
   const ctx = buildContext(subs, r, respIdx, "respReview");
@@ -1150,6 +1190,22 @@ test("a forked validator cannot read a sibling track's output via ctx.run", () =
   const dsubs = flattenSubStages(def);
   gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
   assert.equal(sawSibling, false);
+});
+
+test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo committed to 2 only
+  r = setOutput(r, "demoScript", "s", "DEMO-SECRET");
+  // a stale run.idx pointing at an un-committed tracked card (demo-qa, mainIndex 4)
+  const staleIdx = subs.findIndex((s) => s.id === "demo-qa-sub");
+  const demoQaStep = FORKED.mainStages[4].subStages[0].steps[0];
+  const prompt = buildDraftPrompt(FORKED, subs, r, staleIdx, demoQaStep);
+  // the prompt is scoped to the last committed spine sub-stage (Findings), not
+  // the tracked demo-qa card, and it neither names the tracked step nor leaks
+  // the sibling demo output
+  assert.equal(/Demo QA/.test(prompt), false);
+  assert.equal(/DEMO-SECRET/.test(prompt), false);
+  assert.ok(/Findings/.test(prompt));
 });
 ```
 
@@ -1234,7 +1290,10 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
     if (!reach.includes(flatIdx)) {
       let spineEnd = -1;
       subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-      idx = lastIndexInMain(subStages, spineEnd);
+      // Math.min keeps the fallback inside the committed spine, matching
+      // normalizeFlat and buildDraftPrompt (a corrupted frontier below spineEnd
+      // must not land the card on an un-committed spine stage).
+      idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
     }
   }
   const cur = subStages[idx];
@@ -1263,23 +1322,48 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
 }
 ```
 
-`buildDraftPrompt` calls `buildContext` and `resolveSubject`; add a normalization pass at its entry so a stale `subIdx` is treated as the spine fallback:
+`buildDraftPrompt` calls `buildContext` and `resolveSubject`; add a normalization pass at its entry so a stale `subIdx` is treated as the spine fallback. The fallback must collapse **both** the card and the drafted step to the last committed spine sub-stage: keeping the passed tracked `step` while only recentering the index would produce a hybrid prompt (spine-stage context, tracked-step identity and task), which still leaks a tracked-card draft from stale state. So on fallback the engine drops the tracked step and targets the fallback sub-stage's own draft-eligible step:
 
 ```js
 export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
   const r = normalizeFlat(subStages, run);
-  const reach = reachableFlat(subStages, r);
-  const idx = reach.includes(subIdx) ? subIdx : lastIndexInMain(subStages, (function () {
-    let e = -1; subStages.forEach((s) => { if (s.track === undefined) e = Math.max(e, s.mainIndex); }); return e;
-  })());
+  const forked = subStages.some((s) => s.track !== undefined);
+  let idx = subIdx;
+  let effStep = step;
+  if (forked && !reachableFlat(subStages, r).includes(subIdx)) {
+    // A stale or unreachable requested index (a tracked card surviving from a
+    // stale run.idx) collapses to the last committed spine sub-stage, and the
+    // tracked step collapses with it: the engine refuses to draft a tracked
+    // card from stale state, so neither a tracked-card draft nor track context
+    // can leak. Target the fallback sub-stage's draft-eligible step (the first
+    // step with a draftTarget), else its first step, else the original.
+    let spineEnd = -1;
+    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+    idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
+    const steps = (subStages[idx] && subStages[idx].steps) || [];
+    effStep = steps.find((st) => draftTarget(st)) || steps[0] || step;
+  }
   const subStage = subStages[idx];
   const subject = resolveSubject(definition, r);
-  const ctx = buildContext(subStages, r, idx, step.id, opts);
-  // ...rest unchanged, using subStage and subject...
+  const ctx = buildContext(subStages, r, idx, effStep.id, opts);
+  const target = draftTarget(effStep);
+  const closing =
+    target && target.type === "data"
+      ? "Respond with valid JSON only: no preamble, no code fences, no commentary."
+      : `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`;
+  return [
+    `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
+    `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${effStep.name} (${effStep.description || ""}).`,
+    ctx
+      ? `Outputs produced so far:\n\n${ctx}`
+      : `No prior outputs exist yet; produce a strong first draft from general best practice.`,
+    `Task: ${effStep.aiPrompt || `Draft the output for the step "${effStep.name}".`}`,
+    closing,
+  ].join("\n\n");
 }
 ```
 
-(Keep the remaining `buildDraftPrompt` body unchanged.)
+For a linear definition `forked` is false, so `idx`/`effStep` stay the caller's values and `normalizeFlat` returns the same run reference: the prompt is byte-identical to today. For a forked definition with a reachable `subIdx` there is no fallback either, so only a stale tracked index changes behavior.
 
 - [ ] **Step 5: Run** `npm test`, Expected: PASS (forked context scoping, validator isolation, and the unchanged linear context).
 
