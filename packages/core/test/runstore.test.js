@@ -461,3 +461,60 @@ test("cloneRun treats inherited property names as absent run ids", () => {
   assert.equal(s.entries["constructor"].id, "constructor");
   assert.equal(s.entries["constructor"].workflowId, "wf");
 });
+
+/* #69: every run-store accessor keyed by a run id must treat an id equal to
+   an inherited Object.prototype member ("toString", "constructor", "valueOf",
+   ...) as absent, never resolving to the prototype member. Mirrors the
+   own-property guard #67 added to cloneRun. */
+
+test("renameRun treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(renameRun(s, "toString", "x", 200), s);
+});
+
+test("archiveRun treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(archiveRun(s, "toString", 200), s);
+});
+
+test("unarchiveRun treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(unarchiveRun(s, "constructor", 200), s);
+});
+
+test("setActiveRun treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(setActiveRun(s, "toString"), s);
+});
+
+test("updateRunState treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(updateRunState(s, "toString", createRun(), 200), s);
+});
+
+test("deleteRun treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.deepEqual(deleteRun(s, "constructor"), s);
+});
+
+test("activeRunEntry returns null when the active mapping points at an inherited name", () => {
+  const s = { ...createRunStore(), activeRunByWorkflow: { wf: "toString" } };
+  assert.equal(activeRunEntry(s, "wf"), null);
+});
+
+test("runDisplayName treats an inherited property name as an absent run id", () => {
+  const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
+  assert.equal(runDisplayName(DEF, s, "toString"), "");
+});
+
+test("accessors still operate on a real run whose id is an inherited name", () => {
+  let s = addRun(createRunStore(), createRunEntry({ id: "constructor", workflowId: "wf", run: createRun(), now: 100 }));
+  s = renameRun(s, "constructor", "named", 200);
+  assert.equal(s.entries["constructor"].name, "named");
+  s = archiveRun(s, "constructor", 300);
+  assert.equal(s.entries["constructor"].status, "archived");
+  assert.equal(activeRunEntry(s, "wf"), s.entries["constructor"]);
+  assert.equal(runDisplayName(DEF, s, "constructor"), "named");
+  s = deleteRun(s, "constructor");
+  assert.equal(Object.prototype.hasOwnProperty.call(s.entries, "constructor"), false);
+});
