@@ -55,6 +55,15 @@ Route every run-store accessor keyed by a run id through `getEntry`:
 Consolidate `cloneRun`'s existing local `has` closure onto the shared
 `hasEntry` (the DRY consolidation the issue proposes).
 
+`activeRunEntry` is the one accessor whose id is not a caller-supplied run
+id but a value read from the `activeRunByWorkflow` map, which is `undefined`
+when the workflow has no active run. It keeps a truthiness guard on that
+resolved id (`(id && getEntry(store, id)) || null`), matching the prior
+`(id && store.entries[id]) || null`. Without the guard, `getEntry(store,
+undefined)` would route `undefined` into `hasOwnProperty`, which coerces it
+to the string key `"undefined"` and would return a real run keyed
+`"undefined"` for an unrelated workflow that has no active mapping.
+
 Behavior is unchanged for ordinary run ids. It is also unchanged for a real
 entry whose id legitimately equals an inherited name: such an entry is an
 own property, so `hasEntry` is true and `getEntry` returns it. The only
@@ -84,9 +93,12 @@ rather than leaving one known instance of the same bug unfixed.
 - Constraining or validating run-id format. Run ids stay free non-empty
   strings; this hardens the lookups, it does not restrict the inputs.
 - Separate sanitization of the `activeRunByWorkflow` map keyed by
-  `workflowId`. Routing the entries lookup in `activeRunEntry` through
-  `getEntry` already neutralizes an inherited `workflowId` at the entries
-  step (it returns `null`), so no extra workflowId guard is added.
+  `workflowId`. An inherited `workflowId` resolves the map to a prototype
+  member, but `activeRunEntry`'s truthiness guard plus `getEntry` then
+  yields `null` (a function id is not an own entry key), so no dedicated
+  workflowId guard is added. The guard on the resolved id is required and
+  is part of the change (see the `activeRunEntry` note above), not out of
+  scope.
 - `getStepEntry` and other run-level accessors keyed by `stepId` on a run.
   Those read a run's `stepState`, a different object and a different
   concern from the run-store entry lookups.
@@ -103,7 +115,9 @@ rather than leaving one known instance of the same bug unfixed.
     corrupt entry written, no stray `"undefined"` key, active mappings
     untouched).
   - `activeRunEntry` returns `null` when the active mapping points at an
-    inherited name with no real entry.
+    inherited name with no real entry, and also returns `null` for a
+    workflow with no active mapping even when a run keyed `"undefined"`
+    exists (the resolved-id truthiness guard).
   - `runDisplayName` returns `""` for an inherited-name id with no real
     entry.
   - A positive case: a real entry whose id is `"constructor"` still
