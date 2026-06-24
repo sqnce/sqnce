@@ -50,7 +50,7 @@ These back the public functions. Defined in Task 2, used thereafter.
 - `effectiveSkippedTrackIds(definition, run)` -> `Set<string>`.
 - `normalizeFlat(subStages, run)` -> Run: for a forked flat list, clamp `frontier` to the last spine index, and if `idx` lands outside the reachable region, recenter `idx` to the last spine sub-stage. For a linear flat list, return `run` unchanged (same reference). Topology is read from the flat `track`/`optional` annotations, so no definition argument is needed.
 - `reachableFlat(subStages, run)` -> sorted `number[]` of reachable flat indices: the spine prefix (`mainIndex <= frontier`) plus, for each open non-skipped track, its flat range up to `trackFrontier[t]`. Linear collapses to the contiguous prefix.
-- `scopeValidatorRun(definition, subStages, run, stepFlatIdx)` -> Run: the sanitized relation-set allowlist run (Task 9), built from the normalized run.
+- `scopeValidatorRun(subStages, run, stepFlatIdx)` -> Run: the sanitized relation-set allowlist run (Task 9), built from the normalized run (topology is read from the flat annotations, so no definition argument is needed).
 
 ---
 
@@ -443,6 +443,19 @@ test("validateDefinition rejects a subject outside the spine", () => {
 test("validateDefinition rejects a subject pointing at a non-fields output", () => {
   const d = clone(FORKED);
   d.subject = { stepId: "findings", outputId: "notes", field: "x" }; // notes is text
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject that resolves to no step", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "ghost", outputId: "facts", field: "client" }; // no such step
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject that resolves to more than one step", () => {
+  const d = clone(FORKED);
+  // duplicate the subject step id onto a second spine sub-stage so it resolves twice
+  d.mainStages[1].subStages[0].steps.push({ id: "intake", name: "Dup", outputs: [] });
   assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
 });
 ```
@@ -845,6 +858,46 @@ test("a stale forked run normalizes before the boundary advance opens the fork",
   assert.equal(res.run.trackFrontier.response, 5);
 });
 
+test("fork-open repairs missing and out-of-range trackFrontier entries", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  // a partially corrupted run: demo out of range (99), response missing entirely.
+  // Center back on the boundary (last spine stage) and re-advance to repair.
+  r = { ...r, trackFrontier: { demo: 99 }, idx: subs.findIndex((s) => s.id === "findings-sub") };
+  const res = advance(r, subs);
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.trackFrontier.demo, 2); // out-of-range -> reinitialized to first
+  assert.equal(res.run.trackFrontier.response, 5); // missing -> reinitialized to first
+});
+
+test("a forced open past an unmet boundary gate records forces at the last spine index", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "intake", true);
+  r = advance(r, subs).run; // commit stage 0 -> frontier 1 (findings), whose gate is unmet
+  const res = advance(r, subs, { force: true });
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.forces[1], true); // lastSpineIndex == 1
+  assert.equal(res.run.trackFrontier.demo, 2); // fork opened despite the unmet gate
+});
+
+test("opening a met boundary gate with force records no forces marker", () => {
+  const subs = flattenSubStages(FORKED);
+  const r = commitSpine(createRun(), subs); // findings has a note: the boundary gate is met
+  const res = advance(r, subs, { force: true });
+  assert.equal(res.advanced, true);
+  assert.equal("forces" in res.run, false); // met gate records nothing, even with force
+});
+
+test("opening lands idx on the flat-first track, not the declaration-first track", () => {
+  const def = clone(FORKED);
+  // declare response first while its stage block still follows demo in flat order
+  def.tracks = [{ id: "response", name: "Response" }, { id: "demo", name: "Demo", optional: true }];
+  const subs = flattenSubStages(def);
+  const res = advance(commitSpine(createRun(), subs), subs);
+  assert.equal(subs[res.run.idx].track, "demo"); // flat-first wins over declaration order
+});
+
 test("the linear fixture advances exactly as before (regression)", () => {
   const subs = flattenSubStages(FIXTURE);
   // mirror the existing passing advance test: stage 0 (alpha) has start + collect,
@@ -1201,6 +1254,28 @@ test("a forked validator cannot read a sibling track's output via ctx.run", () =
   assert.equal(sawSibling, false);
 });
 
+test("a scoped validator run drops out-of-relation-set forces keys", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "respDraft", "d", "ok");
+  // a corrupted forces key naming no real stage (999) plus a sibling demo-stage
+  // force (2): a validator on a response step must see neither.
+  r = { ...r, forces: { 999: true, 2: true } };
+  let seenForce = false;
+  const validators = {
+    check: (_value, _spec, ctx) => {
+      const f = (ctx.run && ctx.run.forces) || {};
+      if (f["999"] || f["2"]) seenForce = true;
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "check"; // respDraft (response)
+  const dsubs = flattenSubStages(def);
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.equal(seenForce, false);
+});
+
 test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo committed to 2 only
@@ -1235,8 +1310,12 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
   const cur = subStages[stepFlatIdx];
   const ownTrack = cur && cur.track !== undefined ? cur.track : null;
   const inScope = (mainIndex) => {
-    const tid = (subStages.find((s) => s.mainIndex === mainIndex) || {}).track;
-    return tid === undefined || tid === ownTrack;
+    // allowlist: an index that names no real stage (for example a corrupted
+    // forces key like 999) is in NO relation set and must be dropped, not
+    // treated as spine. Only a real spine stage or the step's own track passes.
+    const found = subStages.find((s) => s.mainIndex === mainIndex);
+    if (!found) return false;
+    return found.track === undefined || found.track === ownTrack;
   };
   const stepStage = new Map(); // stepId -> mainIndex
   subStages.forEach((s) => (s.steps || []).forEach((st) => stepStage.set(st.id, s.mainIndex)));
