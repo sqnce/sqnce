@@ -1096,7 +1096,7 @@ export function runsForWorkflow(store, workflowId) {
  */
 export function activeRunEntry(store, workflowId) {
   const id = store.activeRunByWorkflow[workflowId];
-  return getEntry(store, id) || null;
+  return (id && getEntry(store, id)) || null;
 }
 
 /*
