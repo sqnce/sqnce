@@ -502,6 +502,14 @@ test("activeRunEntry returns null when the active mapping points at an inherited
   assert.equal(activeRunEntry(s, "wf"), null);
 });
 
+test("activeRunEntry returns null for a workflow with no mapping even when a run id 'undefined' exists", () => {
+  // A run literally keyed "undefined" must not leak to a workflow that has no
+  // active mapping: store.activeRunByWorkflow[absent] is undefined, and a bare
+  // own-property lookup would coerce that to the string key "undefined".
+  const s = addRun(createRunStore(), createRunEntry({ id: "undefined", workflowId: "wf", run: createRun(), now: 100 }));
+  assert.equal(activeRunEntry(s, "other"), null);
+});
+
 test("runDisplayName treats an inherited property name as an absent run id", () => {
   const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
   assert.equal(runDisplayName(DEF, s, "toString"), "");
