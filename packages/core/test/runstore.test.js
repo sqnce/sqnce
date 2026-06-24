@@ -510,6 +510,14 @@ test("activeRunEntry returns null for a workflow with no mapping even when a run
   assert.equal(activeRunEntry(s, "other"), null);
 });
 
+test("activeRunEntry returns null for any falsy resolved active id", () => {
+  // The truthiness guard short-circuits every falsy resolved id, not just undefined.
+  for (const bad of [null, "", 0]) {
+    const s = { ...createRunStore(), activeRunByWorkflow: { wf: bad } };
+    assert.equal(activeRunEntry(s, "wf"), null);
+  }
+});
+
 test("runDisplayName treats an inherited property name as an absent run id", () => {
   const s = addRun(createRunStore(), entryAt("r1", "wf", 100));
   assert.equal(runDisplayName(DEF, s, "toString"), "");
