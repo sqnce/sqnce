@@ -861,6 +861,31 @@ function withEntry(store, entry) {
   return { ...store, entries: { ...store.entries, [entry.id]: entry } };
 }
 
+/*
+ * store.entries is a plain object, so a run id equal to an inherited
+ * prototype name ("toString", "constructor", "valueOf", ...) resolves to
+ * the inherited member under a bare lookup. Run ids are only constrained to
+ * non-empty strings, so route every membership/lookup by id through an
+ * own-property check (#67 hardened cloneRun; #69 the rest).
+ */
+/**
+ * @param {RunStore} store
+ * @param {string} id
+ * @returns {boolean}
+ */
+function hasEntry(store, id) {
+  return Object.prototype.hasOwnProperty.call(store.entries, id);
+}
+
+/**
+ * @param {RunStore} store
+ * @param {string} id
+ * @returns {RunEntry|undefined}
+ */
+function getEntry(store, id) {
+  return hasEntry(store, id) ? store.entries[id] : undefined;
+}
+
 /**
  * Insert an entry and make it the active run of its workflow.
  * @param {RunStore} store
@@ -883,7 +908,7 @@ export function addRun(store, entry) {
  * @returns {RunStore}
  */
 export function renameRun(store, runId, name, now) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   return withEntry(store, { ...entry, name: String(name || "").trim(), updatedAt: now });
 }
@@ -899,7 +924,7 @@ export function renameRun(store, runId, name, now) {
  * @returns {RunStore}
  */
 export function archiveRun(store, runId, now) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   return withEntry(store, { ...entry, status: "archived", updatedAt: now });
 }
@@ -911,7 +936,7 @@ export function archiveRun(store, runId, now) {
  * @returns {RunStore}
  */
 export function unarchiveRun(store, runId, now) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   return withEntry(store, { ...entry, status: "active", updatedAt: now });
 }
@@ -922,7 +947,7 @@ export function unarchiveRun(store, runId, now) {
  * @returns {RunStore}
  */
 export function setActiveRun(store, runId) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   return {
     ...store,
@@ -939,7 +964,7 @@ export function setActiveRun(store, runId) {
  * @returns {RunStore}
  */
 export function updateRunState(store, runId, run, now) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   return withEntry(store, { ...entry, run, updatedAt: now });
 }
@@ -969,10 +994,9 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
   if (typeof newId !== "string" || !newId.trim())
     throw new Error("cloneRun: newId must be a non-empty string");
   if (newId === fromId) throw new Error(`cloneRun: newId must differ from fromId ("${fromId}")`);
-  const has = (id) => Object.prototype.hasOwnProperty.call(store.entries, id);
-  if (!has(fromId)) throw new Error(`cloneRun: no run with id "${fromId}"`);
+  if (!hasEntry(store, fromId)) throw new Error(`cloneRun: no run with id "${fromId}"`);
   const source = store.entries[fromId];
-  if (has(newId)) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
+  if (hasEntry(store, newId)) throw new Error(`cloneRun: a run with id "${newId}" already exists`);
 
   let run = structuredClone(source.run);
 
@@ -1072,7 +1096,7 @@ export function runsForWorkflow(store, workflowId) {
  */
 export function activeRunEntry(store, workflowId) {
   const id = store.activeRunByWorkflow[workflowId];
-  return (id && store.entries[id]) || null;
+  return getEntry(store, id) || null;
 }
 
 /*
@@ -1087,7 +1111,7 @@ export function activeRunEntry(store, workflowId) {
  * @returns {RunStore}
  */
 export function deleteRun(store, runId) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return store;
   const entries = { ...store.entries };
   delete entries[runId];
@@ -1134,7 +1158,7 @@ export function runSummary(definition, run, opts) {
  * @returns {string}
  */
 export function runDisplayName(definition, store, runId) {
-  const entry = store.entries[runId];
+  const entry = getEntry(store, runId);
   if (!entry) return "";
   if (entry.name) return entry.name;
   const s = definition.subject;
