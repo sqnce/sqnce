@@ -883,7 +883,7 @@ function advanceForked(run, subStages, { force, validators }) {
   // browsing a committed spine stage that is not the fork boundary: spine advance
   if (curTrack === null && cur.mainIndex < spineEnd) {
     if (cur.mainIndex !== run.frontier) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators });
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages });
     if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
     const next = { ...run, idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1), frontier: run.frontier + 1 };
     if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
@@ -893,7 +893,7 @@ function advanceForked(run, subStages, { force, validators }) {
   // at the last spine stage: open or repair the fork
   if (curTrack === null && cur.mainIndex === spineEnd) {
     if (run.frontier !== spineEnd) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators });
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages });
     if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
     const tf = { ...run.trackFrontier };
     let initialized = false;
@@ -919,7 +919,7 @@ function advanceForked(run, subStages, { force, validators }) {
     const r = ranges.get(curTrack);
     const tfv = run.trackFrontier && run.trackFrontier[curTrack];
     if (cur.mainIndex !== tfv || tfv >= r.terminal) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators });
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages });
     if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
     const next = {
       ...run,
@@ -1309,17 +1309,6 @@ git commit -m "feat(core): track-scoped context and validator relation-set isola
 ```js
 import { isRunComplete, trackStatus } from "../src/index.js"; // add to import block
 
-function driveTrackToTerminal(r, subs, track, stepIds) {
-  // fill + advance every stage of a track to its terminal
-  for (const [stepId, outId, idSub] of stepIds) {
-    r = setOutput(r, stepId, outId, "x");
-    if (idSub) r = setCheckedDone(r, stepId, true);
-    r = jumpTo(r, subs, subs.findIndex((s) => trackIdOfStageById(subs, s) === track && s.mainIndex === r.trackFrontier[track]));
-    r = advance(r, subs).run;
-  }
-  return r;
-}
-
 test("isRunComplete is false before the fork opens even with terminal trackFrontier", () => {
   const subs = flattenSubStages(FORKED);
   const r = { ...createRun(), frontier: 0, trackFrontier: { demo: 4, response: 7 } };
@@ -1363,7 +1352,7 @@ test("runSummary excludes a skipped track's sub-stages", () => {
 });
 ```
 
-(Add a small test helper `trackIdOfStageById` in the test file: `const trackIdOfStageById = (subs, s) => s.track === undefined ? null : s.track;` or inline. The driver above is illustrative; the implementer may simplify by setting `trackFrontier` directly where a test only needs a terminal state.)
+These tests drive tracks inline (fill, jumpTo, advance) or set `trackFrontier` directly where only a terminal state is needed; `commitSpine` (Task 6) is the shared spine driver, defined once at module scope in the test file.
 
 - [ ] **Step 2: Run** `npm test`, Expected: FAIL.
 
