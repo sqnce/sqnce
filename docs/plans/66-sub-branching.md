@@ -703,7 +703,13 @@ export function skipTrack(run, definition, trackId) {
   const subs = flattenSubStages(definition);
   const cur = subs[run.idx];
   if (cur && trackIdOfStage(definition, cur.mainIndex) === trackId) {
-    next.idx = lastIndexInMain(subs, lastSpineIndex(definition));
+    // recenter to the last COMMITTED spine sub-stage. Math.min keeps the target
+    // inside the committed spine for a run whose frontier sits before the spine
+    // end (a corrupted run could otherwise land idx on an un-committed spine
+    // card and break the reachable-region invariant); when frontier sits at or
+    // past the spine end this is just the last spine sub-stage, as before.
+    const spineEnd = lastSpineIndex(definition);
+    next.idx = lastIndexInMain(subs, Math.min(run.frontier, spineEnd));
   }
   return next;
 }
@@ -920,7 +926,9 @@ function advanceForked(run, subStages, { force, validators }) {
     const tf = { ...run.trackFrontier };
     let initialized = false;
     ranges.forEach((r, id) => {
-      const v = tf[id];
+      // own-property read: a corrupted run must not have an inherited key
+      // counted as an already-committed track frontier (spec: never bare key reads).
+      const v = hasOwn(run.trackFrontier, id) ? run.trackFrontier[id] : undefined;
       if (!(typeof v === "number" && v >= r.first && v <= r.terminal)) { tf[id] = r.first; initialized = true; }
     });
     if (!initialized) return { run, advanced: false, missing: [] }; // already open: no-op
@@ -944,7 +952,7 @@ function advanceForked(run, subStages, { force, validators }) {
   if (curTrack !== null) {
     if (skipped.has(curTrack)) return { run, advanced: false, missing: [] };
     const r = ranges.get(curTrack);
-    const tfv = run.trackFrontier && run.trackFrontier[curTrack];
+    const tfv = hasOwn(run.trackFrontier, curTrack) ? run.trackFrontier[curTrack] : undefined;
     if (cur.mainIndex !== tfv || tfv >= r.terminal) return { run, advanced: false, missing: [] };
     const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages });
     if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
@@ -1104,7 +1112,8 @@ export function skipSubStage(run, subStages, subStageId) {
     // entry while its spine is not yet committed must not become skippable.
     let spineEnd = -1;
     subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-    const tfv = r.trackFrontier && r.trackFrontier[sub.track];
+    // own-property read (spec: never bare key reads on trackFrontier).
+    const tfv = hasOwn(r.trackFrontier, sub.track) ? r.trackFrontier[sub.track] : undefined;
     committed = r.frontier >= spineEnd && typeof tfv === "number" && sub.mainIndex <= tfv;
   }
   if (!committed) return run;
@@ -1434,6 +1443,19 @@ test("runSummary excludes a skipped track's sub-stages", () => {
   const after = runSummary(FORKED, skipTrack(r, FORKED, "demo"), { subStages: subs }).total;
   assert.ok(after < before);
 });
+
+test("inherited-only trackFrontier entries are never read as opened or complete", () => {
+  // A corrupted run whose `demo`/`response` are inherited, not own, properties:
+  // own-property reads must ignore them (spec robustness), so the fork reads as
+  // not-open and the run as incomplete. A bare key read would wrongly see the
+  // terminal values and report "active"/opened. Object.create keeps the
+  // pollution local to this object (no global prototype mutation).
+  const inherited = Object.create({ demo: 4, response: 7 });
+  const r = { ...createRun(), frontier: 1, trackFrontier: inherited }; // frontier at spine end
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+  assert.equal(trackStatus(FORKED, r, "response"), "not-open");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
 ```
 
 These tests drive tracks inline (fill, jumpTo, advance) or set `trackFrontier` directly where only a terminal state is needed; `commitSpine` (Task 6) is the shared spine driver, defined once at module scope in the test file.
@@ -1469,13 +1491,15 @@ export function isRunComplete(definition, run, opts = {}) {
   // also what stops an all-optional, all-skipped run from completing before the
   // boundary advance ever ran.
   for (const [id, t] of tm) {
-    const v = r.trackFrontier && r.trackFrontier[id];
+    // own-property read (spec: never bare key reads on trackFrontier); an
+    // inherited key must not be counted as an opened track.
+    const v = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
     if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
   }
   // every KEPT track has reached its terminal
   for (const [id, t] of tm) {
     if (skipped.has(id)) continue;
-    if (r.trackFrontier[id] !== t.terminal) return false;
+    if (!(hasOwn(r.trackFrontier, id) && r.trackFrontier[id] === t.terminal)) return false;
   }
   // every non-skipped gate along the kept path is met (spine + kept tracks)
   for (let i = 0; i < definition.mainStages.length; i++) {
@@ -1502,7 +1526,8 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   // in-range trackFrontier entry for this track (so a skipped track still reads
   // not-open until the boundary advance has run).
   if (r.frontier !== lastSpineIndex(definition)) return "not-open";
-  const v = r.trackFrontier && r.trackFrontier[trackId];
+  // own-property read (spec: never bare key reads on trackFrontier).
+  const v = hasOwn(r.trackFrontier, trackId) ? r.trackFrontier[trackId] : undefined;
   if (!(typeof v === "number" && v >= tm.first && v <= tm.terminal)) return "not-open";
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
   if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
