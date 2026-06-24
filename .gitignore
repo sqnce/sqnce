@@ -4,7 +4,13 @@ dist/
 .DS_Store
 .worktrees/
 .superpowers/
-.claude/
+# Ignore local Claude Code state (settings.local.json, session state, skills,
+# any worktrees) but track the committed process docs so the lifecycle travels
+# with the checkout. A fully-ignored .claude/ cannot re-include children, so
+# ignore the contents and negate the tracked files.
+.claude/*
+!.claude/dev-workflow.md
+!.claude/SETUP.md
 graphify-out/
 packages/*/types/
 .pwf/

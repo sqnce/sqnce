@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-The full dev-workflow lifecycle lives in the global `~/.claude/CLAUDE.md`. Apart from the shared working preferences captured just below (committed here so they travel with the checkout), this file holds only what is specific to this repo.
+The full dev-workflow lifecycle is committed to this repo at `.claude/dev-workflow.md` and imported below, so it travels with the checkout. New-machine and worktree setup is in `.claude/SETUP.md` (referenced, not auto-imported, to keep session context lean). Apart from the shared working preferences captured just below (committed here so they travel with the checkout), this file holds only what is specific to this repo.
+
+@.claude/dev-workflow.md
 
 ## Working preferences
 
