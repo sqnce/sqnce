@@ -696,6 +696,7 @@ export function skipTrack(run, definition, trackId) {
   const tm = trackMap(definition).get(trackId);
   if (!tm || !tm.optional) return run;
   if (hasOwn(run.skippedTracks, trackId)) return run;
+  /** @type {Run} */
   const next = { ...run, skippedTracks: { ...run.skippedTracks, [trackId]: true } };
   const subs = flattenSubStages(definition);
   const cur = subs[run.idx];
@@ -833,18 +834,21 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
   };
   const stepStage = new Map(); // stepId -> mainIndex
   subStages.forEach((s) => (s.steps || []).forEach((st) => stepStage.set(st.id, s.mainIndex)));
+  /** @type {Object<string, StepEntry>} */
   const stepState = {};
   Object.keys(r.stepState || {}).forEach((sid) => {
     const mi = stepStage.get(sid);
     // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
     if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
   });
+  /** @type {Object<string, true>} */
   const skips = {};
   Object.keys(r.skips || {}).forEach((sub) => {
     const s = subStages.find((x) => x.id === sub);
     // allowlist: keep only known, in-scope sub-stage skips
     if (s && inScope(s.mainIndex)) skips[sub] = true;
   });
+  /** @type {Object<string, true>} */
   const forces = {};
   Object.keys(r.forces || {}).forEach((mi) => { if (inScope(Number(mi))) forces[mi] = true; });
   // Annotate as Run so checkJs accepts the later optional-field assignments.
