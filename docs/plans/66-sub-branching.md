@@ -22,7 +22,7 @@
 **Repo gates:**
 - `npm test` (Node runner over `packages/core/test/*.test.js`): the per-task TDD gate, run after every task.
 - `npm run build -w examples/demo` (CI runs it on every PR): run at the end (Task 13), and after any task that could affect the demo build.
-- `npm run types` (`tsc -p tsconfig.declarations.json`, which sets `checkJs: true`, so it type-checks the JS, not just emits declarations): NOT a per-task gate. The typedefs (Task 1) and the gate-helper `opts.subStages` JSDoc (Task 9) land incrementally, so a mid-implementation type-check would flag a forward reference to a field a later task declares (for example Task 2 reads `s.track` before Task 4 widens the `FlatSubStage` typedef, and Task 6 passes `opts.subStages` before Task 9 adds it to the gate-helper opts type). Regenerate and type-check once the typedefs and JSDoc are complete, in Task 12, and verify the committed `.d.ts` in Task 13. This matches the dev-workflow's per-PR (not per-task) types gate. `tsc` may be absent locally; if so, confirm the diff adds only additive declarations (the new exports, the new typedefs, and the optional `opts.subStages` on the gate helpers) and let CI run the real check.
+- `npm run types` (`tsc -p tsconfig.declarations.json`, which sets `checkJs: true`, so it type-checks the JS, not just emits declarations): NOT a per-task gate. The typedefs (Task 1) and the gate-helper `opts.subStages` JSDoc (Task 9) land incrementally, so a mid-implementation type-check would flag a forward reference to a field a later task declares (for example Task 2 reads `s.track` before Task 4 widens the `FlatSubStage` typedef, and Task 6 passes `opts.subStages` before Task 9 adds it to the gate-helper opts type). Regenerate and type-check once the typedefs and JSDoc are complete, in Task 12, and re-run the type-check in Task 13. The generated `.d.ts` is gitignored (`packages/*/types/`) and never committed, so this is a type-check gate, not a committed-artifact check: prepack regenerates the `.d.ts` for the published tarball, and CI's pack job verifies the tarball contains it. This matches the dev-workflow's per-PR (not per-task) types gate. `tsc` may be absent locally; if so, confirm the diff adds only additive declarations (the new exports, the new typedefs, and the optional `opts.subStages` on the gate helpers) and let CI run the real check.
 
 ---
 
@@ -260,13 +260,6 @@ function reachableFlat(subStages, run) {
   }
   let spineEnd = -1;
   subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-  // A track is reachable only once the fork is genuinely open, meaning the
-  // whole spine is committed (frontier has reached the last spine stage). A
-  // corrupted or imported run can carry trackFrontier entries while frontier
-  // still sits inside the spine (for example a definition that gained more
-  // spine stages after the run was saved); those track entries must not be
-  // treated as navigable until the spine is committed.
-  const forkOpen = run.frontier >= spineEnd;
   const ranges = new Map();
   subStages.forEach((s) => {
     if (s.track === undefined) return;
@@ -277,6 +270,22 @@ function reachableFlat(subStages, run) {
   const skipped = new Set();
   ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
   const tf = run.trackFrontier || {};
+  // The fork is open (its tracks navigable) only when the whole spine is
+  // committed AND EVERY declared track has a valid in-range, own trackFrontier
+  // entry, matching the "fork opened" check in isRunComplete / trackStatus. A
+  // partially-initialized run (any track missing or out of range, even a
+  // skipped one) is NOT open: no track is navigable until the boundary advance
+  // repairs every entry. Without the all-tracks requirement, a corrupted run
+  // like { frontier: 1, idx: <demo card>, trackFrontier: { demo: 2 } } would
+  // let demo advance while the required response entry stays missing, instead of
+  // recentering to the spine so the boundary advance repairs both.
+  let forkOpen = run.frontier >= spineEnd;
+  if (forkOpen) {
+    for (const [id, rg] of ranges) {
+      const v = hasOwn(tf, id) ? tf[id] : undefined;
+      if (!(typeof v === "number" && v >= rg.first && v <= rg.terminal)) { forkOpen = false; break; }
+    }
+  }
   const out = [];
   subStages.forEach((s, i) => {
     if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
@@ -863,6 +872,21 @@ test("fork-open repairs missing and out-of-range trackFrontier entries", () => {
   assert.equal(res.advanced, true);
   assert.equal(res.run.trackFrontier.demo, 2); // out-of-range -> reinitialized to first
   assert.equal(res.run.trackFrontier.response, 5); // missing -> reinitialized to first
+});
+
+test("a partially-initialized fork is not navigable: advance repairs at the boundary, it does not advance one track", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  // corrupt: drop the required response entry, with idx centered inside demo.
+  // The fork is not fully open, so demo is not navigable; normalizeFlat
+  // recenters idx to the spine and the boundary advance repairs response
+  // instead of advancing demo to 3 (which the old fork-open check would do).
+  const demoIdx = subs.findIndex((s) => s.id === "demo-script-sub");
+  r = { ...r, trackFrontier: { demo: 2 }, idx: demoIdx };
+  const res = advance(r, subs);
+  assert.equal(res.run.trackFrontier.demo, 2); // demo preserved, NOT advanced to 3
+  assert.equal(res.run.trackFrontier.response, 5); // missing required entry repaired
+  assert.equal(res.run.frontier, 1);
 });
 
 test("a forced open past an unmet boundary gate records forces at the last spine index", () => {
