@@ -77,14 +77,16 @@ conflict.
 
 ## Assumption 3: portaled overlays mounted inside `.pf-root` get tokens and stay full-screen
 
-A later Codex pass found that two subtrees render through `createPortal(..., document.body)`
-(the renderer-expand `Overlay` in `OutputView`, and `OverviewModal`), so they sit outside
-`.pf-root`. If the private `--sqnce-_*` defaults are declared only on `.pf-root`, a
-body-mounted overlay would resolve those tokens to nothing and render unstyled. The fix in
-the spec is to mount those portals inside `.pf-root` instead of `document.body`. That fix
-rests on two behaviors, both checked because `.pf-root` sets `overflow-x: hidden`: a
-`position: fixed` overlay nested in `.pf-root` must still cover the viewport (not be clipped
-by the ancestor's overflow), and it must inherit `.pf-root` tokens and ancestor overrides.
+Two subtrees render through `createPortal(..., document.body)` (the renderer-expand
+`Overlay` in `OutputView`, and `OverviewModal`), so they sit outside `.pf-root`. If the
+private `--sqnce-_*` defaults are declared only on `.pf-root`, a body-mounted overlay would
+resolve those tokens to nothing and render unstyled. One candidate fix is to mount those
+portals inside `.pf-root` instead of `document.body`; this experiment characterizes that
+candidate, because it is tempting and the result bounds exactly when it is safe. The
+candidate rests on two behaviors, both checked because `.pf-root` sets `overflow-x: hidden`:
+a `position: fixed` overlay nested in `.pf-root` must still cover the viewport (not be
+clipped by the ancestor's overflow), and it must inherit `.pf-root` tokens and ancestor
+overrides.
 
 ### Method
 
@@ -107,14 +109,26 @@ overlay nested inside. Computed `background` and the overlay's bounding rect wer
 
 Both overlays anchor at (0,0) and span the full viewport height (921 = `vh`). The 930 vs 945
 width gap is the 15px vertical scrollbar gutter that a fixed `inset: 0` element leaves on a
-scrollable page, not clipping by `overflow-x: hidden`. So nesting a fixed overlay in
+scrollable page, not clipping by `overflow-x: hidden`. So nesting a fixed overlay in a plain
 `.pf-root` keeps it full-screen and gives it both the default tokens and ancestor overrides.
+
+The limit of this result: it holds only while no ancestor of the overlay establishes a
+fixed-positioning containing block. The fixture's `.pf-root` is plain, but a consumer can
+wrap `ProcessRolodex` in a `transform`, `filter`, `contain`, `perspective`, `will-change`,
+or z-indexed positioned container, and then a fixed overlay nested under `.pf-root` would be
+bounded by that wrapper instead of the viewport. Today's `document.body` portal escapes all
+of that, so the spec keeps the body portal and propagates tokens to the portal root rather
+than reparenting the overlays under `.pf-root`. This experiment therefore bounds when
+nesting is safe (a plain ancestor chain) and shows why the body-portal-plus-token design is
+preferred for an embeddable component.
 
 ## Conclusion
 
 All three assumptions are settled before approval. Assumption 1 holds as the spec describes.
 Assumption 2 is resolved by reconciling the two acceptance criteria rather than by changing
-the mechanism. Assumption 3 confirms the portal fix: mounting the expand overlay and the
-overview modal inside `.pf-root` themes them with no special-casing. No re-spec of the core
-design is needed; the spec edits are the contrast precedence wording, the per-surface split
-of the muted-ink token, and the portal mounting requirement.
+the mechanism. Assumption 3 bounds when nesting a portal under `.pf-root` is safe (only a
+plain ancestor chain) and shows it would regress for a consumer's transformed wrapper, so
+the spec keeps the `document.body` portal and propagates tokens to the portal root. No
+re-spec of the core token mechanism is needed; the spec edits are the contrast precedence
+wording, the per-surface split of the muted-ink token, and the portaled-overlay token
+strategy (body portal plus token propagation).
