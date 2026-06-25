@@ -1032,15 +1032,89 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+.pf-root, .pf-root-tokens {
+  /* sqnce design tokens: a consumer overrides the public --sqnce-* on .pf-root
+     or any ancestor; the shell reads the private --sqnce-_* indirection so an
+     ancestor override is never shadowed by a value on .pf-root itself. The
+     block is shared with .pf-root-tokens, which body-portaled overlays carry
+     so they get the same defaults. */
+  --sqnce-_app-top: var(--sqnce-app-top, #222932);
+  --sqnce-_app-bottom: var(--sqnce-app-bottom, #1B2129);
+  --sqnce-_paper: var(--sqnce-paper, #F1EEE3);
+  --sqnce-_card: var(--sqnce-card, #FAF8F0);
+  --sqnce-_input: var(--sqnce-input, #FFFFFF);
+  --sqnce-_input-readonly: var(--sqnce-input-readonly, #F3F1E8);
+  --sqnce-_panel-dark: var(--sqnce-panel-dark, #23282F);
+  --sqnce-_raised: var(--sqnce-raised, #3A434E);
+  --sqnce-_locked: var(--sqnce-locked, #3A3F46);
+  --sqnce-_subtle: var(--sqnce-subtle, #EFEBDD);
+  --sqnce-_hover-paper: var(--sqnce-hover-paper, #E7E2D4);
+  --sqnce-_ink-strong: var(--sqnce-ink-strong, #23282F);
+  --sqnce-_ink-on-dark: var(--sqnce-ink-on-dark, #EDEAE0);
+  --sqnce-_ink-on-dark-2: var(--sqnce-ink-on-dark-2, #C9CDD3);
+  --sqnce-_ink-muted-dark: var(--sqnce-ink-muted-dark, #8A919B);
+  --sqnce-_ink-muted-on-card: var(--sqnce-ink-muted-on-card, #8A8E96);
+  --sqnce-_ink-muted-light: var(--sqnce-ink-muted-light, #6B6F76);
+  --sqnce-_ink-muted-light-2: var(--sqnce-ink-muted-light-2, #5C6068);
+  --sqnce-_ink-faint-on-card: var(--sqnce-ink-faint-on-card, #9A9EA6);
+  --sqnce-_ink-faint-light: var(--sqnce-ink-faint-light, #2A2F36);
+  --sqnce-_ink-label-dark: var(--sqnce-ink-label-dark, #5E6772);
+  --sqnce-_ink-label-light: var(--sqnce-ink-label-light, #5E6772);
+  --sqnce-_ink-read: var(--sqnce-ink-read, #3A434E);
+  --sqnce-_link: var(--sqnce-link, #2F6F8F);
+  --sqnce-_accent: var(--sqnce-accent, #D9A441);
+  --sqnce-_accent-hover: var(--sqnce-accent-hover, #E5B458);
+  --sqnce-_accent-ink: var(--sqnce-accent-ink, #7A6A3C);
+  --sqnce-_done: var(--sqnce-done, #2E8F62);
+  --sqnce-_done-tint: var(--sqnce-done-tint, #6FBF95);
+  --sqnce-_done-bg: var(--sqnce-done-bg, #F2F8F3);
+  --sqnce-_done-ink: var(--sqnce-done-ink, #FFFFFF);
+  --sqnce-_draft: var(--sqnce-draft, #D9A441);
+  --sqnce-_draft-bg: var(--sqnce-draft-bg, #F4DFAE);
+  --sqnce-_danger: var(--sqnce-danger, #C9542D);
+  --sqnce-_danger-soft: var(--sqnce-danger-soft, #E08A6D);
+  --sqnce-_danger-strong: var(--sqnce-danger-strong, #B3402A);
+  --sqnce-_accept-ink: var(--sqnce-accept-ink, #2E6E3F);
+  --sqnce-_accept-bg: var(--sqnce-accept-bg, #DDEFE0);
+  --sqnce-_revise-ink: var(--sqnce-revise-ink, #8F4E2E);
+  --sqnce-_revise-bg: var(--sqnce-revise-bg, #F4DFAE);
+  --sqnce-_complete: var(--sqnce-complete, #2E8F62);
+  --sqnce-_pip: var(--sqnce-pip, #4A535E);
+  --sqnce-_pip-locked: var(--sqnce-pip-locked, #343C45);
+  --sqnce-_border-paper: var(--sqnce-border-paper, #D8D3C2);
+  --sqnce-_border-card: var(--sqnce-border-card, #DCD7C7);
+  --sqnce-_border-soft: var(--sqnce-border-soft, #C9C3B0);
+  --sqnce-_border-dot: var(--sqnce-border-dot, #B6BAC1);
+  --sqnce-_font-ui: var(--sqnce-font-ui, 'IBM Plex Sans', system-ui, sans-serif);
+  --sqnce-_font-mono: var(--sqnce-font-mono, 'IBM Plex Mono', monospace);
+  --sqnce-_size-title: var(--sqnce-size-title, 26px);
+  --sqnce-_size-body: var(--sqnce-size-body, 13.5px);
+  --sqnce-_size-label: var(--sqnce-size-label, 10.5px);
+  --sqnce-_space-1: var(--sqnce-space-1, 4px);
+  --sqnce-_space-2: var(--sqnce-space-2, 6px);
+  --sqnce-_space-3: var(--sqnce-space-3, 8px);
+  --sqnce-_space-4: var(--sqnce-space-4, 10px);
+  --sqnce-_space-5: var(--sqnce-space-5, 12px);
+  --sqnce-_space-6: var(--sqnce-space-6, 16px);
+  --sqnce-_space-7: var(--sqnce-space-7, 20px);
+  --sqnce-_pad-section: var(--sqnce-pad-section, 28px);
+  --sqnce-_radius-card: var(--sqnce-radius-card, 10px);
+  --sqnce-_radius-control: var(--sqnce-radius-control, 8px);
+  --sqnce-_radius-sm: var(--sqnce-radius-sm, 6px);
+  --sqnce-_motion-card: var(--sqnce-motion-card, 0.45s cubic-bezier(.3,.9,.3,1));
+  --sqnce-_motion-fade: var(--sqnce-motion-fade, 0.45s);
+  --sqnce-_motion-spin: var(--sqnce-motion-spin, 0.8s);
+}
 .pf-root {
   min-height: 100vh;
-  background: linear-gradient(180deg, #222932 0%, #1B2129 100%);
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
-  color: #23282F;
+  background: linear-gradient(180deg, var(--sqnce-_app-top) 0%, var(--sqnce-_app-bottom) 100%);
+  font-family: var(--sqnce-_font-ui);
+  color: var(--sqnce-_ink-strong);
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
 }
+.pf-root-tokens { font-family: var(--sqnce-_font-ui); color: var(--sqnce-_ink-strong); }
 
 .pf-header { display: flex; align-items: center; gap: 20px; padding: 18px 28px 10px; flex-wrap: wrap; }
 .pf-brand { display: flex; align-items: center; gap: 10px; color: #EDEAE0; }
