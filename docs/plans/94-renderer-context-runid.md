@@ -118,7 +118,9 @@ git commit -m "feat(react): add buildRendererContext helper carrying runId (#94)
 
 **Interfaces:**
 - Consumes: `buildRendererContext` from Task 1.
-- Produces: a renderer `context` that includes `runId` at both views. `ProcessRolodex` supplies `runId: entry ? entry.id : null` (the active run entry, which can be absent); `ReadingView` supplies its existing nullable `runId` prop.
+- Produces: a renderer `context` that includes `runId` at both views. `ProcessRolodex` supplies `runId: activeRunId`, a dedicated variable holding the active run id (`entry ? entry.id : null`) derived at the top of the component; `ReadingView` supplies its existing nullable `runId` prop (also fed from `activeRunId`).
+
+**Shadowing caution (important):** at the `OutputView` site (line 868) the name `entry` is shadowed by a per-step `const entry = getStepEntry(run, step.id)` inside `sub.steps.map` (line 777). That `entry` is a `StepEntry` (`{ checkedDone, outputs }`, no `id`), so `entry.id` there is `undefined`, not the active run id. Do not read `entry.id` at line 868. Derive `activeRunId` near line 236 (where `entry` is the active run entry) and use that.
 
 There is no DOM-render unit test for the JSX wiring (the React package has no DOM harness, and adding one is out of scope per the spec). The helper's logic is covered by Task 1; the wiring is verified by the syntax check, the build, and the unchanged existing tests.
 
@@ -159,7 +161,30 @@ with:
  */
 ```
 
-- [ ] **Step 3: Wire the editing-view context build in `ProcessRolodex.jsx`**
+- [ ] **Step 3: Derive `activeRunId` once at the top of the component in `ProcessRolodex.jsx`**
+
+The active run entry is computed at line 235 (`const entry = activeRunEntry(store, activeId);`), and `readOnly` at line 236. Immediately after line 236, add a dedicated variable for the active run id (it is null for a brand-new workflow with no run yet, so the nullable form is required):
+
+```js
+  const activeRunId = entry ? entry.id : null;
+```
+
+Context for the insertion point (the lines read):
+
+```js
+  const entry = activeRunEntry(store, activeId);
+  const readOnly = !!entry && entry.status === "archived";
+```
+
+becomes:
+
+```js
+  const entry = activeRunEntry(store, activeId);
+  const readOnly = !!entry && entry.status === "archived";
+  const activeRunId = entry ? entry.id : null;
+```
+
+- [ ] **Step 4: Wire the editing-view context build in `ProcessRolodex.jsx`**
 
 Replace line 868:
 
@@ -167,15 +192,27 @@ Replace line 868:
                                 context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
 ```
 
+with (note `runId: activeRunId`, not `entry.id`, because `entry` is shadowed here):
+
+```jsx
+                                context={buildRendererContext({ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly, runId: activeRunId })}
+```
+
+- [ ] **Step 5: Consolidate the `ReadingView` runId prop on `activeRunId` in `ProcessRolodex.jsx`**
+
+The `ReadingView` is mounted in the outer render scope (line 683), where `entry` is the active run entry and the inline `entry ? entry.id : null` is already correct. Switch it to the dedicated variable so the active run id has a single source. Replace line 683:
+
+```jsx
+          runId={entry ? entry.id : null}
+```
+
 with:
 
 ```jsx
-                                context={buildRendererContext({ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly, runId: entry ? entry.id : null })}
+          runId={activeRunId}
 ```
 
-(`entry` is the active run entry, defined earlier in the component as `const entry = activeRunEntry(store, activeId);`; it is null for a brand-new workflow with no run yet, so the nullable form is required.)
-
-- [ ] **Step 4: Add the import to `ReadingView.jsx`**
+- [ ] **Step 6: Add the import to `ReadingView.jsx`**
 
 After the existing line `import OutputView from "./OutputView.jsx";` (line 3), add:
 
@@ -183,7 +220,7 @@ After the existing line `import OutputView from "./OutputView.jsx";` (line 3), a
 import { buildRendererContext } from "./rendererContext.js";
 ```
 
-- [ ] **Step 5: Wire the reading-view context build in `ReadingView.jsx`**
+- [ ] **Step 7: Wire the reading-view context build in `ReadingView.jsx`**
 
 Replace line 159:
 
@@ -199,7 +236,7 @@ with:
 
 (`runId` is already a prop of `ReadingView`, passed down from `ProcessRolodex` as `entry ? entry.id : null`. The `expanded: false` is dropped because `OutputView` always overrides `expanded` per view branch via `{ ...context, expanded }`, so removing it is behavior-preserving.)
 
-- [ ] **Step 6: Syntax-check both modified JSX files**
+- [ ] **Step 8: Syntax-check both modified JSX files**
 
 Run:
 
@@ -210,7 +247,7 @@ npx esbuild packages/react/src/ReadingView.jsx --bundle --format=esm --external:
 
 Expected: both exit 0 with no output (no syntax errors; the `./rendererContext.js` import resolves).
 
-- [ ] **Step 7: Run tests and the demo build**
+- [ ] **Step 9: Run tests and the demo build**
 
 Run: `npm test`
 Expected: PASS, 213 tests, 0 failures (the wiring does not change any test).
@@ -218,7 +255,7 @@ Expected: PASS, 213 tests, 0 failures (the wiring does not change any test).
 Run: `npm run build -w examples/demo`
 Expected: the Vite build completes successfully (exit 0), confirming the JSX changes bundle.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx packages/react/src/ReadingView.jsx
