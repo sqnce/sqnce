@@ -43,6 +43,11 @@
  *    draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
+ *    For a forked definition (one declaring `tracks`) the run also
+ *    carries optional `trackFrontier` (furthest committed main-stage
+ *    index per track, present once the fork opens past the last spine
+ *    stage) and `skippedTracks` (optional tracks marked not-applicable).
+ *    Both are absent for a linear run, which stays byte-identical.
  *    Draft generation targets draftTarget(step): the first text
  *    output, else the first data output; parseDraft turns the raw
  *    reply into a storable value (strict JSON for data targets).
@@ -96,7 +101,14 @@
  * @typedef {Object} MainStage
  * @property {string} id
  * @property {string} name
+ * @property {string} [track] Track id; absent means the stage is shared spine. Present only with Definition.tracks.
  * @property {SubStage[]} subStages
+ */
+/**
+ * @typedef {Object} Track
+ * @property {string} id
+ * @property {string} name
+ * @property {boolean} [optional] When true, the track can be marked not-applicable per run; absent/false means required.
  */
 /**
  * @typedef {Object} SubjectSpec
@@ -111,10 +123,11 @@
  * @property {string} name
  * @property {string} [short]
  * @property {SubjectSpec} [subject]
+ * @property {Track[]} [tracks] Declares a fork; absent means a linear definition.
  * @property {MainStage[]} mainStages
  */
 /**
- * @typedef {SubStage & { mainId: string, mainName: string, mainIndex: number, subIndex: number }} FlatSubStage
+ * @typedef {SubStage & { mainId: string, mainName: string, mainIndex: number, subIndex: number, track?: string, optional?: boolean }} FlatSubStage
  */
 /**
  * @typedef {Object} StepEntry
@@ -130,6 +143,8 @@
  * @property {Object<string, StepEntry>} stepState
  * @property {Object<string, true>} [skips]
  * @property {Object<string, true>} [forces]
+ * @property {Object<string, number>} [trackFrontier] Furthest committed main-stage index within each track; appears when the fork opens.
+ * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
  */
 /**
  * @typedef {Object} GateProgress
@@ -183,12 +198,168 @@
 export function flattenSubStages(definition) {
   /** @type {FlatSubStage[]} */
   const out = [];
+  const tm = isForked(definition) ? trackMap(definition) : null;
   definition.mainStages.forEach((ms, mainIndex) =>
-    ms.subStages.forEach((ss, subIndex) =>
-      out.push({ ...ss, mainId: ms.id, mainName: ms.name, mainIndex, subIndex })
-    )
+    ms.subStages.forEach((ss, subIndex) => {
+      // Annotate the local as FlatSubStage so checkJs accepts the later
+      // base.track / base.optional assignments (the object literal alone would
+      // infer a narrower type without those optional fields).
+      /** @type {FlatSubStage} */
+      const base = { ...ss, mainId: ms.id, mainName: ms.name, mainIndex, subIndex };
+      if (tm && ms.track !== undefined && tm.has(ms.track)) {
+        base.track = ms.track;
+        base.optional = tm.get(ms.track).optional;
+      }
+      out.push(base);
+    })
   );
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sub-branching topology and run-normalization helpers (#66)          */
+/* ------------------------------------------------------------------ */
+
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/** @param {Definition} definition */
+function isForked(definition) {
+  return !!(definition && Array.isArray(definition.tracks) && definition.tracks.length);
+}
+
+/** Last untagged main-stage index (the spine end). @param {Definition} definition @returns {number} */
+function lastSpineIndex(definition) {
+  const stages = definition.mainStages || [];
+  let last = -1;
+  for (let i = 0; i < stages.length; i++) {
+    if (stages[i].track === undefined) last = i;
+    else break;
+  }
+  return last;
+}
+
+/**
+ * Derived per-track topology in mainStages order. first/terminal/indices are
+ * MAIN-STAGE indices (the unit of frontier and trackFrontier), not flat indices.
+ * @param {Definition} definition
+ * @returns {Map<string, { name: string, optional: boolean, first: number, terminal: number, indices: number[] }>}
+ */
+function trackMap(definition) {
+  const out = new Map();
+  if (!isForked(definition)) return out;
+  const declared = new Map(definition.tracks.map((t) => [t.id, t]));
+  (definition.mainStages || []).forEach((ms, i) => {
+    if (ms.track === undefined) return;
+    const t = declared.get(ms.track);
+    if (!t) return;
+    const e = out.get(ms.track) || { name: t.name, optional: !!t.optional, first: i, terminal: i, indices: [] };
+    e.first = Math.min(e.first, i);
+    e.terminal = Math.max(e.terminal, i);
+    e.indices.push(i);
+    out.set(ms.track, e);
+  });
+  return out;
+}
+
+/** @param {Definition} definition @param {number} mainIndex @returns {string|null} */
+function trackIdOfStage(definition, mainIndex) {
+  const ms = (definition.mainStages || [])[mainIndex];
+  return ms && ms.track !== undefined ? ms.track : null;
+}
+
+/** @param {Definition} definition @param {Run} run @param {string} trackId */
+function isTrackSkippedEffective(definition, run, trackId) {
+  const tm = trackMap(definition).get(trackId);
+  return !!(tm && tm.optional && hasOwn(run.skippedTracks, trackId));
+}
+
+/** @param {Definition} definition @param {Run} run @returns {Set<string>} */
+function effectiveSkippedTrackIds(definition, run) {
+  const set = new Set();
+  trackMap(definition).forEach((tm, id) => {
+    if (tm.optional && hasOwn(run.skippedTracks, id)) set.add(id);
+  });
+  return set;
+}
+
+/**
+ * Sorted reachable flat indices: the spine prefix plus each open
+ * non-skipped track's committed range. For a linear definition this is
+ * the single contiguous prefix [0..lastIndexInMain(frontier)].
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @returns {number[]}
+ */
+function reachableFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) {
+    const last = lastIndexInMain(subStages, run.frontier);
+    const out = [];
+    for (let i = 0; i <= last; i++) out.push(i);
+    return out;
+  }
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  const ranges = new Map();
+  subStages.forEach((s) => {
+    if (s.track === undefined) return;
+    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
+    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
+    ranges.set(s.track, e);
+  });
+  const skipped = new Set();
+  ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
+  const tf = run.trackFrontier || {};
+  // The fork is open (its tracks navigable) only when the whole spine is
+  // committed AND EVERY declared track has a valid in-range, own trackFrontier
+  // entry, matching the "fork opened" check in isRunComplete / trackStatus. A
+  // partially-initialized run (any track missing or out of range, even a
+  // skipped one) is NOT open: no track is navigable until the boundary advance
+  // repairs every entry. Without the all-tracks requirement, a corrupted run
+  // like { frontier: 1, idx: <demo card>, trackFrontier: { demo: 2 } } would
+  // let demo advance while the required response entry stays missing, instead of
+  // recentering to the spine so the boundary advance repairs both.
+  let forkOpen = run.frontier >= spineEnd;
+  if (forkOpen) {
+    for (const [id, rg] of ranges) {
+      const v = hasOwn(tf, id) ? tf[id] : undefined;
+      if (!(typeof v === "number" && v >= rg.first && v <= rg.terminal)) { forkOpen = false; break; }
+    }
+  }
+  const out = [];
+  subStages.forEach((s, i) => {
+    if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
+    if (!forkOpen || skipped.has(s.track) || !hasOwn(tf, s.track)) return;
+    const r = ranges.get(s.track);
+    const committed = typeof tf[s.track] === "number" && tf[s.track] >= r.first && tf[s.track] <= r.terminal ? tf[s.track] : -1;
+    if (committed >= s.mainIndex) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * Clamp a stale frontier to the spine and recenter a now-unreachable idx,
+ * derived purely from the flat annotations. A linear flat list is returned
+ * unchanged (same reference), so linear callers stay byte-identical.
+ * @param {FlatSubStage[]} subStages @param {Run} run @returns {Run}
+ */
+function normalizeFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) return run;
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  let next = run;
+  if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
+  const reach = reachableFlat(subStages, next);
+  // Recenter to the last committed spine sub-stage. After the clamp above,
+  // next.frontier <= spineEnd, so Math.min keeps the target inside the
+  // committed spine even for a corrupted run whose frontier sits before the
+  // spine end (it must not land idx on an un-committed spine stage).
+  if (!reach.includes(next.idx))
+    next = { ...next, idx: lastIndexInMain(subStages, Math.min(next.frontier, spineEnd)) };
+  return next;
 }
 
 /**
@@ -256,10 +427,92 @@ export function validateDefinition(definition) {
     });
   });
 
+  const stageTracks = (definition.mainStages || []).filter((m) => m.track !== undefined);
+  if (definition.tracks === undefined) {
+    if (stageTracks.length)
+      problems.push("a mainStage.track is present without a definition.tracks declaration");
+  } else if (!Array.isArray(definition.tracks)) {
+    problems.push("definition.tracks must be an array");
+  } else {
+    const reserved = new Set(["__proto__", "constructor", "prototype"]);
+    const ids = new Set();
+    if (definition.tracks.length < 2) problems.push("definition.tracks needs at least two tracks");
+    definition.tracks.forEach((t, ti) => {
+      const idOk = t && typeof t.id === "string" && t.id.trim();
+      if (!idOk) problems.push(`tracks[${ti}].id must be a non-empty string`);
+      if (!(t && typeof t.name === "string" && t.name.trim()))
+        problems.push(`tracks[${ti}].name must be a non-empty string`);
+      if (t && t.optional !== undefined && typeof t.optional !== "boolean")
+        problems.push(`track "${t && t.id}": optional must be a boolean`);
+      if (idOk && reserved.has(t.id))
+        problems.push(`track id "${t.id}" is a reserved object-prototype key`);
+      if (idOk && ids.has(t.id)) problems.push(`duplicate track id "${t.id}"`);
+      if (idOk) ids.add(t.id);
+    });
+    // stage track references must be non-empty strings naming a declared track
+    (definition.mainStages || []).forEach((ms, mi) => {
+      if (ms.track === undefined) return;
+      if (typeof ms.track !== "string" || !ms.track.trim())
+        problems.push(`mainStages[${mi}].track must be a non-empty string`);
+      else if (!ids.has(ms.track))
+        problems.push(`mainStages[${mi}].track "${ms.track}" references an undeclared track`);
+    });
+    // spine non-empty: stage 0 must be untagged
+    const stages = definition.mainStages || [];
+    if (stages.length && stages[0].track !== undefined)
+      problems.push("the spine is empty: stage 0 must be a shared (untagged) stage");
+    // no shared stage after the fork: once a tagged stage appears, every later stage is tagged
+    let seenTagged = false;
+    let contiguityBroken = false;
+    const order = [];
+    stages.forEach((ms) => {
+      if (ms.track !== undefined) { seenTagged = true; order.push(ms.track); }
+      else if (seenTagged) problems.push("a shared (untagged) stage appears after the fork (implicit rejoin)");
+    });
+    // contiguity: each track id forms a single contiguous run in `order`
+    const seenRuns = new Set();
+    let prev = null;
+    order.forEach((tid) => {
+      if (tid !== prev) {
+        if (seenRuns.has(tid)) contiguityBroken = true;
+        seenRuns.add(tid);
+        prev = tid;
+      }
+    });
+    if (contiguityBroken) problems.push("a track's stages are non-contiguous (interleaved with another track)");
+    // every declared track owns at least one stage
+    ids.forEach((id) => {
+      if (!order.includes(id)) problems.push(`track "${id}" owns no main stage (unreachable / no terminal)`);
+    });
+  }
+
   if (definition.subject) {
     const s = definition.subject;
-    if (!s.stepId || !s.outputId || !s.field)
+    if (!s.stepId || !s.outputId || !s.field) {
       problems.push("definition.subject requires stepId, outputId, and field");
+    } else if (isForked(definition)) {
+      const spineEnd = lastSpineIndex(definition);
+      const owners = [];
+      (definition.mainStages || []).forEach((ms, mi) => {
+        (ms.subStages || []).forEach((ss) =>
+          (ss.steps || []).forEach((st) => {
+            if (st.id === s.stepId) owners.push({ mi, step: st });
+          })
+        );
+      });
+      if (owners.length !== 1) {
+        problems.push(`definition.subject.stepId "${s.stepId}" must resolve to exactly one step`);
+      } else {
+        const { mi, step } = owners[0];
+        if (mi > spineEnd) problems.push("definition.subject step must live in the spine, not a track");
+        const out = (step.outputs || []).find((o) => o.id === s.outputId);
+        if (!out) problems.push(`definition.subject.outputId "${s.outputId}" is not on step "${s.stepId}"`);
+        else if (out.type !== "fields")
+          problems.push("definition.subject must point at a fields output");
+        else if (!(out.fields || []).some((f) => f.key === s.field))
+          problems.push(`definition.subject.field "${s.field}" is not a field of "${s.outputId}"`);
+      }
+    }
   }
   return problems;
 }
@@ -378,20 +631,31 @@ export function wasAdvanceForced(run, mainIndex) {
 }
 
 /**
- * Mark a sub-stage not applicable. Returns a new run. No-op (the same
- * run back) when the id is unknown, the sub-stage is not declared
- * skippable, it lies beyond the frontier, or it is already skipped.
- * Skipping never touches stepState.
+ * Mark a sub-stage not applicable. Returns a new run (the normalized run on a
+ * no-op). No-op when the id is unknown, the sub-stage is not declared
+ * skippable, it lies outside the committed reachable region, or it is already
+ * skipped. Skipping never touches stepState.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {string} subStageId
  * @returns {Run}
  */
 export function skipSubStage(run, subStages, subStageId) {
-  const sub = subStages.find((s) => s.id === subStageId);
-  if (!sub || !sub.skippable || sub.mainIndex > run.frontier) return run;
-  if (isSubStageSkipped(run, subStageId)) return run;
-  return { ...run, skips: { ...run.skips, [subStageId]: true } };
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  // committed-in-region: the card must be inside the reachable set (the spine
+  // prefix up to frontier, or an open non-skipped track's committed range).
+  // reachableFlat already rejects an unopened fork and a missing or
+  // out-of-range track frontier (and reads trackFrontier own-property only), so
+  // a corrupted run such as { trackFrontier: { demo: 99 } } cannot make a
+  // tracked sub-stage look committed. Return r (the normalized run) on every
+  // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
+  // even when nothing is skipped.
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  if (isSubStageSkipped(r, subStageId)) return r;
+  return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
 
 /**
@@ -410,6 +674,54 @@ export function unskipSubStage(run, subStages, subStageId) {
   delete skips[subStageId];
   const next = { ...run, skips };
   if (!Object.keys(skips).length) delete next.skips;
+  return next;
+}
+
+/**
+ * Effective track-skip state: true only when the definition declares the
+ * track optional and it is in run.skippedTracks (own-property checked).
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {boolean}
+ */
+export function isTrackSkipped(run, definition, trackId) {
+  return isTrackSkippedEffective(definition, run, trackId);
+}
+
+/**
+ * Mark an optional track not-applicable. No-op unless the track exists and
+ * is declared optional. Recenters idx out of the skipped track to the last
+ * committed spine sub-stage. Never touches stepState.
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {Run}
+ */
+export function skipTrack(run, definition, trackId) {
+  const tm = trackMap(definition).get(trackId);
+  if (!tm || !tm.optional) return run;
+  if (hasOwn(run.skippedTracks, trackId)) return run;
+  /** @type {Run} */
+  const next = { ...run, skippedTracks: { ...run.skippedTracks, [trackId]: true } };
+  const subs = flattenSubStages(definition);
+  const cur = subs[run.idx];
+  if (cur && trackIdOfStage(definition, cur.mainIndex) === trackId) {
+    // recenter to the last COMMITTED spine sub-stage. Math.min keeps the target
+    // inside the committed spine for a run whose frontier sits before the spine
+    // end (a corrupted run could otherwise land idx on an un-committed spine
+    // card and break the reachable-region invariant); when frontier sits at or
+    // past the spine end this is just the last spine sub-stage, as before.
+    const spineEnd = lastSpineIndex(definition);
+    next.idx = lastIndexInMain(subs, Math.min(run.frontier, spineEnd));
+  }
+  return next;
+}
+
+/**
+ * Remove a track skip; drop the map when empty.
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {Run}
+ */
+export function unskipTrack(run, definition, trackId) {
+  if (!hasOwn(run.skippedTracks, trackId)) return run;
+  const skippedTracks = { ...run.skippedTracks };
+  delete skippedTracks[trackId];
+  const next = { ...run, skippedTracks };
+  if (!Object.keys(skippedTracks).length) delete next.skippedTracks;
   return next;
 }
 
@@ -501,24 +813,79 @@ export function gateTypeOf(subStage) {
 }
 
 /**
+ * Sanitized relation-set run for a forked validator: the spine plus the step's
+ * own track, built from the normalized run, as an allowlist so a future field
+ * cannot silently leak. Returns the run unchanged for a linear flat list.
+ * @param {FlatSubStage[]} subStages @param {Run} run @param {number} stepFlatIdx @returns {Run}
+ */
+function scopeValidatorRun(subStages, run, stepFlatIdx) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) return run;
+  const r = normalizeFlat(subStages, run);
+  const cur = subStages[stepFlatIdx];
+  const ownTrack = cur && cur.track !== undefined ? cur.track : null;
+  const inScope = (mainIndex) => {
+    // allowlist: an index that names no real stage (for example a corrupted
+    // forces key like 999) is in NO relation set and must be dropped, not
+    // treated as spine. Only a real spine stage or the step's own track passes.
+    const found = subStages.find((s) => s.mainIndex === mainIndex);
+    if (!found) return false;
+    return found.track === undefined || found.track === ownTrack;
+  };
+  const stepStage = new Map(); // stepId -> mainIndex
+  subStages.forEach((s) => (s.steps || []).forEach((st) => stepStage.set(st.id, s.mainIndex)));
+  /** @type {Object<string, StepEntry>} */
+  const stepState = {};
+  Object.keys(r.stepState || {}).forEach((sid) => {
+    const mi = stepStage.get(sid);
+    // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
+    if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
+  });
+  /** @type {Object<string, true>} */
+  const skips = {};
+  Object.keys(r.skips || {}).forEach((sub) => {
+    const s = subStages.find((x) => x.id === sub);
+    // allowlist: keep only known, in-scope sub-stage skips
+    if (s && inScope(s.mainIndex)) skips[sub] = true;
+  });
+  /** @type {Object<string, true>} */
+  const forces = {};
+  Object.keys(r.forces || {}).forEach((mi) => { if (inScope(Number(mi))) forces[mi] = true; });
+  // Annotate as Run so checkJs accepts the later optional-field assignments.
+  /** @type {Run} */
+  const scoped = { idx: stepFlatIdx, frontier: r.frontier, stepState };
+  if (Object.keys(skips).length) scoped.skips = skips;
+  if (Object.keys(forces).length) scoped.forces = forces;
+  if (ownTrack !== null && r.trackFrontier && hasOwn(r.trackFrontier, ownTrack))
+    scoped.trackFrontier = { [ownTrack]: r.trackFrontier[ownTrack] };
+  return scoped;
+}
+
+/**
  * Progress of a sub-stage's gate.
  * Returns { met, done, total, gateType, missing }. A missing entry is
  * the step name, or "name: message" when the step is incomplete
  * because a present output failed its named validator.
  * @param {SubStage} subStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
+ *   When subStages describes a forked topology, validators are evaluated
+ *   against the step's spine-plus-own-track relation set (cross-track isolation);
+ *   for a linear definition the run is passed through unchanged.
  * @returns {GateProgress}
  */
-export function gateProgress(subStage, run, { validators } = {}) {
+export function gateProgress(subStage, run, { validators, subStages } = {}) {
   const gateType = gateTypeOf(subStage);
   const required = (subStage.steps || []).filter((s) => s.required);
+  const forked = !!(subStages && subStages.some((s) => s.track !== undefined));
   /** @type {string[]} */
   const missing = [];
   required.forEach((s) => {
-    const entry = getStepEntry(run, s.id);
-    if (isStepComplete(s, entry, gateType, validators, run)) return;
-    const invalid = firstInvalidOutput(s, entry, validators, run);
+    const flatIdx = forked ? subStages.findIndex((x) => (x.steps || []).some((st) => st.id === s.id)) : -1;
+    const evalRun = forked ? scopeValidatorRun(subStages, run, flatIdx) : run;
+    const entry = getStepEntry(evalRun, s.id);
+    if (isStepComplete(s, entry, gateType, validators, evalRun)) return;
+    const invalid = firstInvalidOutput(s, entry, validators, evalRun);
     missing.push(invalid ? `${s.name}: ${invalid.message}` : s.name);
   });
   return {
@@ -536,7 +903,7 @@ export function gateProgress(subStage, run, { validators } = {}) {
  * single-sub-stage main stages read as before.
  * @param {SubStage[]} subStagesOfMain
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
  * @returns {MainGateProgress}
  */
 function aggregateGate(subStagesOfMain, run, opts) {
@@ -562,7 +929,7 @@ function aggregateGate(subStagesOfMain, run, opts) {
  * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
  * @returns {MainGateProgress}
  */
 export function mainGateProgress(mainStage, run, opts) {
@@ -590,30 +957,41 @@ function lastIndexInMain(subStages, mainIndex) {
 }
 
 /**
- * Browse within committed main stages. Returns a new run (or the same
- * run if out of range). Movement between sibling sub-stages is plain
- * browsing; nothing commits.
+ * Browse within the committed reachable set. Moves |direction| reachable
+ * positions in the sign of direction, skipping any unreachable gap (an
+ * uncommitted track tail), and is a no-op out of range. For a linear
+ * definition the reachable set is the contiguous committed prefix, so this
+ * collapses to today's idx + direction step.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} direction
  * @returns {Run}
  */
 export function browse(run, subStages, direction) {
-  const target = run.idx + direction;
-  if (target < 0 || target > lastIndexInMain(subStages, run.frontier)) return run;
-  return { ...run, idx: target };
+  const r = normalizeFlat(subStages, run);
+  const reach = reachableFlat(subStages, r);
+  const pos = reach.indexOf(r.idx);
+  if (pos === -1) return r === run ? run : r;
+  const step = direction === 0 ? 0 : direction > 0 ? 1 : -1;
+  const target = pos + step * Math.abs(direction);
+  if (target < 0 || target >= reach.length) return r === run ? run : r;
+  return { ...r, idx: reach[target] };
 }
 
 /**
- * Jump to any sub-stage within the committed main stages.
+ * Jump to a sub-stage; accepts a target only when it is a member of the
+ * committed reachable set (an unreachable gap index is a no-op). For a linear
+ * definition the reachable set is the contiguous committed prefix.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} index
  * @returns {Run}
  */
 export function jumpTo(run, subStages, index) {
-  if (index < 0 || index > lastIndexInMain(subStages, run.frontier)) return run;
-  return { ...run, idx: index };
+  const r = normalizeFlat(subStages, run);
+  const reach = reachableFlat(subStages, r);
+  if (!reach.includes(index)) return r === run ? run : r;
+  return { ...r, idx: index };
 }
 
 /**
@@ -629,27 +1007,113 @@ export function jumpTo(run, subStages, index) {
  * @returns {AdvanceResult}
  */
 export function advance(run, subStages, { force = false, validators } = {}) {
+  // Infer the definition-less topology from the flat list: a tracked card
+  // carries `track`; the spine end is the last untracked mainIndex.
+  const forked = subStages.some((s) => s.track !== undefined);
+  // Normalize a stale run before consuming idx/frontier. For a linear flat
+  // list normalizeFlat returns the same reference, so this path is byte-identical.
+  const r = normalizeFlat(subStages, run);
+  if (!forked) {
+    // unchanged linear path (r === run)
+    const cur = subStages[r.idx];
+    const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
+    if (!cur || cur.mainIndex !== r.frontier || r.frontier >= maxMain)
+      return { run, advanced: false, missing: [] };
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators });
+    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    /** @type {Run} */
+    const next = { ...r, idx: subStages.findIndex((s) => s.mainIndex === r.frontier + 1), frontier: r.frontier + 1 };
+    if (!progress.met) next.forces = { ...r.forces, [r.frontier]: true };
+    return { run: next, advanced: true, missing: [] };
+  }
+  return advanceForked(r, subStages, { force, validators });
+}
+
+/**
+ * Fork-aware advance: derives the spine end, per-track ranges, and the
+ * effectively-skipped set inline from the flat `subStages` annotations, so
+ * `advance` keeps its `(run, subStages, opts)` signature. `run` here is already
+ * normalized by `advance`.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {{ force?: boolean, validators?: Object }} opts
+ * @returns {AdvanceResult}
+ */
+function advanceForked(run, subStages, { force, validators }) {
+  // spine end = last untracked mainIndex
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  // track ranges from the flat annotations
+  const ranges = new Map(); // trackId -> { first, terminal, optional }
+  subStages.forEach((s) => {
+    if (s.track === undefined) return;
+    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
+    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
+    ranges.set(s.track, e);
+  });
+  const skipped = new Set();
+  ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
   const cur = subStages[run.idx];
-  const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
-  if (!cur || cur.mainIndex !== run.frontier || run.frontier >= maxMain) {
-    return { run, advanced: false, missing: [] };
+  if (!cur) return { run, advanced: false, missing: [] };
+  const curTrack = cur.track === undefined ? null : cur.track;
+
+  // browsing a committed spine stage that is not the fork boundary: spine advance
+  if (curTrack === null && cur.mainIndex < spineEnd) {
+    if (cur.mainIndex !== run.frontier) return { run, advanced: false, missing: [] };
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages });
+    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const next = { ...run, idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1), frontier: run.frontier + 1 };
+    if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+    return { run: next, advanced: true, missing: [] };
   }
-  const progress = aggregateGate(
-    subStages.filter((s) => s.mainIndex === run.frontier),
-    run,
-    { validators }
-  );
-  if (!progress.met && !force) {
-    return { run, advanced: false, missing: progress.missing };
+
+  // at the last spine stage: open or repair the fork
+  if (curTrack === null && cur.mainIndex === spineEnd) {
+    if (run.frontier !== spineEnd) return { run, advanced: false, missing: [] };
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages });
+    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const tf = { ...run.trackFrontier };
+    let initialized = false;
+    ranges.forEach((r, id) => {
+      // own-property read: a corrupted run must not have an inherited key
+      // counted as an already-committed track frontier (spec: never bare key reads).
+      const v = hasOwn(run.trackFrontier, id) ? run.trackFrontier[id] : undefined;
+      if (!(typeof v === "number" && v >= r.first && v <= r.terminal)) { tf[id] = r.first; initialized = true; }
+    });
+    if (!initialized) return { run, advanced: false, missing: [] }; // already open: no-op
+    const next = { ...run, trackFrontier: tf };
+    if (!progress.met) next.forces = { ...run.forces, [spineEnd]: true };
+    // idx -> first non-skipped track's first sub, else last spine sub
+    let target = null, targetFirst = Infinity;
+    ranges.forEach((r, id) => { if (!skipped.has(id) && r.first < targetFirst) { targetFirst = r.first; target = id; } });
+    next.idx = target === null
+      ? subStages.reduce((acc, s, i) => (s.mainIndex === spineEnd ? i : acc), run.idx)
+      : subStages.findIndex((s) => s.track === target && s.mainIndex === ranges.get(target).first);
+    return { run: next, advanced: true, missing: [] };
   }
-  /** @type {Run} */
-  const next = {
-    ...run,
-    idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1),
-    frontier: run.frontier + 1,
-  };
-  if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
-  return { run: next, advanced: true, missing: [] };
+
+  // inside a track. `run` here is the normalized run (advance passed
+  // normalizeFlat's result), and normalizeFlat recenters idx onto a reachable
+  // card. With reachableFlat's fork-open guard, a track card is reachable only
+  // when the fork is open (frontier === spineEnd), so reaching this branch
+  // already implies the fork is open; no separate frontier-vs-spineEnd check is
+  // needed (and an explicit one would be dead code).
+  if (curTrack !== null) {
+    if (skipped.has(curTrack)) return { run, advanced: false, missing: [] };
+    const r = ranges.get(curTrack);
+    const tfv = hasOwn(run.trackFrontier, curTrack) ? run.trackFrontier[curTrack] : undefined;
+    if (cur.mainIndex !== tfv || tfv >= r.terminal) return { run, advanced: false, missing: [] };
+    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages });
+    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const next = {
+      ...run,
+      trackFrontier: { ...run.trackFrontier, [curTrack]: tfv + 1 },
+      idx: subStages.findIndex((s) => s.mainIndex === tfv + 1),
+    };
+    if (!progress.met) next.forces = { ...run.forces, [tfv]: true };
+    return { run: next, advanced: true, missing: [] };
+  }
+  return { run, advanced: false, missing: [] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -766,17 +1230,41 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * @returns {string}
  */
 export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
-  const cur = subStages[flatIdx];
+  const forked = subStages.some((s) => s.track !== undefined);
+  const r = normalizeFlat(subStages, run);
+  // a stale or unreachable requested index falls back to the last spine sub-stage,
+  // so a stale run.idx passed straight through cannot draft a tracked card or leak track context
+  let idx = flatIdx;
+  if (forked) {
+    const reach = reachableFlat(subStages, r);
+    if (!reach.includes(flatIdx)) {
+      let spineEnd = -1;
+      subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+      // Math.min keeps the fallback inside the committed spine, matching
+      // normalizeFlat and buildDraftPrompt (a corrupted frontier below spineEnd
+      // must not land the card on an un-committed spine stage).
+      idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
+    }
+  }
+  const cur = subStages[idx];
   const curMain = cur ? cur.mainIndex : 0;
+  const ownTrack = cur && cur.track !== undefined ? cur.track : null;
   const blocks = [];
   subStages.forEach((sub) => {
     if (sub.mainIndex > curMain) return;
-    if (isSubStageSkipped(run, sub.id)) return;
+    if (forked) {
+      const tid = sub.track === undefined ? null : sub.track;
+      if (tid !== null && tid !== ownTrack) return; // exclude sibling tracks
+      // effective skip only: a corrupted required/unknown id in skippedTracks must not suppress context
+      if (tid !== null && sub.optional === true && hasOwn(r.skippedTracks, tid)) return;
+    }
+    if (isSubStageSkipped(r, sub.id)) return;
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
-      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators, run)) return;
-      const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
+      const evalRun = forked ? scopeValidatorRun(subStages, r, subStages.indexOf(sub)) : r;
+      if (!isStepComplete(step, getStepEntry(evalRun, step.id), gateType, validators, evalRun)) return;
+      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
   });
@@ -798,21 +1286,58 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
  * @returns {string}
  */
 export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
-  const subStage = subStages[subIdx];
-  const subject = resolveSubject(definition, run);
-  const ctx = buildContext(subStages, run, subIdx, step.id, opts);
-  const target = draftTarget(step);
+  const r = normalizeFlat(subStages, run);
+  const forked = subStages.some((s) => s.track !== undefined);
+  let idx = subIdx;
+  let effStep = step;
+  if (forked && !reachableFlat(subStages, r).includes(subIdx)) {
+    // A stale or unreachable requested index (a tracked card surviving from a
+    // stale run.idx) collapses to the last committed spine sub-stage, and the
+    // tracked step collapses with it: the engine refuses to draft a tracked
+    // card from stale state, so neither a tracked-card draft nor track context
+    // can leak. Target the fallback sub-stage's draft-eligible step (the first
+    // step with a draftTarget), else its first step. If that spine sub-stage is
+    // a stepless checklist, walk earlier reachable spine sub-stages for one that
+    // has a step, so the tracked step is never retained (every flat index at or
+    // below the last spine sub-stage is itself spine). The subject is optional,
+    // so a forked definition is not guaranteed a spine step: if the committed
+    // spine has no step at all, this loop finds none and the synthetic fallback
+    // below applies (it never reuses the tracked step).
+    let spineEnd = -1;
+    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+    idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
+    effStep = undefined;
+    for (let j = idx; j >= 0 && !effStep; j--) {
+      const cand = subStages[j];
+      if (cand && cand.track === undefined && (cand.steps || []).length) {
+        effStep = cand.steps.find((st) => draftTarget(st)) || cand.steps[0];
+        idx = j;
+      }
+    }
+    // Last resort for a degenerate fork whose committed spine has no step at all
+    // (the subject is optional, so a forked definition is not guaranteed a spine
+    // step): use a benign synthetic step, never the stale tracked `step`, so the
+    // tracked-card identity and task text can never leak. The empty `id`
+    // satisfies the required Step.id type and makes excludeStepId a harmless
+    // no-op (no real step has an empty id), and draftTarget tolerates the
+    // empty outputs.
+    if (!effStep) effStep = { id: "", name: "this step", outputs: [] };
+  }
+  const subStage = subStages[idx];
+  const subject = resolveSubject(definition, r);
+  const ctx = buildContext(subStages, r, idx, effStep.id, opts);
+  const target = draftTarget(effStep);
   const closing =
     target && target.type === "data"
       ? "Respond with valid JSON only: no preamble, no code fences, no commentary."
       : `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`;
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
-    `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
+    `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${effStep.name} (${effStep.description || ""}).`,
     ctx
       ? `Outputs produced so far:\n\n${ctx}`
       : `No prior outputs exist yet; produce a strong first draft from general best practice.`,
-    `Task: ${step.aiPrompt || `Draft the output for the step "${step.name}".`}`,
+    `Task: ${effStep.aiPrompt || `Draft the output for the step "${effStep.name}".`}`,
     closing,
   ].join("\n\n");
 }
@@ -1014,6 +1539,14 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
     if (matches.length > 1)
       throw new Error(`cloneRun: main stage "${uptoStageId}" is ambiguous (${matches.length} matches)`);
     const k = matches[0];
+    // Fork-aware truncation is not supported: truncating to a tracked (post-fork)
+    // stage would corrupt the index-order rebuild, so fail loudly. This more
+    // specific error must win over the beyond-frontier throw below (a tracked
+    // stage is typically also beyond a spine frontier).
+    if (definition.mainStages[k] && definition.mainStages[k].track !== undefined)
+      throw new Error(
+        `cloneRun: uptoStageId "${uptoStageId}" is a tracked (post-fork) stage; fork-aware truncation is not supported`
+      );
     if (k > run.frontier)
       throw new Error(
         `cloneRun: uptoStageId "${uptoStageId}" (stage ${k}) is beyond the run frontier ${run.frontier}`
@@ -1128,15 +1661,103 @@ export function deleteRun(store, runId) {
 
 /**
  * Progress over a definition: how many flattened sub-stage gates are
- * met. Skipped sub-stages are excluded from both counts.
+ * met. Skipped sub-stages are excluded from both counts; for a forked
+ * definition, an effectively-skipped track's sub-stages are excluded too.
  * @param {Definition} definition
  * @param {Run} run
  * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {{ met: number, total: number }}
  */
-export function runSummary(definition, run, opts) {
-  const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
-  return { met: subs.filter((ss) => gateProgress(ss, run, opts).met).length, total: subs.length };
+export function runSummary(definition, run, opts = {}) {
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  const skipped = isForked(definition) ? effectiveSkippedTrackIds(definition, run) : new Set();
+  const active = subs.filter((ss) => !isSubStageSkipped(run, ss.id) && !(ss.track !== undefined && skipped.has(ss.track)));
+  return { met: active.filter((ss) => gateProgress(ss, run, o).met).length, total: active.length };
+}
+
+/**
+ * Is the whole run complete? For a forked definition: the spine is committed,
+ * the fork has opened, every kept track has reached its terminal, and every
+ * non-skipped gate along the kept path is met.
+ * @param {Definition} definition
+ * @param {Run} run
+ * @param {{ validators?: Object }} [opts]
+ * @returns {boolean}
+ */
+export function isRunComplete(definition, run, opts = {}) {
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  if (!isForked(definition)) {
+    const last = definition.mainStages.length - 1;
+    if (run.frontier !== last) return false;
+    return mainGateProgress(definition.mainStages[last], run, o).met &&
+      definition.mainStages.every((ms) => mainGateProgress(ms, run, o).met);
+  }
+  const r = normalizeFlat(subs, run);
+  const spineEnd = lastSpineIndex(definition);
+  if (r.frontier !== spineEnd) return false; // spine fully committed
+  const tm = trackMap(definition);
+  const skipped = effectiveSkippedTrackIds(definition, r);
+  // fork OPENED: the boundary advance initialized a valid in-range trackFrontier
+  // entry for EVERY declared track, including skipped ones. Without this, a run
+  // sitting at the last spine stage is only ready-to-open, not complete; this is
+  // also what stops an all-optional, all-skipped run from completing before the
+  // boundary advance ever ran.
+  for (const [id, t] of tm) {
+    // own-property read (spec: never bare key reads on trackFrontier); an
+    // inherited key must not be counted as an opened track.
+    const v = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
+    if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
+  }
+  // every KEPT track has reached its terminal
+  for (const [id, t] of tm) {
+    if (skipped.has(id)) continue;
+    if (!(hasOwn(r.trackFrontier, id) && r.trackFrontier[id] === t.terminal)) return false;
+  }
+  // every non-skipped gate along the kept path is met (spine + kept tracks)
+  for (let i = 0; i < definition.mainStages.length; i++) {
+    const tid = trackIdOfStage(definition, i);
+    if (tid !== null && skipped.has(tid)) continue;
+    if (!mainGateProgress(definition.mainStages[i], r, o).met) return false;
+  }
+  return true;
+}
+
+/**
+ * Derived per-track status: "not-open" | "active" | "complete" | "skipped".
+ * An unknown track id, and any call on a linear definition, returns "not-open".
+ * @param {Definition} definition
+ * @param {Run} run
+ * @param {string} trackId
+ * @param {{ validators?: Object }} [opts]
+ * @returns {"not-open"|"active"|"complete"|"skipped"}
+ */
+export function trackStatus(definition, run, trackId, opts = {}) {
+  if (!isForked(definition)) return "not-open";
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  const tmap = trackMap(definition);
+  const tm = tmap.get(trackId);
+  if (!tm) return "not-open";
+  const r = normalizeFlat(subs, run);
+  // the fork must be OPEN before any other status: the spine is committed AND
+  // EVERY declared track has a valid in-range own trackFrontier entry. This
+  // matches reachableFlat and isRunComplete's open check: a partially
+  // initialized or corrupted run (any track missing or out of range) is
+  // not-open for ANY track, including a skipped one, until the boundary advance
+  // repairs every entry, so trackStatus never reports a track active/complete
+  // while navigation treats the fork as unopened.
+  if (r.frontier !== lastSpineIndex(definition)) return "not-open";
+  for (const [id, t] of tmap) {
+    // own-property read (spec: never bare key reads on trackFrontier).
+    const ev = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
+    if (!(typeof ev === "number" && ev >= t.first && ev <= t.terminal)) return "not-open";
+  }
+  const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
+  if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
+  if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
+  return "active";
 }
 
 /*

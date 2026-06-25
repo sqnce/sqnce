@@ -20,6 +20,7 @@ import {
   getStepEntry,
   cloneRun,
 } from "../src/index.js";
+import { FORKED } from "./fixtures/forked.js";
 
 /* Minimal two-sub-stage definition: "a" is hybrid (one required fields
    step that doubles as the subject source), "b" is strict. */
@@ -533,4 +534,36 @@ test("accessors still operate on a real run whose id is an inherited name", () =
   assert.equal(runDisplayName(DEF, s, "constructor"), "named");
   s = deleteRun(s, "constructor");
   assert.equal(Object.prototype.hasOwnProperty.call(s.entries, "constructor"), false);
+});
+
+/* Sub-branching (#66): cloneRun fork fail-fast */
+
+test("cloneRun full clone deep-copies trackFrontier/skippedTracks", () => {
+  const run = { idx: 5, frontier: 1, stepState: {}, trackFrontier: { demo: 2, response: 5 }, skippedTracks: { demo: true } };
+  let s = addRun(createRunStore(), { id: "r1", workflowId: "forked", name: "", status: "active", createdAt: 1, updatedAt: 1, run });
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 2 });
+  const c = s.entries["r2"].run;
+  assert.notEqual(c.trackFrontier, run.trackFrontier); // distinct object
+  assert.deepEqual(c.trackFrontier, run.trackFrontier); // same contents
+  assert.notEqual(c.skippedTracks, run.skippedTracks); // distinct object (not aliased)
+  assert.deepEqual(c.skippedTracks, run.skippedTracks); // same contents
+});
+
+test("cloneRun truncating at a tracked stage throws", () => {
+  const run = { idx: 5, frontier: 1, stepState: {}, trackFrontier: { demo: 4, response: 7 } };
+  let s = addRun(createRunStore(), { id: "r1", workflowId: "forked", name: "", status: "active", createdAt: 1, updatedAt: 1, run });
+  assert.throws(
+    () => cloneRun(s, { fromId: "r1", newId: "r2", now: 2, uptoStageId: "demo-qa", definition: FORKED }),
+    /tracked|fork/i
+  );
+});
+
+test("cloneRun truncating at a spine stage works and drops track maps", () => {
+  const run = { idx: 5, frontier: 1, stepState: { intake: { checkedDone: true, outputs: {} } }, trackFrontier: { demo: 4 }, skippedTracks: { demo: true } };
+  let s = addRun(createRunStore(), { id: "r1", workflowId: "forked", name: "", status: "active", createdAt: 1, updatedAt: 1, run });
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 2, uptoStageId: "findings-stage", definition: FORKED });
+  const c = s.entries["r2"].run;
+  assert.equal("trackFrontier" in c, false);
+  assert.equal("skippedTracks" in c, false);
+  assert.equal(c.frontier, 1);
 });

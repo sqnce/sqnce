@@ -12,6 +12,7 @@ import {
   gateTypeOf,
   gateProgress,
   mainGateProgress,
+  isRunComplete,
   browse as coreBrowse,
   jumpTo,
   advance as coreAdvance,
@@ -36,8 +37,10 @@ import {
   updateRunState,
   runsForWorkflow,
   activeRunEntry,
+  runDisplayName,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import ReadingView from "./ReadingView.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
@@ -198,6 +201,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const fileRef = useRef(null);
   const attachFor = useRef(null);
   const saveTimer = useRef(null);
+  const routedOnLoad = useRef(false);
 
   const activeId =
     store.activeWorkflowId && workflows.some((w) => w.id === store.activeWorkflowId)
@@ -214,6 +218,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, def.mainStages.length - 1);
+  const complete = useMemo(() => isRunComplete(def, run, { validators }), [def, run, validators]);
 
   /* Repair a loaded store whose active pointers do not match the
      rendered state. Two cases: a foreign activeWorkflowId (workflow no
@@ -291,6 +296,25 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     return () => clearTimeout(saveTimer.current);
   }, [store, loaded, persistence]);
 
+  /* Route the startup active run once: a finished run that was active at
+     load (cold mount without persistence, or after persistence.load swaps
+     the store) opens in reading, matching open and switch. The ref keeps
+     this a one-shot so a later Edit toggle is not snapped back. */
+  useEffect(() => {
+    if (!loaded || routedOnLoad.current) return;
+    routedOnLoad.current = true;
+    setView(viewForRun(entry));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, entry]);
+
+  /* Reading mode is only valid over a present, complete run. Reset run, a
+     sidebar delete, or any path that drops completeness while reading
+     routes back to the authoring deck rather than showing "Complete" over
+     emptied content. */
+  useEffect(() => {
+    if (view === "reading" && (!entry || !complete)) setView("rolodex");
+  }, [view, entry, complete]);
+
   /* ---------- derived ---------- */
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
@@ -326,25 +350,42 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     }
   };
 
+  /* Pick the landing view for a run entry: a finished run reads, an
+     in-progress run authors. Uses the entry's own workflow definition so
+     switching workflows routes correctly. */
+  const viewForRun = (e) => {
+    if (!e) return "rolodex";
+    const d = workflows.find((w) => w.id === e.workflowId) || def;
+    return isRunComplete(d, e.run, { validators }) ? "reading" : "rolodex";
+  };
+
   const switchWorkflow = (id) => {
     if (id === activeId) return;
     clearTransients();
+    /* Route on the entry that will be shown, including a freshly seeded
+       first run: a complete seed (from initialRunFor) lands in reading. */
+    const existing = activeRunEntry(store, id);
+    const entryToShow = existing || newEntryFor(store, id);
+    setView(viewForRun(entryToShow));
     setStore((s) => {
-      const existing = activeRunEntry(s, id);
-      return existing ? coreSetActiveRun(s, existing.id) : addRun(s, newEntryFor(s, id));
+      const e = activeRunEntry(s, id);
+      return e ? coreSetActiveRun(s, e.id) : addRun(s, entryToShow);
     });
   };
 
   /* ---------- run management ---------- */
   const openRun = (runId) => {
     clearTransients();
-    setView("rolodex");
+    setView(viewForRun(store.entries[runId]));
     setStore((s) => coreSetActiveRun(s, runId));
   };
   const newRun = (workflowId) => {
     clearTransients();
-    setView("rolodex");
-    setStore((s) => addRun(s, newEntryFor(s, workflowId)));
+    /* A normal new run is empty so it authors; a complete first-run seed
+       (from initialRunFor) reads, matching open and switch. */
+    const e = newEntryFor(store, workflowId);
+    setView(viewForRun(e));
+    setStore((s) => addRun(s, e));
   };
   const doRename = (runId, name) => setStore((s) => renameRun(s, runId, name, Date.now()));
   const doArchive = (runId) => setStore((s) => archiveRun(s, runId, Date.now()));
@@ -353,7 +394,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   useEffect(() => {
     const onKey = (e) => {
-      if (overviewOpen) return;
+      if (overviewOpen || view === "reading") return;
       if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
       if (e.key === "ArrowLeft") doBrowse(-1);
       if (e.key === "ArrowRight") doBrowse(1);
@@ -499,6 +540,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           <span className="pf-brand-name">{def.name}</span>
           <span className="pf-subject">· {subjectName}</span>
         </div>
+        {view !== "reading" && (
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
             /* Skip-aware: a stage whose remaining sub-stage gates are met
@@ -518,6 +560,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             );
           })}
         </div>
+        )}
         {view === "rolodex" && (
           <span className="pf-counter">
             {idx + 1} / {subs.length}
@@ -541,11 +584,20 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               About
             </button>
           )}
+          {view === "rolodex" && complete && (
+            <button
+              className="pf-reset"
+              onClick={() => { clearTransients(); setView("reading"); }}
+              title="Read this finished run"
+            >
+              Read
+            </button>
+          )}
           <button
             className="pf-reset"
             onClick={() => {
               clearTransients();
-              setView(view === "runs" ? "rolodex" : "runs");
+              setView(view === "runs" ? viewForRun(entry) : "runs");
             }}
           >
             {view === "runs" ? "Back to run" : "Runs"}
@@ -595,6 +647,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           onArchive={doArchive}
           onUnarchive={doUnarchive}
           onDelete={doDelete}
+        />
+      ) : view === "reading" ? (
+        <ReadingView
+          def={def}
+          run={run}
+          subs={subs}
+          runName={entry ? runDisplayName(def, store, entry.id) : def.name}
+          renderers={renderers}
+          subjectName={subjectName}
+          onJump={(i) => setNav(jumpTo(run, subs, i))}
+          onEdit={() => { clearTransients(); setView("rolodex"); }}
         />
       ) : (
         <>
@@ -1322,6 +1385,42 @@ const CSS = `
 .pf-ov-here { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #23282F; background: #D9A441; border-radius: 4px; padding: 1px 7px; }
 .pf-ov-sub-desc { margin: 3px 0 0; font-size: 12.5px; color: #5E6772; line-height: 1.45; }
 
+/* ---------- reading mode ---------- */
+/* A light document page on the dark app shell, like the cards, so the dark
+   text below stays legible. The page scrolls; the contents rail sticks. */
+.pf-read { display: flex; flex: 1; min-height: 0; gap: 24px; margin: 8px 4px; padding: 20px 24px; background: #F1EEE3; border: 1px solid #D8D3C2; border-radius: 10px; color: #23282F; overflow: auto; }
+.pf-read-rail { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start; position: sticky; top: 0; }
+.pf-read-toc { text-align: left; background: none; border: none; border-left: 2px solid transparent; padding: 6px 10px; color: #5E6772; font-size: 13px; cursor: pointer; border-radius: 0 4px 4px 0; }
+.pf-read-toc:hover { color: #23282F; background: #E7E2D4; }
+.pf-read-here { color: #23282F; border-left-color: #D9A441; font-weight: 600; }
+.pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pf-read-band { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #D8D3C2; padding-bottom: 10px; margin-bottom: 12px; }
+.pf-read-title { font-size: 22px; margin: 0; color: #23282F; }
+.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #2E8F62; }
+.pf-read-canvas { max-width: 760px; }
+.pf-read-stage { font-size: 18px; color: #23282F; margin: 4px 0 12px; }
+.pf-read-sub { margin-bottom: 22px; }
+.pf-read-sub-name { font-size: 15px; color: #3A434E; margin: 0 0 4px; }
+.pf-read-sub-desc { color: #6B6F76; margin: 0 0 10px; }
+.pf-read-out { margin: 0 0 14px; }
+.pf-read-out-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6F76; margin-bottom: 4px; }
+.pf-read-text { white-space: pre-wrap; line-height: 1.55; color: #2A2F36; margin: 0; }
+.pf-read-link { color: #2F6F8F; word-break: break-all; }
+.pf-read-fields { margin: 0; display: grid; gap: 6px; }
+.pf-read-field { display: flex; gap: 8px; }
+.pf-read-field dt { color: #6B6F76; min-width: 120px; font-size: 13px; }
+.pf-read-field dd { margin: 0; color: #2A2F36; }
+.pf-read-file { font-size: 13px; color: #3A434E; margin-bottom: 4px; }
+.pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #D8D3C2; margin-top: 8px; }
+.pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
+.pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: #E7E2D4; }
+.pf-read-navbtn:disabled { opacity: 0.4; cursor: default; }
+/* Uncap renderer-backed outputs in reading mode: the document shows them in
+   full rather than the authoring deck's 280px capped panel. The expand-to-
+   overlay button stays, so a large output can still go fullscreen and the
+   no-trapped-overlay acceptance check is reachable. */
+.pf-read .pf-render { max-height: none; }
+
 @media (max-width: 720px) {
   .pf-card-side { display: none; }
   .pf-side { display: none; }
@@ -1329,5 +1428,7 @@ const CSS = `
   .pf-nav-btn { min-width: 0; }
   .pf-fields { grid-template-columns: 1fr; }
   .pf-rail { justify-content: flex-start; }
+  .pf-read { flex-direction: column; }
+  .pf-read-rail { flex-basis: auto; position: static; max-height: none; flex-direction: row; flex-wrap: wrap; }
 }
 `;
