@@ -84,9 +84,10 @@ A fixture (`portal-spike.html`, not committed) reproduced `.pf-root`'s relevant 
 4000px spacer to force a real overflow/scroll context, with a `position: fixed; inset: 0`
 overlay nested inside. Computed `background` and the overlay's bounding rect were read.
 
-- Case D: overlay reads a default token (`var(--sqnce-overlay-bg, #F1EEE3)`); no override.
+- Case D: the overlay reads the root-declared private token (`var(--sqnce-_overlay-bg)`, where `.pf-root` declares `--sqnce-_overlay-bg: var(--sqnce-overlay-bg, #F1EEE3)`); no consumer override. This proves the nested overlay inherits the private default from `.pf-root` (the actual bug scenario), not that a local per-overlay fallback would paint it.
 - Case E: an ancestor `.theme { --sqnce-bg: rgb(0,128,0) }` wraps `.pf-root`; the nested
-  overlay reads that public token.
+  overlay reads the private token `var(--sqnce-_bg)`, which resolves the ancestor's public
+  `--sqnce-bg`.
 
 ### Result
 

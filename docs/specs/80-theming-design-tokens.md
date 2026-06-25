@@ -25,7 +25,7 @@ Introduce a `--sqnce-*` custom-property vocabulary, each token defaulting to the
 
 Replace the hardcoded values in the `CSS` constant with references to the private tokens (`var(--sqnce-_*)`), which resolve to each public token or its baked-in default. A consumer then reskins by setting the public `--sqnce-*` properties on `.pf-root` or any ancestor scope (for example presales-sqnce's editorial paper-and-ink palette, a single accent, and a serif-for-deliverable, sans-for-interface type pairing), with no fork of sqnce. The override works from an ancestor precisely because the shell never assigns the public tokens on `.pf-root`.
 
-First-draft coverage: the shell chrome (header, rail, deck, cards, navigation, sidebar, runs screen) plus the common renderer surfaces (tables, key-value, markdown, code). Deeper per-renderer tokenization can follow once the vocabulary is proven; this issue establishes the vocabulary and converts the shell.
+First-draft coverage: the shell chrome (header, rail, deck, cards, navigation, sidebar, runs screen), the reading-mode surface (`ReadingView`'s `.pf-read*` rules, shown for finished runs), and the common renderer surfaces (tables, key-value, markdown, code). All of these live in the same `CSS` constant, so converting it covers reading mode along with the rest. Deeper per-renderer tokenization can follow once the vocabulary is proven; this issue establishes the vocabulary and converts the shell.
 
 ### 3. Token scope must cover portaled overlays
 
