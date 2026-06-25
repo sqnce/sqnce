@@ -274,17 +274,33 @@ In the header-right block, after the `About` button's closing `)}` (~543) and be
           )}
 ```
 
-- [ ] **Step 5: Syntax-check the changed file**
+- [ ] **Step 5: Hide the inert header rail in reading mode**
+
+The header `pf-rail` (the inert stage strip, ~502-520) renders above every view and maps all `def.mainStages` with no reachability filtering, so in reading mode it would sit above the new contents rail and would re-show skipped or unreached stages. The spec has the reading rail replace the strip, so render the header rail only outside reading mode. Wrap the existing `<div className="pf-rail"> ... </div>` block in a guard:
+
+```jsx
+        {view !== "reading" && (
+          <div className="pf-rail">
+            {def.mainStages.map((ms, mi) => {
+              /* ...unchanged body... */
+            })}
+          </div>
+        )}
+```
+
+(Keep the block's contents exactly as they are; only add the `{view !== "reading" && (` wrapper and its closing `)}`.)
+
+- [ ] **Step 6: Syntax-check the changed file**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: exits 0, no output.
 
-- [ ] **Step 6: Build the demo**
+- [ ] **Step 7: Build the demo**
 
 Run: `npm run build -w examples/demo`
 Expected: Vite build completes with `✓ built in` and a nonzero bundle; exit 0.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
@@ -448,10 +464,10 @@ Insert these rules into the `CSS` string immediately before the line `@media (ma
 .pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: #E7E2D4; }
 .pf-read-navbtn:disabled { opacity: 0.4; cursor: default; }
 /* Uncap renderer-backed outputs in reading mode: the document shows them
-   in full rather than the authoring deck's 280px capped panel, and the
-   expand-to-overlay affordance is redundant once uncapped. */
+   in full rather than the authoring deck's 280px capped panel. The
+   expand-to-overlay button stays, so a large output can still go
+   fullscreen and the no-trapped-overlay acceptance check is reachable. */
 .pf-read .pf-render { max-height: none; }
-.pf-read .pf-render-expand { display: none; }
 ```
 
 - [ ] **Step 2: Add the narrow-width rule**
@@ -527,7 +543,8 @@ git commit -m "chore(types): regenerate after #78"
 - "Persistent clickable contents rail with you-are-here, defined by the reachable set": Task 1 (`readable` via `jumpTo`, `pf-read-here`).
 - "Forked run: rail lists kept track stages, not just spine; skipped tracks omitted": Task 1 (`jumpTo` reachability oracle excludes skipped tracks; `def.mainStages` order gives spine then kept tracks).
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
-- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (the `OutputView:169` change so an explicit `expanded: true` reaches the inline renderer, and `ReadingView` calling `OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read` and hides the redundant expand affordance, so renderer-backed outputs (for example `FlowDiagram`) show their full layout, not the deck's 280px capped panel.
+- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (the `OutputView:169` change so an explicit `expanded: true` reaches the inline renderer, and `ReadingView` calling `OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read`, so renderer-backed outputs (for example `FlowDiagram`) show their full layout, not the deck's 280px capped panel. The expand-to-overlay button stays reachable for the overlay acceptance check.
+- "Reading rail replaces the inert header strip": Task 2 Step 5 hides the header `pf-rail` when `view === "reading"`, so only the reachability-filtered contents rail shows.
 - "Reading mode stays valid": Task 3 guard effect routes back to the deck when the active run is reset, deleted, or otherwise no longer complete while reading.
 - "Prev/next defined over a fork (spine then kept tracks, skipped omitted)": Task 1 (`readable` order + prev/next).
 - "Edit toggle both directions, no run-state mutation": Task 1 (`onEdit`) + Task 2 Step 4 (Read button); switching only calls `setView`, never `setRun`.
