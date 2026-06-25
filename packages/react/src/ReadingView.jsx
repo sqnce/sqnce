@@ -30,12 +30,19 @@ function rendererBacked(spec, renderers) {
    anchor, fields become labeled lines, a file shows its name and any
    extracted text. */
 function PlainOutput({ spec, value }) {
-  if (spec.type === "link")
-    return (
+  if (spec.type === "link") {
+    /* Whitelist safe schemes, like the markdown renderer (Markdown.jsx),
+       so a saved javascript:/data: value cannot become a clickable sink in
+       a shared finished run. An unsafe value shows as plain text. */
+    const safe = typeof value === "string" && /^(https?:|mailto:|#)/i.test(value.trim());
+    return safe ? (
       <a className="pf-read-link" href={value} target="_blank" rel="noreferrer">
         {value}
       </a>
+    ) : (
+      <div className="pf-read-text">{value}</div>
     );
+  }
   if (spec.type === "fields")
     return (
       <dl className="pf-read-fields">
