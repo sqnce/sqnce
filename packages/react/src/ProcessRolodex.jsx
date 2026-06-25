@@ -201,6 +201,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const fileRef = useRef(null);
   const attachFor = useRef(null);
   const saveTimer = useRef(null);
+  const routedOnLoad = useRef(false);
 
   const activeId =
     store.activeWorkflowId && workflows.some((w) => w.id === store.activeWorkflowId)
@@ -295,6 +296,25 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     return () => clearTimeout(saveTimer.current);
   }, [store, loaded, persistence]);
 
+  /* Route the startup active run once: a finished run that was active at
+     load (cold mount without persistence, or after persistence.load swaps
+     the store) opens in reading, matching open and switch. The ref keeps
+     this a one-shot so a later Edit toggle is not snapped back. */
+  useEffect(() => {
+    if (!loaded || routedOnLoad.current) return;
+    routedOnLoad.current = true;
+    setView(viewForRun(entry));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, entry]);
+
+  /* Reading mode is only valid over a present, complete run. Reset run, a
+     sidebar delete, or any path that drops completeness while reading
+     routes back to the authoring deck rather than showing "Complete" over
+     emptied content. */
+  useEffect(() => {
+    if (view === "reading" && (!entry || !complete)) setView("rolodex");
+  }, [view, entry, complete]);
+
   /* ---------- derived ---------- */
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
@@ -330,9 +350,20 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
     }
   };
 
+  /* Pick the landing view for a run entry: a finished run reads, an
+     in-progress run authors. Uses the entry's own workflow definition so
+     switching workflows routes correctly. */
+  const viewForRun = (e) => {
+    if (!e) return "rolodex";
+    const d = workflows.find((w) => w.id === e.workflowId) || def;
+    return isRunComplete(d, e.run, { validators }) ? "reading" : "rolodex";
+  };
+
   const switchWorkflow = (id) => {
     if (id === activeId) return;
     clearTransients();
+    const target = activeRunEntry(store, id);
+    setView(target ? viewForRun(target) : "rolodex");
     setStore((s) => {
       const existing = activeRunEntry(s, id);
       return existing ? coreSetActiveRun(s, existing.id) : addRun(s, newEntryFor(s, id));
@@ -342,7 +373,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   /* ---------- run management ---------- */
   const openRun = (runId) => {
     clearTransients();
-    setView("rolodex");
+    setView(viewForRun(store.entries[runId]));
     setStore((s) => coreSetActiveRun(s, runId));
   };
   const newRun = (workflowId) => {
@@ -357,7 +388,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   useEffect(() => {
     const onKey = (e) => {
-      if (overviewOpen) return;
+      if (overviewOpen || view === "reading") return;
       if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
       if (e.key === "ArrowLeft") doBrowse(-1);
       if (e.key === "ArrowRight") doBrowse(1);
@@ -560,7 +591,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             className="pf-reset"
             onClick={() => {
               clearTransients();
-              setView(view === "runs" ? "rolodex" : "runs");
+              setView(view === "runs" ? viewForRun(entry) : "runs");
             }}
           >
             {view === "runs" ? "Back to run" : "Runs"}
