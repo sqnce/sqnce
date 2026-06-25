@@ -32,7 +32,7 @@ Add `runId` (the active run entry id, type `string | null`) to the renderer `con
 3. **Typedef**: add `@property {string | null} runId` to the `RendererContext` typedef in `ProcessRolodex.jsx`.
 4. **Renderer-contract comment**: the authoritative contract comment that enumerates the context fields is in `packages/react/src/OutputView.jsx` (its header comment ends with the line `context = { workflowId, stepId, subject, readOnly, expanded }`). Add `runId` to that enumeration so it does not go stale. (The `renderers` prop prose comment in `ProcessRolodex.jsx` does not enumerate the fields, so it needs no change; touch it only if a one-line mention reads naturally.)
 5. **Consumer docs**: the root `README.md` "Custom renderers" section documents the renderer `context` for consumers. Add a one-line mention of `context.runId` (the active run entry id, for hosts that resolve run-wide data from a shared store), mirroring how `README.md` already documents the `generateDraft` context's `runId`. Without it, the new affordance is undocumented for the consumers it is built for.
-6. **Regenerate types**: `RendererContext` feeds `RendererProps`, part of the public prop surface, so regenerate the committed `.d.ts` with `npm run types`.
+6. **Types**: `RendererContext` feeds `RendererProps`, part of the public prop surface, so run `npm run types` and confirm it succeeds (`tsc` emits no error). The generated `.d.ts` are gitignored (`.gitignore` ignores `packages/*/types/`), so nothing is committed; CI's `test` job runs `npm run types`, and its `pack` job verifies each packed tarball contains `types/index.d.ts` (produced by `prepack`).
 
 ### Single source for the renderer context (enabling the test)
 
@@ -48,7 +48,7 @@ A new React-layer unit test (`packages/react/test/rendererContext.test.js`), fol
 - yields `runId: null` when no active entry id is supplied (the brand-new-workflow case),
 - carries the existing fields (`workflowId`, `stepId`, `subject`, `readOnly`) unchanged.
 
-Existing tests must stay green. Per-PR gates: `npm test`, `npm run build -w examples/demo`, `npm run types` (CI checks the committed `.d.ts`).
+Existing tests must stay green. Per-PR gates: `npm test`, `npm run build -w examples/demo`, `npm run types` (the last must exit cleanly; the `.d.ts` it emits are gitignored and not committed).
 
 ## Out of scope
 
@@ -63,4 +63,4 @@ Existing tests must stay green. Per-PR gates: `npm test`, `npm run build -w exam
 - `runId` is `null` when there is no active run entry (a brand-new workflow with no run yet).
 - Existing renderers are unaffected (they ignore the new field); no behavior change to any existing renderer or view.
 - The renderer-contract comment in `OutputView.jsx` and the root README "Custom renderers" section both document `runId` in the context, so neither goes stale.
-- `npm test`, `npm run build -w examples/demo`, and `npm run types` pass, and the regenerated `.d.ts` is committed.
+- `npm test`, `npm run build -w examples/demo`, and `npm run types` all pass (the `.d.ts` that `npm run types` emits are gitignored, so none are committed).
