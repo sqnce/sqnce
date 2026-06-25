@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["packages/*", "examples/demo"],
   "scripts": {
-    "test": "node --test packages/core/test/*.test.js",
+    "test": "node --test packages/core/test/*.test.js packages/react/test/*.test.js",
     "types": "npm run types -w packages/core && npm run types -w packages/react"
   },
   "devDependencies": {
