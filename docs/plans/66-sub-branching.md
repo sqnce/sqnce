@@ -611,6 +611,10 @@ export function flattenSubStages(definition) {
   const tm = isForked(definition) ? trackMap(definition) : null;
   definition.mainStages.forEach((ms, mainIndex) =>
     ms.subStages.forEach((ss, subIndex) => {
+      // Annotate the local as FlatSubStage so checkJs accepts the later
+      // base.track / base.optional assignments (the object literal alone would
+      // infer a narrower type without those optional fields).
+      /** @type {FlatSubStage} */
       const base = { ...ss, mainId: ms.id, mainName: ms.name, mainIndex, subIndex };
       if (tm && ms.track !== undefined && tm.has(ms.track)) {
         base.track = ms.track;
@@ -1179,12 +1183,13 @@ test("skipSubStage marks a skippable sub-stage committed inside a kept track", (
   assert.equal(isSubStageSkipped(skipped, "demo-build-sub"), true);
 });
 
-test("skipSubStage still rejects a beyond-region sub-stage", () => {
+test("skipSubStage rejects a skippable tracked sub-stage beyond the committed region", () => {
   const subs = flattenSubStages(FORKED);
-  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2 only
-  // demo-qa-sub (mainIndex 4) is beyond demo's frontier (2): no-op
-  const same = skipSubStage(r, subs, "demo-qa-sub");
-  assert.equal(same, r);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo frontier = 2 only
+  // demo-build-sub (mainIndex 3) IS skippable but lies beyond demo's frontier
+  // (2), so the region guard (not the skippable guard) must reject it.
+  const same = skipSubStage(r, subs, "demo-build-sub");
+  assert.equal(isSubStageSkipped(same, "demo-build-sub"), false);
 });
 
 test("skipSubStage rejects a tracked sub-stage when the track frontier is out of range", () => {
@@ -1396,6 +1401,8 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
   });
   const forces = {};
   Object.keys(r.forces || {}).forEach((mi) => { if (inScope(Number(mi))) forces[mi] = true; });
+  // Annotate as Run so checkJs accepts the later optional-field assignments.
+  /** @type {Run} */
   const scoped = { idx: stepFlatIdx, frontier: r.frontier, stepState };
   if (Object.keys(skips).length) scoped.skips = skips;
   if (Object.keys(forces).length) scoped.forces = forces;
@@ -1723,6 +1730,15 @@ test("a linear run is complete when the frontier is at the last main stage with 
   r = setCheckedDone(r, "approve", true); // strict signoff gate
   assert.equal(isRunComplete(FIXTURE, r), true);
 });
+
+test("trackStatus is not-open for a partially-initialized fork (a required track missing)", () => {
+  const subs = flattenSubStages(FORKED);
+  // demo has a valid entry but the required response entry is missing: the fork
+  // is not fully open, so NO track is active, matching navigation/isRunComplete.
+  const r = { ...createRun(), frontier: 1, trackFrontier: { demo: 2 } };
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
 ```
 
 These tests drive tracks inline (fill, jumpTo, advance) or set `trackFrontier` directly where only a terminal state is needed; `commitSpine` (Task 6) is the shared spine driver, defined once at module scope in the test file.
@@ -1786,16 +1802,24 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   if (!isForked(definition)) return "not-open";
   const subs = flattenSubStages(definition);
   const o = { ...opts, subStages: subs };
-  const tm = trackMap(definition).get(trackId);
+  const tmap = trackMap(definition);
+  const tm = tmap.get(trackId);
   if (!tm) return "not-open";
   const r = normalizeFlat(subs, run);
-  // the fork must be OPEN before any other status: spine committed AND a valid
-  // in-range trackFrontier entry for this track (so a skipped track still reads
-  // not-open until the boundary advance has run).
+  // the fork must be OPEN before any other status: the spine is committed AND
+  // EVERY declared track has a valid in-range own trackFrontier entry. This
+  // matches reachableFlat and isRunComplete's open check: a partially
+  // initialized or corrupted run (any track missing or out of range) is
+  // not-open for ANY track, including a skipped one, until the boundary advance
+  // repairs every entry, so trackStatus never reports a track active/complete
+  // while navigation treats the fork as unopened.
   if (r.frontier !== lastSpineIndex(definition)) return "not-open";
-  // own-property read (spec: never bare key reads on trackFrontier).
-  const v = hasOwn(r.trackFrontier, trackId) ? r.trackFrontier[trackId] : undefined;
-  if (!(typeof v === "number" && v >= tm.first && v <= tm.terminal)) return "not-open";
+  for (const [id, t] of tmap) {
+    // own-property read (spec: never bare key reads on trackFrontier).
+    const ev = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
+    if (!(typeof ev === "number" && ev >= t.first && ev <= t.terminal)) return "not-open";
+  }
+  const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
   if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
   return "active";
@@ -1911,7 +1935,7 @@ git commit -m "feat(core): cloneRun fork fail-fast on tracked truncation (#66)"
 - [ ] **Step 2: Update `packages/core/README.md`** Exports line to add the new forked helpers. This line is a curated highlight that intentionally omits several existing exports (`runDisplayName`, the run-store API, `draftTarget`, `parseDraft`, the sub-stage skip helpers, and others); per the spec, this task only requires listing the new forked helpers, and fully reconciling the pre-existing omissions to make the line authoritative is an optional owner decision, not done here unless the owner asks. The snippet below keeps the line curated and adds the new helpers:
 
 ```markdown
-Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `setCheckedDone`, `getStepEntry`, `hasValue`, `stepHasAnyOutput`, `isStepComplete`, `gateTypeOf`, `gateProgress`, `mainGateProgress`, `browse`, `jumpTo`, `advance`, `resolveSubject`, `serializeStep`, `buildContext`, `buildDraftPrompt`, `runSummary`, `cloneRun`, `isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`.
+Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `setCheckedDone`, `getStepEntry`, `hasValue`, `stepHasAnyOutput`, `isStepComplete`, `gateTypeOf`, `gateProgress`, `browse`, `jumpTo`, `advance`, `resolveSubject`, `serializeStep`, `buildContext`, `buildDraftPrompt`, `isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`.
 ```
 
 - [ ] **Step 3: Type-check the source.** Run `npm run types` (`tsc -p tsconfig.declarations.json`, `checkJs: true`). Expected: it type-checks cleanly and regenerates `packages/core/types/index.d.ts` locally. That directory is gitignored (`.gitignore`: `packages/*/types/`), so the generated `.d.ts` is NOT committed and `git add packages/core/types/index.d.ts` would be a silent no-op: prepack regenerates the `.d.ts` for the published tarball, CI's pack job verifies the tarball contains `package/types/index.d.ts`, and CI's test job runs `npm run types` as the type-check gate. The goal here is a clean type-check, not a committed artifact.
