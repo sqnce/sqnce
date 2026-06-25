@@ -2,9 +2,9 @@
 
 Issue: #79 (lifecycle-aware generated badge, plus a run-header/status slot for consumers). Milestone: "UI shell: reading mode, renderers & theming".
 
-Two related extension points a consumer (presales-sqnce) needs: stop mislabelling finished generated output as a draft, and let the consumer surface a run-level verdict. This is a first-draft spec committed to a draft PR ahead of the Codex review loop.
+Two related extension points a consumer (presales-sqnce) needs: stop mislabelling finished generated output as a draft, and let the consumer surface a run-level verdict. This spec was first drafted ahead of the Codex review loop and is revised here after that loop and an adversarial review against current main, which now includes #78 (reading mode for finished runs).
 
-Layer: pure `@sqnce/react`. Part 1 touches `packages/react/src/OutputView.jsx` (the badge) and `packages/react/src/ProcessRolodex.jsx` (threading the step lifecycle and an optional override prop). Part 2 adds injected props to `ProcessRolodex` and surfaces a status word in `packages/react/src/RunSidebar.jsx` and `packages/react/src/RunsScreen.jsx`. No `@sqnce/core` change.
+Layer: pure `@sqnce/react`. Part 1 touches `packages/react/src/OutputView.jsx` (the badge) and `packages/react/src/ProcessRolodex.jsx` (threading the step lifecycle and an optional override prop). Part 2 adds injected props to `ProcessRolodex`, threads them into `packages/react/src/ReadingView.jsx` (the run header band added by #78), and surfaces a status word in `packages/react/src/RunSidebar.jsx` and `packages/react/src/RunsScreen.jsx`. No `@sqnce/core` change.
 
 ## Part 1: lifecycle-aware generated badge
 
@@ -34,30 +34,31 @@ sqnce stays content-agnostic, so it provides the slot and the placement while th
 
 Add two optional injected props to `ProcessRolodex`, consistent with the existing injected props (`persistence`, `generateDraft`, `renderers`, `validators`): each defaults to absent and the component works unchanged when omitted.
 
-1. `renderRunHeader`: a function `({ def, run, runId, subject, complete }) => ReactNode` (or a component) mounted in a run-level header band, for example a final verdict banner. The band placement is the reading-mode header band introduced in #78; until #78 lands, the slot can also mount above the authoring rolodex. The consumer closes over its own data and may derive the node from `run.stepState` (for example presales reads its QA stage).
-2. `runStatus`: a function `({ def, run, runId }) => string | { word, tone } | null` returning a short per-run status word. It is shown next to each run in the runs sidebar (`RunSidebar.jsx`) and the runs screen (`RunsScreen.jsx`), and is available to the reading-mode header band. The consumer derives the word (presales derives ACCEPT or REVISE from its QA stage); `tone`, if returned, is an opaque hint the shell may map to a visual treatment (it must degrade to a plain word).
+1. `renderRunHeader`: a function `({ def, run, runId, subject, complete }) => ReactNode` (or a component) mounted in a run-level header band, for example a final verdict banner. The band is the reading-mode header band that #78 added (`packages/react/src/ReadingView.jsx`, the `.pf-read-band` header), so #79 mounts `renderRunHeader` into that existing band rather than building its own placement. The consumer closes over its own data and may derive the node from `run.stepState` (for example presales reads its QA stage). The band only renders for a finished run, so `complete` is true whenever the slot fires; it stays in the signature so a future non-band mount could pass a real value.
+2. `runStatus`: a function `({ def, run, runId }) => string | { word, tone } | null` returning a short per-run status word. It is shown next to each run in the runs sidebar (`RunSidebar.jsx`) and the runs screen (`RunsScreen.jsx`), and in the reading-mode header band, where it replaces the band's current hardcoded `"Complete"` status word (`ReadingView.jsx`, the `.pf-read-status` span); with `runStatus` omitted the band keeps showing `"Complete"`. The consumer derives the word (presales derives ACCEPT or REVISE from its QA stage); `tone`, if returned, is an opaque hint the shell may map to a visual treatment (it must degrade to a plain word).
 
 These slots receive only `def`, `run`, and `runId`, never consumer domain knowledge baked into sqnce. The shell provides where the text goes; the consumer provides what it says.
 
 ## Dependency note
 
-Part 2's header band placement is provided by #78 (reading mode supplies the run header band). #79 defines the slot props and the sidebar/runs-screen status word, which stand alone, and the reading-mode band consumes `renderRunHeader` once #78 lands. The two issues are co-designed; neither hard-blocks the other (the header slot can mount above the rolodex in the interim).
+#78 (reading mode for finished runs) has landed on main: it added `packages/react/src/ReadingView.jsx` with the run header band (`.pf-read-band`) and a hardcoded `"Complete"` status word in `.pf-read-status`. So #79's header band placement already exists. #79 mounts `renderRunHeader` into that band and feeds `runStatus` into the `.pf-read-status` word. The sidebar and runs-screen status word stand alone from the band. An earlier draft of this spec, written before #78 merged, considered an interim mount above the authoring rolodex; that path is dropped because the band #78 supplies is now present.
 
 ## Out of scope
 
 - Any `@sqnce/core` change.
 - The actual ACCEPT/REVISE derivation, which is the consumer's (presales-sqnce).
-- The reading-mode layout itself (#78). #79 provides the slot the band mounts.
+- The reading-mode layout itself (#78, already merged). #79 only mounts its two slots into the band #78 provides.
 
 ## Acceptance
 
 - A generated output on a done/accepted step is not labelled "AI draft" (it shows the lifecycle-aware default, or the consumer override).
-- A consumer can mount a run-level header node and a per-run status word through injected props; with both props omitted, `ProcessRolodex` renders exactly as today.
-- The consumer-supplied status word appears next to runs in the runs sidebar.
+- A consumer can mount a run-level header node and a per-run status word through injected props; with both props omitted, `ProcessRolodex` renders exactly as today (including the band's existing `"Complete"` word).
+- The consumer-supplied status word appears next to runs in the runs sidebar and the runs screen.
+- The consumer-supplied status word appears on the reading-mode run headline, replacing the default `"Complete"`.
 - `npm test`, `npm run build -w examples/demo`, and `npm run types` pass.
 
 ## Open questions for approval
 
 1. On an accepted generated output: relabel quietly to "AI generated" (preserves provenance) or hide the badge entirely. Recommendation: relabel quietly.
-2. Should the run-header slot also render above the authoring rolodex, or only in the reading-mode band from #78. Recommendation: render in the reading-mode band, with an interim mount above the rolodex until #78 lands.
+2. (Resolved by #78 landing.) The run-header slot mounts only in the reading-mode band, which now exists (`ReadingView.jsx`, `.pf-read-band`). No interim mount above the authoring rolodex is needed.
 3. Shape of `runStatus`: a plain string, or `{ word, tone }`. Recommendation: accept either, treat a bare string as `{ word }`.
