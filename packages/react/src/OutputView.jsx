@@ -166,7 +166,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
             spec={spec}
             value={viewValue}
             onChange={onChange}
-            context={{ ...context, expanded: false }}
+            context={{ ...context, expanded: !!(context && context.expanded) }}
           />
         </div>
       ) : (
