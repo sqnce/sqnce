@@ -130,7 +130,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
           <span className="pf-read-status" data-tone={status ? status.tone || undefined : "complete"}>
             {status ? status.word : "Complete"}
           </span>
-          {RunHeader && (
+          {complete && RunHeader && (
             <div className="pf-read-header-slot">
               <RunHeader def={def} run={run} runId={runId} subject={subjectName} complete={complete} />
             </div>
