@@ -42,7 +42,7 @@ These back the public functions. All are defined in Task 2 and used thereafter, 
 
 - `isForked(definition)` -> boolean: `!!(definition.tracks && definition.tracks.length)`.
 - `lastSpineIndex(definition)` -> number: index of the last untagged main stage. For a linear definition, `mainStages.length - 1`.
-- `trackMap(definition)` -> `Map<trackId, { name, optional, first, terminal, indices: number[] }>`: derived from `mainStages` order (flat-stage order), so `first`/`terminal` are flat indices.
+- `trackMap(definition)` -> `Map<trackId, { name, optional, first, terminal, indices: number[] }>`: derived in `mainStages` order; `first`/`terminal`/`indices` are MAIN-STAGE indices (the same unit as `frontier` and `trackFrontier` values), not flat sub-stage indices.
 - `trackIdOfStage(definition, mainIndex)` -> string | null (null = spine).
 - `hasOwn(obj, key)` -> boolean: `Object.prototype.hasOwnProperty.call(obj || {}, key)`.
 - `isTrackSkippedEffective(definition, run, trackId)` -> boolean: declared, `optional`, and `hasOwn(run.skippedTracks, trackId)`.
@@ -198,7 +198,8 @@ function lastSpineIndex(definition) {
 }
 
 /**
- * Derived per-track topology in flat mainStages order.
+ * Derived per-track topology in mainStages order. first/terminal/indices are
+ * MAIN-STAGE indices (the unit of frontier and trackFrontier), not flat indices.
  * @param {Definition} definition
  * @returns {Map<string, { name: string, optional: boolean, first: number, terminal: number, indices: number[] }>}
  */
@@ -325,7 +326,7 @@ function normalizeFlat(subStages, run) {
 
 These two are `subStages`-driven (topology read from the flat `track`/`optional` annotations added in Task 4), so there is a single canonical pair: `advance` (Task 6), `browse`/`jumpTo` (Task 7), `skipSubStage` (Task 8), `buildContext`/`buildDraftPrompt` (Task 9) call them directly; the definition-holding callers (`runSummary`, `isRunComplete`, `trackStatus` in Task 10) call `flattenSubStages(definition)` first and pass the result. No second definition-driven copy exists.
 
-- [ ] **Step 3: No standalone test.** These helpers carry no behavior a caller cannot observe; each is exercised by the first task that consumes it (`reachableFlat`/`normalizeFlat` by Task 6's advance and Task 7's navigation tests, the topology helpers by Task 3's validation tests). This commit is deliberate internal scaffolding, not untested production logic.
+- [ ] **Step 3: No standalone test.** These helpers carry no behavior a caller cannot observe; each is exercised by the first task that consumes it (`reachableFlat`/`normalizeFlat` by Task 6's advance and Task 7's navigation tests; `isForked`/`lastSpineIndex` by Task 3's subject validation; and `trackMap`/`trackIdOfStage`/`effectiveSkippedTrackIds` by the flatten, skip, advance, and completion tasks). This commit is deliberate internal scaffolding, not untested production logic.
 
 - [ ] **Step 4: Run** `npm test`, Expected: PASS (helpers are unused so far; existing tests unaffected). They are consumed from Task 3 onward. Note: `flattenSubStages` does not yet annotate tracks (Task 4), so on a forked definition before Task 4 these helpers see no `track` field and treat it as linear; no forked test runs before Task 6, so the ordering is safe.
 
@@ -344,7 +345,7 @@ git commit -m "feat(core): internal fork topology and run-normalization helpers 
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `isForked`, `trackMap`, `lastSpineIndex`, `trackIdOfStage` (Task 2).
+- Consumes: `isForked` and `lastSpineIndex` (Task 2), in the tightened subject check. The fork-topology rules iterate `definition.tracks` / `definition.mainStages` inline rather than through `trackMap` / `trackIdOfStage` (those are exercised by the advance/flatten tasks, not here).
 - Produces: `validateDefinition` rejects every malformed fork topology and accepts a well-formed one; linear definitions validated exactly as today.
 
 - [ ] **Step 1: Write failing tests.** Add to `engine.test.js`:
@@ -454,6 +455,18 @@ test("validateDefinition rejects a subject that resolves to more than one step",
   const d = clone(FORKED);
   // duplicate the subject step id onto a second spine sub-stage so it resolves twice
   d.mainStages[1].subStages[0].steps.push({ id: "intake", name: "Dup", outputs: [] });
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject outputId not on the step", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "intake", outputId: "ghost", field: "client" }; // intake has no "ghost" output
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject field that is not a field of the fields output", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "intake", outputId: "facts", field: "ghost" }; // facts has no "ghost" field
   assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
 });
 ```
@@ -1328,6 +1341,38 @@ test("a scoped validator run drops out-of-relation-set forces keys", () => {
   assert.equal(seenForce, false);
 });
 
+test("a scoped validator run hides sibling trackFrontier/skips, omits skippedTracks, and sets idx to the step", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
+  r = setOutput(r, "respDraft", "d", "ok");
+  // sibling-track skip, a track-skip map, and a stale idx that must all be scoped away
+  r = { ...r, skips: { "demo-build-sub": true }, skippedTracks: { demo: true }, idx: 0 };
+  let seen = {};
+  const validators = {
+    inspect: (_v, _spec, ctx) => {
+      const run = ctx.run || {};
+      seen = {
+        demoFrontier: run.trackFrontier ? run.trackFrontier.demo : undefined,
+        responseFrontier: run.trackFrontier ? run.trackFrontier.response : undefined,
+        demoSkip: run.skips ? run.skips["demo-build-sub"] : undefined,
+        skippedTracks: run.skippedTracks,
+        idx: run.idx,
+      };
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "inspect"; // respDraft (response)
+  const dsubs = flattenSubStages(def);
+  const respIdx = dsubs.findIndex((s) => s.id === "resp-draft-sub");
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.equal(seen.demoFrontier, undefined); // sibling track frontier hidden
+  assert.equal(seen.responseFrontier, 5); // own track frontier present
+  assert.equal(seen.demoSkip, undefined); // sibling-track sub-stage skip hidden
+  assert.equal(seen.skippedTracks, undefined); // skippedTracks omitted entirely
+  assert.equal(seen.idx, respIdx); // idx is the validated step's flat index, not the stale 0
+});
+
 test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo committed to 2 only
@@ -1739,6 +1784,20 @@ test("trackStatus is not-open for a partially-initialized fork (a required track
   assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
   assert.equal(isRunComplete(FORKED, r), false);
 });
+
+test("a corrupted required-track skip is ignored by runSummary and isRunComplete", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
+  const cleanTotal = runSummary(FORKED, r).total;
+  // response is REQUIRED: a skippedTracks entry for it (and an unknown id) must be
+  // ignored by every read path, so runSummary does not drop response's sub-stages.
+  const corrupt = { ...r, skippedTracks: { response: true, ghost: true } };
+  assert.equal(runSummary(FORKED, corrupt).total, cleanTotal);
+  // and isRunComplete still requires response to reach its terminal: demo (optional)
+  // is effectively skipped, response (required) is not, so the run is incomplete.
+  const r2 = { ...r, skippedTracks: { demo: true, response: true } };
+  assert.equal(isRunComplete(FORKED, r2), false);
+});
 ```
 
 These tests drive tracks inline (fill, jumpTo, advance) or set `trackFrontier` directly where only a terminal state is needed; `commitSpine` (Task 6) is the shared spine driver, defined once at module scope in the test file.
@@ -1937,6 +1996,8 @@ git commit -m "feat(core): cloneRun fork fail-fast on tracked truncation (#66)"
 ```markdown
 Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `setCheckedDone`, `getStepEntry`, `hasValue`, `stepHasAnyOutput`, `isStepComplete`, `gateTypeOf`, `gateProgress`, `browse`, `jumpTo`, `advance`, `resolveSubject`, `serializeStep`, `buildContext`, `buildDraftPrompt`, `isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`.
 ```
+
+- [ ] **Step 2b: Verify the other READMEs.** Per the spec, check the root `README.md` and `packages/react/README.md`: their engine-API text does not enumerate these per-function helpers, so they likely need no change. Confirm there is no stale engine-API list there that now contradicts the new surface; if there is none, make no edit and note it.
 
 - [ ] **Step 3: Type-check the source.** Run `npm run types` (`tsc -p tsconfig.declarations.json`, `checkJs: true`). Expected: it type-checks cleanly and regenerates `packages/core/types/index.d.ts` locally. That directory is gitignored (`.gitignore`: `packages/*/types/`), so the generated `.d.ts` is NOT committed and `git add packages/core/types/index.d.ts` would be a silent no-op: prepack regenerates the `.d.ts` for the published tarball, CI's pack job verifies the tarball contains `package/types/index.d.ts`, and CI's test job runs `npm run types` as the type-check gate. The goal here is a clean type-check, not a committed artifact.
   - If `tsc` is unavailable locally, note that CI runs it; confirm the only declaration changes are additive. The new exports (`isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`) are additive new functions; the new typedefs (`Track`, `MainStage.track`, `Run.trackFrontier`, `Run.skippedTracks`, the `FlatSubStage` `track`/`optional` fields) are additive; and `gateProgress`/`mainGateProgress` gain an additive optional `opts.subStages` property in their declared opts type (Task 9's JSDoc change), while their parameter lists stay the same. `isStepComplete`/`advance`/`browse`/`jumpTo`/`buildContext`/`buildDraftPrompt`/`runSummary` keep both their parameter lists and their declared types (new behavior rides existing `opts`/annotations). No existing exported signature is removed or narrowed.
