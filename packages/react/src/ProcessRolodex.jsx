@@ -45,6 +45,7 @@ import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
+import { resolveGeneratedBadge } from "./badge.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -95,6 +96,11 @@ function newId() {
  *      owning step incomplete (gates, status, draft context) and
  *      rejects generated drafts. Pure functions; omit to validate
  *      nothing.
+ *  - generatedBadge (optional): (lifecycle, spec) => string | null,
+ *      overrides the generated-output badge label. lifecycle is the owning
+ *      step's status ("done" | "draft" | "open"). A non-empty string is the
+ *      label; null hides the badge. Omit for the default mapping (a done
+ *      step reads "AI generated", otherwise "AI draft").
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -163,10 +169,11 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+ * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -825,6 +832,8 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             const outVal = (entry.outputs || {})[spec.id];
                             const checkFn = spec.validate && validators && validators[spec.validate];
                             const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec, { run, stepId: step.id }) : null;
+                            const isGen = isOutputGenerated(run, step.id, spec.id);
+                            const genBadge = resolveGeneratedBadge({ generated: isGen, lifecycle: status, spec, resolver: generatedBadge });
                             return (
                               <OutputView
                                 key={spec.id}
@@ -838,7 +847,8 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 }}
                                 renderers={renderers}
                                 context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
-                                generated={isOutputGenerated(run, step.id, spec.id)}
+                                generated={isGen}
+                                badge={genBadge}
                               />
                             );
                           })}

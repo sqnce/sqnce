@@ -73,11 +73,11 @@ function RawJsonEditor({ value, onChange, onDone }) {
   );
 }
 
-function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated }) {
+function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated, badge }) {
   if (spec.type === "text")
     return (
       <div className="pf-ta-wrap">
-        {generated && <span className="pf-gen-badge">AI draft</span>}
+        {badge && <span className="pf-gen-badge">{badge}</span>}
         <textarea
           className={`pf-ta ${generated ? "pf-ta-generated" : ""}`}
           placeholder="Write the output or generate a draft."
@@ -134,7 +134,7 @@ function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated })
  * renderers map, then built-ins, then falls back (JSON tree for data,
  * the default editor otherwise). Unknown kinds never render blank.
  */
-export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, invalid }) {
+export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, badge = null, invalid }) {
   const kind = spec.render && spec.render.kind;
   const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
   const isData = spec.type === "data";
@@ -157,7 +157,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     Renderer && shownMode === "view" && !fileNoText ? (
       filled ? (
         <div className="pf-render">
-          {generated && <span className="pf-gen-badge">AI draft</span>}
+          {badge && <span className="pf-gen-badge">{badge}</span>}
           <button className="pf-render-expand" title="Expand" onClick={() => setBig(true)}>
             ⛶
           </button>
@@ -175,7 +175,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
     ) : isData ? (
       <RawJsonEditor value={value} onChange={onChange} onDone={() => setMode("view")} />
     ) : (
-      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} generated={generated} />
+      <DefaultEditor spec={spec} value={value} onChange={onChange} onAttach={onAttach} readOnly={readOnly} generated={generated} badge={badge} />
     );
 
   const toggle = readOnly || fileNoText ? null : Renderer && shownMode === "view" ? (
