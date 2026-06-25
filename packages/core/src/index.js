@@ -206,6 +206,152 @@ export function flattenSubStages(definition) {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/* Sub-branching topology and run-normalization helpers (#66)          */
+/* ------------------------------------------------------------------ */
+
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/** @param {Definition} definition */
+function isForked(definition) {
+  return !!(definition && Array.isArray(definition.tracks) && definition.tracks.length);
+}
+
+/** Last untagged main-stage index (the spine end). @param {Definition} definition @returns {number} */
+function lastSpineIndex(definition) {
+  const stages = definition.mainStages || [];
+  let last = -1;
+  for (let i = 0; i < stages.length; i++) {
+    if (stages[i].track === undefined) last = i;
+    else break;
+  }
+  return last;
+}
+
+/**
+ * Derived per-track topology in mainStages order. first/terminal/indices are
+ * MAIN-STAGE indices (the unit of frontier and trackFrontier), not flat indices.
+ * @param {Definition} definition
+ * @returns {Map<string, { name: string, optional: boolean, first: number, terminal: number, indices: number[] }>}
+ */
+function trackMap(definition) {
+  const out = new Map();
+  if (!isForked(definition)) return out;
+  const declared = new Map(definition.tracks.map((t) => [t.id, t]));
+  (definition.mainStages || []).forEach((ms, i) => {
+    if (ms.track === undefined) return;
+    const t = declared.get(ms.track);
+    if (!t) return;
+    const e = out.get(ms.track) || { name: t.name, optional: !!t.optional, first: i, terminal: i, indices: [] };
+    e.first = Math.min(e.first, i);
+    e.terminal = Math.max(e.terminal, i);
+    e.indices.push(i);
+    out.set(ms.track, e);
+  });
+  return out;
+}
+
+/** @param {Definition} definition @param {number} mainIndex @returns {string|null} */
+function trackIdOfStage(definition, mainIndex) {
+  const ms = (definition.mainStages || [])[mainIndex];
+  return ms && ms.track !== undefined ? ms.track : null;
+}
+
+/** @param {Definition} definition @param {Run} run @param {string} trackId */
+function isTrackSkippedEffective(definition, run, trackId) {
+  const tm = trackMap(definition).get(trackId);
+  return !!(tm && tm.optional && hasOwn(run.skippedTracks, trackId));
+}
+
+/** @param {Definition} definition @param {Run} run @returns {Set<string>} */
+function effectiveSkippedTrackIds(definition, run) {
+  const set = new Set();
+  trackMap(definition).forEach((tm, id) => {
+    if (tm.optional && hasOwn(run.skippedTracks, id)) set.add(id);
+  });
+  return set;
+}
+
+/**
+ * Sorted reachable flat indices: the spine prefix plus each open
+ * non-skipped track's committed range. For a linear definition this is
+ * the single contiguous prefix [0..lastIndexInMain(frontier)].
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @returns {number[]}
+ */
+function reachableFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) {
+    const last = lastIndexInMain(subStages, run.frontier);
+    const out = [];
+    for (let i = 0; i <= last; i++) out.push(i);
+    return out;
+  }
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  const ranges = new Map();
+  subStages.forEach((s) => {
+    if (s.track === undefined) return;
+    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
+    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
+    ranges.set(s.track, e);
+  });
+  const skipped = new Set();
+  ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
+  const tf = run.trackFrontier || {};
+  // The fork is open (its tracks navigable) only when the whole spine is
+  // committed AND EVERY declared track has a valid in-range, own trackFrontier
+  // entry, matching the "fork opened" check in isRunComplete / trackStatus. A
+  // partially-initialized run (any track missing or out of range, even a
+  // skipped one) is NOT open: no track is navigable until the boundary advance
+  // repairs every entry. Without the all-tracks requirement, a corrupted run
+  // like { frontier: 1, idx: <demo card>, trackFrontier: { demo: 2 } } would
+  // let demo advance while the required response entry stays missing, instead of
+  // recentering to the spine so the boundary advance repairs both.
+  let forkOpen = run.frontier >= spineEnd;
+  if (forkOpen) {
+    for (const [id, rg] of ranges) {
+      const v = hasOwn(tf, id) ? tf[id] : undefined;
+      if (!(typeof v === "number" && v >= rg.first && v <= rg.terminal)) { forkOpen = false; break; }
+    }
+  }
+  const out = [];
+  subStages.forEach((s, i) => {
+    if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
+    if (!forkOpen || skipped.has(s.track) || !hasOwn(tf, s.track)) return;
+    const r = ranges.get(s.track);
+    const committed = typeof tf[s.track] === "number" && tf[s.track] >= r.first && tf[s.track] <= r.terminal ? tf[s.track] : -1;
+    if (committed >= s.mainIndex) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * Clamp a stale frontier to the spine and recenter a now-unreachable idx,
+ * derived purely from the flat annotations. A linear flat list is returned
+ * unchanged (same reference), so linear callers stay byte-identical.
+ * @param {FlatSubStage[]} subStages @param {Run} run @returns {Run}
+ */
+function normalizeFlat(subStages, run) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) return run;
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  let next = run;
+  if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
+  const reach = reachableFlat(subStages, next);
+  // Recenter to the last committed spine sub-stage. After the clamp above,
+  // next.frontier <= spineEnd, so Math.min keeps the target inside the
+  // committed spine even for a corrupted run whose frontier sits before the
+  // spine end (it must not land idx on an un-committed spine stage).
+  if (!reach.includes(next.idx))
+    next = { ...next, idx: lastIndexInMain(subStages, Math.min(next.frontier, spineEnd)) };
+  return next;
+}
+
 /**
  * Validate a definition's basic shape. Returns an array of problem
  * strings; an empty array means the definition is usable.
