@@ -61,10 +61,15 @@ surface it actually renders on, not one global background:
 | `#8A8E96` | step state | light card `#FAF8F0` | 3.09:1 | fail |
 | `#6B6F76` | reading status | light reading `#F1EEE3` | 4.35:1 | fail |
 | `#5E6772` | reading TOC | light reading `#F1EEE3` | 4.94:1 | pass |
+| `#9A9EA6` | empty-file chip, JSON meta | light card `#FAF8F0` / white | 2.53:1 / 2.69:1 | fail |
+| `#C9542D` | required-field asterisk | light card `#FAF8F0` | 4.12:1 | fail |
 
-Several muted colors fail on their real surface, so "default rendering is visually
-unchanged" and "the default palette meets the contrast minimums" cannot both hold
-byte-for-byte. Two of these colors also expose a token-design consequence: `#8A8E96` is
+This table is the set found in this spike, not a closed list: the failures span more than the
+muted greys (the required-field asterisk is a red), so the implementation re-runs an
+exhaustive audit of every default text color against its surface and fixes each failure.
+Several colors fail on their real surface, so "default rendering is visually unchanged" and
+"the default palette meets the contrast minimums" cannot both hold byte-for-byte. Two of the
+greys also expose a token-design consequence: `#8A8E96` is
 used on both the dark nav (gate state, fails) and the light card (step state, fails), and
 `#5E6772` is used on both the dark chrome (labels, fails) and the light reading panel (TOC,
 passes). The same literal cannot be one shared token and pass on both a dark and a light
