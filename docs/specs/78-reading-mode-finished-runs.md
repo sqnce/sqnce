@@ -34,7 +34,7 @@ Default view selection: when a run is complete (per the rule above), opening it 
 
 1. Persistent left contents rail. Lists the main stages as a real, clickable table of contents with a "you are here" marker on the selected stage. Clicking an entry selects that stage in the reading canvas. This uses the same jump semantics as #85 (the `jumpTo` primitive): the rail lists exactly the committed reachable stages, the ones `jumpTo` accepts, so a main stage appears when its first sub-stage is reachable. For a linear run that is every stage at or before the frontier. For a forked run the frontier stays at the end of the shared spine while the opened track stages are reachable through the per-track frontier (skipped tracks excluded), so defining the rail by reachability rather than by `frontier` alone keeps the whole finished deliverable readable. For a complete run the kept path is fully committed, so the rail covers the entire run. #78 introduces the rail inside reading mode; #85 makes the authoring-mode stepper clickable. They share the jump primitive but live in different views. Within reading mode this rail replaces the inert strip.
 2. Run header band. Shows the run title plus a prominent terminal status. The status word and any banner come from the consumer-supplied run-header/status slot defined in #79; #78 provides the band placement, #79 provides the slot mechanism and the lifecycle-aware status. Until #79 lands, the band shows the run name and a neutral derived status word ("Complete").
-3. Reading canvas. Renders the selected stage as a document page with its outputs expanded by default rather than collapsed behind toggles, one stage at a time, with quiet prev/next at the foot. It reuses `OutputView` and the injected renderers in a read-oriented presentation, with editing affordances suppressed by default (editing happens in authoring mode).
+3. Reading canvas. Renders the selected stage as a document page with its outputs expanded by default rather than collapsed behind toggles, one stage at a time, with quiet prev/next at the foot. Prev/next walk the committed reachable stages in reading order: the shared spine first, then each kept track in declaration order, with skipped tracks omitted, so a forked run has a defined linear traversal (for a linear run this is just stage order). The contents rail still allows direct cross-track jumps. It reuses `OutputView` and the injected renderers in a read-oriented presentation, with editing affordances suppressed by default (editing happens in authoring mode).
 
 ### Edit toggle
 
@@ -55,7 +55,9 @@ An "Edit run" control switches from reading mode into the authoring rolodex for 
 ## Acceptance
 
 - A complete run opens in reading mode by default; an in-progress run opens in the authoring rolodex.
+- Completeness comes from the core `isRunComplete` export, so a complete forked run (its frontier still at the spine end, every kept track at its terminal) opens in reading mode, not authoring.
 - Reading mode shows a clickable contents rail with a "you are here" marker, a run header band, and the selected stage's outputs expanded.
+- For a complete forked run, the contents rail lists every kept track stage (the committed reachable set), not only the shared spine stages, and skipped tracks are omitted.
 - "Edit run" switches to the authoring card-deck for the same run and back, with no change to run state.
 - No `position: fixed` overlay is trapped by a transformed ancestor in reading mode.
 - `npm test`, `npm run build -w examples/demo`, and `npm run types` pass.
@@ -64,3 +66,4 @@ An "Edit run" control switches from reading mode into the authoring rolodex for 
 
 1. Contents rail granularity: main stages only, or main stages with sub-stages nested. Recommendation: main stages, expandable to sub-stages if needed.
 2. Default reading mode for complete runs immediately, or keep it opt-in via the toggle until #79's status slot lands. Recommendation: default it on now; the header shows a neutral "Complete" until #79.
+3. Reading-canvas prev/next order across a fork: the shared spine then each kept track in declaration order (skipped tracks omitted), versus within-track only with cross-track moves left to the rail. Recommendation: spine then kept tracks in declaration order, so the deliverable reads top to bottom.
