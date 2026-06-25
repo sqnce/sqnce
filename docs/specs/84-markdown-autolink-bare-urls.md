@@ -4,7 +4,7 @@ Issue: #84 (markdown renderer, autolink bare URLs). Milestone: "UI shell: readin
 
 A first-draft spec committed to a draft PR ahead of the Codex review loop.
 
-Layer: pure `@sqnce/react`, a single file, `packages/react/src/renderers/Markdown.jsx`. No `@sqnce/core` change and no data change: the URLs are already valid web addresses sitting on screen as plain text, so this is purely a rendering change.
+Layer: pure `@sqnce/react`. The change touches `packages/react/src/renderers/Markdown.jsx`, extracts the inline tokenizer's matching into a small pure helper module beside it (so the autolink logic is unit-testable in isolation), and adds `packages/react/test/markdown.test.js`. No `@sqnce/core` change and no data change: the URLs are already valid web addresses sitting on screen as plain text, so this is purely a rendering change.
 
 ## Current behavior
 
@@ -33,6 +33,7 @@ Add a bare-URL branch to the inline tokenizer.
 
 - URLs inside bold or italic are not autolinked, because the bold and italic branches emit their inner text as a plain string child rather than re-tokenizing it. This matches today's behavior for those spans.
 - URLs containing balanced parentheses (some reference URLs) may be truncated at the first stopping punctuation. A more elaborate balanced-paren parser is deferred unless a real citation needs it.
+- A malformed explicit link whose href the explicit-link branch rejects (for example an unescaped space or paren inside the parentheses) can fail to match as a link, after which the bare URL inside it may autolink on its own. Such malformed links already render literally today, so this is no worse, and well-formed `[text](url)` links are unaffected.
 
 ## Out of scope
 
@@ -42,7 +43,16 @@ Add a bare-URL branch to the inline tokenizer.
 
 ## Verification
 
-There is no React test harness in the repo (the test suite is `packages/core/test/engine.test.js`, engine only). Verify this change by the JSX syntax check (`npx esbuild packages/react/src/renderers/Markdown.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`), the demo build (`npm run build -w examples/demo`), and a manual render of an artifact containing bare and explicit URLs, code-span URLs, and a sentence-final URL.
+The repo does have a React test suite. `npm test` runs `node --test` over `packages/core/test/*.test.js` and `packages/react/test/*.test.js`, and `packages/react/test/` already holds pure-logic suites (`badge.test.js`, `rendererContext.test.js`, `runStatus.test.js`). Those suites import plain `.js` modules and assert return values: none import a `.jsx` file or render the DOM, and there is no JSX loader configured for `node --test`.
+
+The autolink change is a pure tokenizer change (trailing-punctuation trimming, ordering versus explicit links, paren handling), which is the most error-prone part and the part that most wants an automated regression test. So this change extracts the inline tokenizer's matching into a pure helper in a `.js` module that returns a plain descriptor list (token kind, plus the href and text for a link), with `Markdown.jsx` importing it for rendering. A new `packages/react/test/markdown.test.js` then drives that helper directly under the existing `node --test` harness, with no new dependency and no DOM. It asserts, at minimum:
+
+- a sentence-final URL ("see https://learn.microsoft.com/x.") yields a link to `https://learn.microsoft.com/x` and leaves the trailing period as text,
+- a URL inside an inline code span stays a literal code token,
+- an explicit `[text](url)` link still tokenizes as a single link (unchanged),
+- a plain bare http(s) URL becomes a link whose text is the URL.
+
+Also verify the JSX syntax check (`npx esbuild packages/react/src/renderers/Markdown.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`), the demo build (`npm run build -w examples/demo`), and a manual render of an artifact containing bare and explicit URLs, code-span URLs, and a sentence-final URL.
 
 ## Acceptance
 
@@ -50,7 +60,7 @@ There is no React test harness in the repo (the test suite is `packages/core/tes
 - A sentence-final URL does not swallow the trailing punctuation.
 - A URL inside an inline code span stays literal.
 - Existing explicit `[text](url)` links are unchanged.
-- `npm test` (engine, unaffected) and `npm run build -w examples/demo` pass.
+- `npm test` (now including the new `packages/react/test/markdown.test.js`) and `npm run build -w examples/demo` pass.
 
 ## Open questions for approval
 
