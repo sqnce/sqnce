@@ -104,7 +104,10 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
   const stageSubs = subs.filter((s) => s.mainIndex === selectedMain && !isSubStageSkipped(run, s.id));
 
   const status = resolveRunStatus(runStatus, { def, run, runId });
-  const headerNode = renderRunHeader ? renderRunHeader({ def, run, runId, subject: subjectName, complete }) : null;
+  /* renderRunHeader may be a render-prop function or a React component
+     (memo/forwardRef/class/hooks), so render it as a JSX element with the
+     context as props rather than calling it directly. */
+  const RunHeader = renderRunHeader || null;
 
   return (
     <div className="pf-read">
@@ -127,7 +130,11 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
           <span className="pf-read-status" data-tone={status ? status.tone || undefined : "complete"}>
             {status ? status.word : "Complete"}
           </span>
-          {headerNode && <div className="pf-read-header-slot">{headerNode}</div>}
+          {RunHeader && (
+            <div className="pf-read-header-slot">
+              <RunHeader def={def} run={run} runId={runId} subject={subjectName} complete={complete} />
+            </div>
+          )}
         </header>
 
         <article className="pf-read-canvas">
