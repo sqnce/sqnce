@@ -4,7 +4,7 @@ Issue: #78 (reading mode for finished runs, keep the authoring deck behind a tog
 
 The decision is already locked in the issue body: Option A, add a reading view and keep the authoring deck. This spec is the design for Option A. It is a first-draft spec committed to a draft PR ahead of the Codex review loop, which runs later.
 
-Layer: pure `@sqnce/react` work in `packages/react/src/ProcessRolodex.jsx` plus a new reading-mode subtree (likely a new `ReadingView.jsx` so the deck file does not grow further). No `@sqnce/core` change is required: run completeness is derived from existing engine state, and navigation reuses the existing `jumpTo` primitive. Renderers and validators stay injected, and the reading canvas reuses `OutputView` for output rendering.
+Layer: pure `@sqnce/react` work in `packages/react/src/ProcessRolodex.jsx` plus a new reading-mode subtree (likely a new `ReadingView.jsx` so the deck file does not grow further). No `@sqnce/core` change is required: run completeness comes from the existing `isRunComplete` export, and navigation reuses the existing `jumpTo` primitive. Renderers and validators stay injected, and the reading canvas reuses `OutputView` for output rendering.
 
 ## Current behavior
 
@@ -15,16 +15,14 @@ Layer: pure `@sqnce/react` work in `packages/react/src/ProcessRolodex.jsx` plus 
 
 ## How we know a run is finished
 
-There is no terminal flag in `@sqnce/core`. A run is complete when its frontier sits on the last main stage and that stage's boundary gate is met:
+`@sqnce/core` already exports the predicate for this: `isRunComplete(definition, run, { validators })`. Reading mode calls it to decide whether a run is finished. The react layer adds no completeness logic of its own, and no `@sqnce/core` change is needed because the helper already exists (it landed with the #66 sub-branching work).
 
-```
-run.frontier === def.mainStages.length - 1
-  && mainGateProgress(def.mainStages[last], run, { validators }).met
-```
+Using the export rather than a hand-rolled check matters for correctness, because the naive formula (frontier on the last main stage with that stage's gate met) is wrong in two ways the engine already handles:
 
-Both `mainGateProgress` and the frontier already exist and are already used in the header. Compute this completeness as a derived boolean in the react layer so the engine stays untouched. A run that reached the last stage by a forced advance with the gate still unmet is correctly not complete (the override does not produce a finished deliverable), and forces recorded on earlier stages do not block completeness because the run still reached the end.
+- Forked runs (#66 sub-branching). A finished forked run keeps `run.frontier` at the end of the shared spine while completion is tracked through the per-track frontier, any skipped tracks, and the gates along the kept path. The naive frontier check never becomes true for a fork, so finished forked runs would wrongly open in authoring mode. `isRunComplete` reports completeness once the spine is committed, the fork has opened, every kept track has reached its terminal, and every non-skipped gate along the kept path is met.
+- Forced advances past an unmet gate. `isRunComplete` requires every non-skipped main-stage gate to be met, not only the last one, so a run that force-advanced past an earlier unmet gate is correctly not finished. A reading-mode deliverable should reflect met gates end to end, which is what the export checks.
 
-Design choice, raised for approval: derive completeness in react versus add a pure `isRunComplete(def, run, { validators })` to core. The recommendation is to derive it in react for this issue so the engine is not touched; revisit a core helper if #79's run-header work wants the same predicate.
+Both the linear and the forked branch live inside the one export, so reading mode stays a single call regardless of whether the definition forks.
 
 ## Change (Option A): add reading mode as a third view
 
@@ -49,7 +47,7 @@ An "Edit run" control switches from reading mode into the authoring rolodex for 
 
 ## Out of scope
 
-- Any `@sqnce/core` change. Completeness is derived in react.
+- Any `@sqnce/core` change. Completeness comes from the existing `isRunComplete` export.
 - The consumer-supplied status text and its derivation. That is #79; #78 provides only the header band placement and a neutral default.
 - Within-document section navigation in the reading canvas. That is #86, which targets the expand overlay; reading mode benefits from it but does not implement it here.
 - Making the authoring-mode stepper clickable. That is #85.
@@ -64,6 +62,5 @@ An "Edit run" control switches from reading mode into the authoring rolodex for 
 
 ## Open questions for approval
 
-1. Derive completeness in react, or add a pure `isRunComplete` helper to core. Recommendation: derive in react.
-2. Contents rail granularity: main stages only, or main stages with sub-stages nested. Recommendation: main stages, expandable to sub-stages if needed.
-3. Default reading mode for complete runs immediately, or keep it opt-in via the toggle until #79's status slot lands. Recommendation: default it on now; the header shows a neutral "Complete" until #79.
+1. Contents rail granularity: main stages only, or main stages with sub-stages nested. Recommendation: main stages, expandable to sub-stages if needed.
+2. Default reading mode for complete runs immediately, or keep it opt-in via the toggle until #79's status slot lands. Recommendation: default it on now; the header shows a neutral "Complete" until #79.
