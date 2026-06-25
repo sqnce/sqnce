@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { jumpTo, getStepEntry, hasValue, isSubStageSkipped } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { resolveRunStatus } from "./runStatus.js";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 
 /*
@@ -68,7 +69,7 @@ function PlainOutput({ spec, value }) {
   return <div className="pf-read-text">{typeof value === "string" ? value : String(value == null ? "" : value)}</div>;
 }
 
-export default function ReadingView({ def, run, subs, runName, renderers, subjectName, onJump, onEdit }) {
+export default function ReadingView({ def, run, subs, runName, renderers, subjectName, renderRunHeader, runStatus, runId, complete, onJump, onEdit }) {
   const firstFlatOf = (mi) => subs.findIndex((s) => s.mainIndex === mi);
 
   /* The committed reachable main stages, in reading order: the shared spine
@@ -102,6 +103,9 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
 
   const stageSubs = subs.filter((s) => s.mainIndex === selectedMain && !isSubStageSkipped(run, s.id));
 
+  const status = resolveRunStatus(runStatus, { def, run, runId });
+  const headerNode = renderRunHeader ? renderRunHeader({ def, run, runId, subject: subjectName, complete }) : null;
+
   return (
     <div className="pf-read">
       <nav className="pf-read-rail" aria-label="Contents">
@@ -120,8 +124,11 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
       <div className="pf-read-doc">
         <header className="pf-read-band">
           <h1 className="pf-read-title">{runName}</h1>
-          <span className="pf-read-status">Complete</span>
+          <span className="pf-read-status" data-tone={status && status.tone ? status.tone : undefined}>
+            {status ? status.word : "Complete"}
+          </span>
         </header>
+        {headerNode && <div className="pf-read-header-slot">{headerNode}</div>}
 
         <article className="pf-read-canvas">
           <h2 className="pf-read-stage">{def.mainStages[selectedMain].name}</h2>

@@ -46,6 +46,7 @@ import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
 import { resolveGeneratedBadge } from "./badge.js";
+import { resolveRunStatus } from "./runStatus.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -101,6 +102,16 @@ function newId() {
  *      step's status ("done" | "draft" | "open"). A non-empty string is the
  *      label; null hides the badge. Omit for the default mapping (a done
  *      step reads "AI generated", otherwise "AI draft").
+ *  - renderRunHeader (optional): ({ def, run, runId, subject, complete })
+ *      => ReactNode, mounted in the reading-mode run header band (a final
+ *      verdict banner, for example). The band only renders for a finished
+ *      run, so complete is true whenever it fires. Omit to mount nothing.
+ *  - runStatus (optional): ({ def, run, runId }) => string | { word, tone }
+ *      | null, a short per-run status word shown in the runs sidebar, the
+ *      runs screen, and the reading-mode band (where it replaces the
+ *      default "Complete"). A bare string is the word; tone is an opaque
+ *      visual hint that must degrade to a plain word. Omit to show no word
+ *      in the lists and keep "Complete" in the band.
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -170,10 +181,12 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
  * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null }) => (string | { word: string, tone?: string } | null)} [runStatus]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -663,6 +676,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           runName={entry ? runDisplayName(def, store, entry.id) : def.name}
           renderers={renderers}
           subjectName={subjectName}
+          renderRunHeader={renderRunHeader}
+          runStatus={runStatus}
+          runId={entry ? entry.id : null}
+          complete={complete}
           onJump={(i) => setNav(jumpTo(run, subs, i))}
           onEdit={() => { clearTransients(); setView("rolodex"); }}
         />
