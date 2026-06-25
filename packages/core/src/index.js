@@ -127,7 +127,7 @@
  * @property {MainStage[]} mainStages
  */
 /**
- * @typedef {SubStage & { mainId: string, mainName: string, mainIndex: number, subIndex: number }} FlatSubStage
+ * @typedef {SubStage & { mainId: string, mainName: string, mainIndex: number, subIndex: number, track?: string, optional?: boolean }} FlatSubStage
  */
 /**
  * @typedef {Object} StepEntry
@@ -198,10 +198,20 @@
 export function flattenSubStages(definition) {
   /** @type {FlatSubStage[]} */
   const out = [];
+  const tm = isForked(definition) ? trackMap(definition) : null;
   definition.mainStages.forEach((ms, mainIndex) =>
-    ms.subStages.forEach((ss, subIndex) =>
-      out.push({ ...ss, mainId: ms.id, mainName: ms.name, mainIndex, subIndex })
-    )
+    ms.subStages.forEach((ss, subIndex) => {
+      // Annotate the local as FlatSubStage so checkJs accepts the later
+      // base.track / base.optional assignments (the object literal alone would
+      // infer a narrower type without those optional fields).
+      /** @type {FlatSubStage} */
+      const base = { ...ss, mainId: ms.id, mainName: ms.name, mainIndex, subIndex };
+      if (tm && ms.track !== undefined && tm.has(ms.track)) {
+        base.track = ms.track;
+        base.optional = tm.get(ms.track).optional;
+      }
+      out.push(base);
+    })
   );
   return out;
 }

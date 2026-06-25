@@ -1058,3 +1058,24 @@ test("validateDefinition rejects a subject field that is not a field of the fiel
   d.subject = { stepId: "intake", outputId: "facts", field: "ghost" }; // facts has no "ghost" field
   assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
 });
+
+test("flatten annotates tracked sub-stages and leaves spine and linear bare", () => {
+  const subs = flattenSubStages(FORKED);
+  const spine = subs.find((s) => s.id === "intake-sub");
+  assert.equal("track" in spine, false);
+  assert.equal("optional" in spine, false);
+  const demo = subs.find((s) => s.id === "demo-build-sub");
+  assert.equal(demo.track, "demo");
+  assert.equal(demo.optional, true);
+  const resp = subs.find((s) => s.id === "resp-draft-sub");
+  assert.equal(resp.track, "response");
+  assert.equal(resp.optional, false);
+});
+
+test("flatten of a linear definition adds no track/optional fields", () => {
+  const subs = flattenSubStages(FIXTURE);
+  for (const s of subs) {
+    assert.equal("track" in s, false);
+    assert.equal("optional" in s, false);
+  }
+});
