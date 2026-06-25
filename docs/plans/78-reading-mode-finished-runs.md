@@ -18,6 +18,7 @@
 - Completeness predicate is the existing export `isRunComplete(definition, run, { validators })`. Do not hand-roll a frontier check.
 - Reachability is `jumpTo(run, subs, index)`: index `f` is reachable exactly when `jumpTo(run, subs, f).idx === f` (core `index.js:990-994`). This omits skipped tracks and unreached stages for free.
 - Output values are read with `getStepEntry(run, stepId).outputs[outputId]`, never from a RunEntry field.
+- Reading mode is read-only, but `OutputView` forwards `onChange` to custom renderers even in view mode, so always pass a no-op `onChange={() => {}}` (never undefined), or a renderer that calls the prop throws only in reading mode.
 - Reading order over a fork is the `def.mainStages` index order (spine, then kept tracks in declaration order), filtered to the reachable set.
 - esbuild syntax check command (run from the worktree root):
   `npx esbuild <file> --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
@@ -120,6 +121,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
                     key={step.id + ":" + spec.id}
                     spec={spec}
                     value={outVal}
+                    onChange={() => {}}
                     renderers={renderers}
                     context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: false }}
                   />
@@ -354,6 +356,20 @@ Explicit opens and switches route through `viewForRun`, but the active run that 
 
 A brand-new seeded run is not complete, so `viewForRun` returns `"rolodex"`; this only changes the landing view when the active run is genuinely complete.
 
+Then add a guard effect immediately after it, so reading mode never lingers over a run that stopped being readable. While in reading mode the global Reset run button and the sidebar delete stay active; either one can make the active run incomplete or remove it, and the branch would otherwise keep showing a hard-coded "Complete" over blank or fallback content:
+
+```jsx
+  /* Reading mode is only valid over a present, complete run. Reset run,
+     a sidebar delete, or any path that drops completeness while reading
+     routes back to the authoring deck rather than showing "Complete" over
+     emptied content. */
+  useEffect(() => {
+    if (view === "reading" && (!entry || !complete)) setView("rolodex");
+  }, [view, entry, complete]);
+```
+
+This does not fight the Edit toggle: Edit sets `view` to `"rolodex"`, and the one-shot above does not re-route a still-complete run, so the user stays in the deck.
+
 - [ ] **Step 6: Syntax-check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
@@ -480,7 +496,8 @@ git commit -m "chore(types): regenerate after #78"
 - "Persistent clickable contents rail with you-are-here, defined by the reachable set": Task 1 (`readable` via `jumpTo`, `pf-read-here`).
 - "Forked run: rail lists kept track stages, not just spine; skipped tracks omitted": Task 1 (`jumpTo` reachability oracle excludes skipped tracks; `def.mainStages` order gives spine then kept tracks).
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
-- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (`OutputView` with `context.readOnly: true`, filled outputs only).
+- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (`OutputView` with `context.readOnly: true`, a no-op `onChange` so custom renderers never throw, filled outputs only).
+- "Reading mode stays valid": Task 3 guard effect routes back to the deck when the active run is reset, deleted, or otherwise no longer complete while reading.
 - "Prev/next defined over a fork (spine then kept tracks, skipped omitted)": Task 1 (`readable` order + prev/next).
 - "Edit toggle both directions, no run-state mutation": Task 1 (`onEdit`) + Task 2 Step 4 (Read button); switching only calls `setView`, never `setRun`.
 - "Flat layout so no fixed overlay is trapped; responsive rail and bounded measure": Task 4.
