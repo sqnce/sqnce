@@ -33,6 +33,7 @@ import {
   wasAdvanceForced,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
+import { FORKED } from "./fixtures/forked.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const defsDir = join(here, "..", "..", "..", "definitions");
@@ -924,4 +925,17 @@ test("validateDefinition checks the manual step flag", () => {
   assert.deepEqual(validateDefinition(mk(undefined)), []);
   assert.ok(validateDefinition(mk("false")).some((p) => p.includes("manual must be a boolean")));
   assert.ok(validateDefinition(mk(1)).some((p) => p.includes("manual must be a boolean")));
+});
+
+/* ------------------------------------------------------------------ */
+/* Sub-branching (#66)                                                 */
+/* ------------------------------------------------------------------ */
+
+test("the forked fixture has the expected fork shape", () => {
+  assert.equal(FORKED.mainStages.length, 8);
+  assert.equal(FORKED.tracks.length, 2);
+  // spine 0,1; demo 2,3,4 (terminal 4); response 5,6,7 (terminal 7)
+  assert.equal(FORKED.mainStages[1].track, undefined);
+  assert.equal(FORKED.mainStages[2].track, "demo");
+  assert.equal(FORKED.mainStages[5].track, "response");
 });

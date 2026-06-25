@@ -43,6 +43,11 @@
  *    draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
+ *    For a forked definition (one declaring `tracks`) the run also
+ *    carries optional `trackFrontier` (furthest committed main-stage
+ *    index per track, present once the fork opens past the last spine
+ *    stage) and `skippedTracks` (optional tracks marked not-applicable).
+ *    Both are absent for a linear run, which stays byte-identical.
  *    Draft generation targets draftTarget(step): the first text
  *    output, else the first data output; parseDraft turns the raw
  *    reply into a storable value (strict JSON for data targets).
@@ -96,7 +101,14 @@
  * @typedef {Object} MainStage
  * @property {string} id
  * @property {string} name
+ * @property {string} [track] Track id; absent means the stage is shared spine. Present only with Definition.tracks.
  * @property {SubStage[]} subStages
+ */
+/**
+ * @typedef {Object} Track
+ * @property {string} id
+ * @property {string} name
+ * @property {boolean} [optional] When true, the track can be marked not-applicable per run; absent/false means required.
  */
 /**
  * @typedef {Object} SubjectSpec
@@ -111,6 +123,7 @@
  * @property {string} name
  * @property {string} [short]
  * @property {SubjectSpec} [subject]
+ * @property {Track[]} [tracks] Declares a fork; absent means a linear definition.
  * @property {MainStage[]} mainStages
  */
 /**
@@ -130,6 +143,8 @@
  * @property {Object<string, StepEntry>} stepState
  * @property {Object<string, true>} [skips]
  * @property {Object<string, true>} [forces]
+ * @property {Object<string, number>} [trackFrontier] Furthest committed main-stage index within each track; appears when the fork opens.
+ * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
  */
 /**
  * @typedef {Object} GateProgress
