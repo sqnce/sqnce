@@ -224,11 +224,13 @@ Change the `OutputView` signature (line 137) from:
 export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, invalid }) {
 ```
 
-to:
+to (note the `badge = null` default):
 
 ```js
-export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, badge, invalid }) {
+export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, badge = null, invalid }) {
 ```
+
+The `= null` default matters: `OutputView` has two call sites, `ProcessRolodex` (which passes `badge`, Step 3) and `ReadingView` (which does not). Under `checkJs`, a destructured prop with no default is inferred as required, so without the default `npm run types` would fail at the `ReadingView` call site. A defaulted param is optional in the inferred type, so `ReadingView` keeps omitting `badge`.
 
 Change the renderer-view badge (line 160) from:
 
@@ -947,4 +949,5 @@ After Task 6, confirm each spec acceptance criterion:
 - **Spec coverage:** Part 1 (lifecycle badge + override) is Tasks 1-2; Part 2 (`renderRunHeader` + `runStatus` in band, sidebar, runs screen) is Tasks 3-5; styling and demonstration are Task 6. Every acceptance criterion maps to a task above.
 - **Placeholder scan:** no TBD/TODO; every code step shows the exact code and the exact before/after.
 - **Type consistency:** `resolveGeneratedBadge` takes a single options object with `{ generated, lifecycle, spec, resolver }` everywhere it is called (Task 1 defines it, Task 2 calls it). `resolveRunStatus(resolver, ctx)` with `ctx = { def, run, runId }` is consistent across Task 3 (definition), Task 4 (ReadingView), and Task 5 (sidebar, runs screen). The `data-tone` attribute and `{ word, tone }` shape match across band, sidebar, and runs screen. Every new `ProcessRolodex` prop is added to the `ProcessRolodexProps` typedef, satisfying `checkJs`.
-- **Reading-mode badge:** `ReadingView` keeps passing `generated={false}` and never passes `badge`, so finished-run output shows no badge, unchanged. No edit needed there for Part 1.
+- **Reading-mode badge:** `ReadingView` keeps passing `generated={false}` and never passes `badge`. Because `OutputView` defaults `badge = null` (Task 2 Step 1), this both type-checks under `checkJs` and shows no badge on finished-run output, unchanged. No edit needed in `ReadingView` for Part 1.
+- **checkJs required-prop audit:** the only new prop with more than one call site is `OutputView.badge`, defaulted to keep it optional. `ReadingView`, `RunSidebar`, and `RunsScreen` each have a single call site (in `ProcessRolodex`) that passes every new prop, so their inferred-required props are satisfied. `ProcessRolodex`'s own three new props are declared optional (`[...]`) in `ProcessRolodexProps`, so the demo passing only two of them type-checks.
