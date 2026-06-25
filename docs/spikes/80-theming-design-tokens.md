@@ -57,7 +57,7 @@ surface it actually renders on, not one global background:
 | `#D9A441` | gold accent text | dark chrome `#222932` | 6.52:1 | pass |
 | `#8A919B` | subject, side count | dark chrome `#222932` | 4.61:1 | pass |
 | `#5E6772` | switch label, side label | dark chrome `#222932` | 2.56:1 | fail |
-| `#8A8E96` | gate state | dark chrome `#222932` | 4.46:1 | fail |
+| `#8A8E96` | gate state | light card foot `#F1EEE3` | 2.83:1 | fail |
 | `#8A8E96` | step state | light card `#FAF8F0` | 3.09:1 | fail |
 | `#6B6F76` | reading status | light reading `#F1EEE3` | 4.35:1 | fail |
 | `#5E6772` | reading TOC | light reading `#F1EEE3` | 4.94:1 | pass |
@@ -68,16 +68,17 @@ This table is the set found in this spike, not a closed list: the failures span 
 muted greys (the required-field asterisk is a red), so the implementation re-runs an
 exhaustive audit of every default text color against its surface and fixes each failure.
 Several colors fail on their real surface, so "default rendering is visually unchanged" and
-"the default palette meets the contrast minimums" cannot both hold byte-for-byte. Two of the
-greys also expose a token-design consequence: `#8A8E96` is
-used on both the dark nav (gate state, fails) and the light card (step state, fails), and
-`#5E6772` is used on both the dark chrome (labels, fails) and the light reading panel (TOC,
-passes). The same literal cannot be one shared token and pass on both a dark and a light
-surface, because the fix moves in opposite directions (lighten on dark, darken on light).
-So the muted-ink token splits by surface into an ink-on-dark and an ink-on-light value. The
-spec is revised to state the precedence (accessibility wins; the only intentional visual
-changes are the minimal, enumerated muted-text adjustments the audit requires) and to
-require the per-surface split muted-ink tokens, so the two acceptance criteria no longer
+"the default palette meets the contrast minimums" cannot both hold byte-for-byte. One grey
+exposes a token-design consequence: `#5E6772` is used on both the dark chrome (labels, fails)
+and the light reading panel and overview modal (TOC and forced labels, where it passes), so
+the same literal cannot be one shared token and pass on both, because the fix moves in
+opposite directions (lighten on dark, darken on light). So that ink splits by surface into an
+ink-on-dark and an ink-on-light value. The other muted greys are each used on a single class
+of surface (`#8A919B` on the dark chrome, `#8A8E96`/`#6B6F76`/`#9A9EA6`/`#5C6068` on the light
+card, paper, and renderer surfaces), so they stay single tokens that the audit darkens where
+they fail. The spec is revised to state the precedence (accessibility wins; the only
+intentional visual changes are the contrast adjustments the audit requires) and to
+require the per-surface ink tokens, so the two acceptance criteria no longer
 conflict.
 
 ## Assumption 3: portaled overlays mounted inside `.pf-root` get tokens and stay full-screen
@@ -135,5 +136,5 @@ the mechanism. Assumption 3 bounds when nesting a portal under `.pf-root` is saf
 plain ancestor chain) and shows it would regress for a consumer's transformed wrapper, so
 the spec keeps the `document.body` portal and propagates tokens to the portal root. No
 re-spec of the core token mechanism is needed; the spec edits are the contrast precedence
-wording, the per-surface split of the muted-ink token, and the portaled-overlay token
+wording, the per-surface split of the label ink (and per-surface muted inks), and the portaled-overlay token
 strategy (body portal plus token propagation).

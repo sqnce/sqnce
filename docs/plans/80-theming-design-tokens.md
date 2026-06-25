@@ -40,13 +40,13 @@ Copied verbatim from `docs/specs/80-theming-design-tokens.md` and `CLAUDE.md`; e
 
 The private-token block declared once on `.pf-root, .pf-root-tokens`. Each line is `--sqnce-_<name>: var(--sqnce-<name>, <current default>);`. The defaults are today's literals, so default rendering is unchanged; Task 6 then changes only the failing-contrast defaults. Every distinct hex in the `CSS` constant (49 of them) maps to exactly one token or to the deferred list below; no literal is left unaccounted for.
 
-**Surfaces:** `app-top #222932`, `app-bottom #1B2129`, `paper #F1EEE3`, `card #FAF8F0`, `card-done #F2F8F3`, `input #FFFFFF`, `input-readonly #F3F1E8`, `panel-dark #23282F`, `raised #3A434E`, `locked #3A3F46`, `subtle #EFEBDD`, `hover-paper #E7E2D4`.
+**Surfaces:** `app-top #222932`, `app-bottom #1B2129`, `paper #F1EEE3`, `card #FAF8F0`, `input #FFFFFF`, `input-readonly #F3F1E8`, `panel-dark #23282F`, `raised #3A434E`, `locked #3A3F46`, `subtle #EFEBDD`, `hover-paper #E7E2D4`. (The done-step card surface `#F2F8F3` is the status token `done-bg`, not a separate surface token.)
 
-**Ink:** `ink-strong #23282F`, `ink-on-dark #EDEAE0`, `ink-on-dark-2 #C9CDD3`, `ink-muted-dark #8A919B` (muted text on the dark chrome, passes today), `ink-muted-on-card #8A8E96` (every `#8A8E96` use, all on light surfaces: step state, gate state, chev, runs-archived, render-loading, card-eyebrow, overview gate), `ink-muted-light #6B6F76`, `ink-muted-light-2 #5C6068` (secondary text on light: card-desc, filechip, badge), `ink-faint-on-card #9A9EA6` (empty-file / json-meta), `ink-faint-light #2A2F36` (reading body), `ink-label-dark #5E6772` (dark-chrome labels), `ink-label-light #5E6772` (the same value where it sits on light surfaces: overview modal and reading TOC, where it already passes and so is NOT changed by Task 6), `link #2F6F8F` (reading link).
+**Ink:** `ink-strong #23282F`, `ink-on-dark #EDEAE0`, `ink-on-dark-2 #C9CDD3`, `ink-muted-dark #8A919B` (muted text on the dark chrome, passes today), `ink-muted-on-card #8A8E96` (every `#8A8E96` use, all on light surfaces: step state, gate state, chev, runs-archived, render-loading, card-eyebrow, overview gate), `ink-muted-light #6B6F76`, `ink-muted-light-2 #5C6068` (secondary text on light: card-desc, filechip, badge), `ink-faint-on-card #9A9EA6` (empty-file / json-meta), `ink-faint-light #2A2F36` (reading body), `ink-label-dark #5E6772` (dark-chrome labels), `ink-label-light #5E6772` (the same value where it sits on light surfaces: overview modal and reading TOC, where it already passes and so is NOT changed by Task 6), `ink-read #3A434E` (reading sub-heading and control text; a separate ink token from the chrome surface token `raised`, which shares the value, so a `--sqnce-raised` background override does not recolor reading text), `link #2F6F8F` (reading link).
 
 **Accent:** `accent #D9A441`, `accent-hover #E5B458`, `accent-ink #7A6A3C`.
 
-**Status:** `done #2E8F62`, `done-tint #6FBF95`, `done-bg #F2F8F3`, `draft #D9A441`, `draft-bg #F4DFAE`, `danger #C9542D`, `danger-soft #E08A6D`, `danger-strong #B3402A`, `accept-ink #2E6E3F`, `accept-bg #DDEFE0`, `revise-ink #8F4E2E`, `revise-bg #F4DFAE`, `complete #2E8F62`.
+**Status:** `done #2E8F62`, `done-tint #6FBF95`, `done-bg #F2F8F3`, `done-ink #FFFFFF` (the checkmark glyph on the done dot fill; its own token so theming `input` does not recolor the glyph), `draft #D9A441`, `draft-bg #F4DFAE`, `danger #C9542D`, `danger-soft #E08A6D`, `danger-strong #B3402A`, `accept-ink #2E6E3F`, `accept-bg #DDEFE0`, `revise-ink #8F4E2E`, `revise-bg #F4DFAE`, `complete #2E8F62`.
 
 **Pips:** `pip #4A535E`, `pip-locked #343C45`.
 
@@ -74,6 +74,8 @@ The green has two literals, mapped by value (no surface split): every `#2E8F62` 
 
 `#D9A441` as text is gold and reads only on dark or on a fill: its on-dark and on-fill text uses stay `--sqnce-_accent` (`.pf-brand-mark`, `.pf-card-count`, `.pf-rail-active` text, and the gold hover highlights over dark chrome). Its three light-surface text uses fail badly as gold on paper and map to `--sqnce-_accent-ink` instead: `.pf-gate-forced` and `.pf-ov-forced` (the forced-advance labels), and the `.pf-override:hover`/`.pf-skip-btn:hover` text (so the hover highlight stays legible on the light card foot). The non-text `#D9A441` uses (borders, backgrounds, box-shadows) map to `--sqnce-_accent` as usual.
 
+Two more hexes are shared between a surface or border role and a text role, and the text role gets its own ink token so a background override does not recolor text: `#3A434E` stays `--sqnce-_raised` for the dark borders, dividers, and hover fills, but its reading-mode text uses (`.pf-read-sub-name`, `.pf-read-file`, `.pf-read-navbtn`, `.pf-read-edit`) map to `--sqnce-_ink-read`; and `#F1EEE3` stays `--sqnce-_paper` for backgrounds, but the primary button's text (`.pf-btn-primary` color, light text on the dark button) maps to `--sqnce-_ink-on-dark`. Where a single color genuinely is one brand value across roles (the gold `accent` on its fills and the green `done` as both fill and on-light text), it stays one token on purpose.
+
 Task 6 lightens `ink-label-dark` for the dark surface; `ink-label-light` and `done-tint` keep their value (they already pass); and `ink-muted-on-card`, `ink-muted-light`, `ink-faint-on-card`, `ink-muted-light-2`, `accent-ink`, `danger`, `done`, and `complete` are darkened for their light surfaces (darkening `done` also makes the white and off-white text on the green fills pass), so nothing regresses.
 
 ---
@@ -99,7 +101,6 @@ Task 6 lightens `ink-label-dark` for the dark surface; `ink-label-light` and `do
   --sqnce-_app-bottom: var(--sqnce-app-bottom, #1B2129);
   --sqnce-_paper: var(--sqnce-paper, #F1EEE3);
   --sqnce-_card: var(--sqnce-card, #FAF8F0);
-  --sqnce-_card-done: var(--sqnce-card-done, #F2F8F3);
   --sqnce-_input: var(--sqnce-input, #FFFFFF);
   --sqnce-_input-readonly: var(--sqnce-input-readonly, #F3F1E8);
   --sqnce-_panel-dark: var(--sqnce-panel-dark, #23282F);
@@ -118,6 +119,7 @@ Task 6 lightens `ink-label-dark` for the dark surface; `ink-label-light` and `do
   --sqnce-_ink-faint-light: var(--sqnce-ink-faint-light, #2A2F36);
   --sqnce-_ink-label-dark: var(--sqnce-ink-label-dark, #5E6772);
   --sqnce-_ink-label-light: var(--sqnce-ink-label-light, #5E6772);
+  --sqnce-_ink-read: var(--sqnce-ink-read, #3A434E);
   --sqnce-_link: var(--sqnce-link, #2F6F8F);
   --sqnce-_accent: var(--sqnce-accent, #D9A441);
   --sqnce-_accent-hover: var(--sqnce-accent-hover, #E5B458);
@@ -125,6 +127,7 @@ Task 6 lightens `ink-label-dark` for the dark surface; `ink-label-light` and `do
   --sqnce-_done: var(--sqnce-done, #2E8F62);
   --sqnce-_done-tint: var(--sqnce-done-tint, #6FBF95);
   --sqnce-_done-bg: var(--sqnce-done-bg, #F2F8F3);
+  --sqnce-_done-ink: var(--sqnce-done-ink, #FFFFFF);
   --sqnce-_draft: var(--sqnce-draft, #D9A441);
   --sqnce-_draft-bg: var(--sqnce-draft-bg, #F4DFAE);
   --sqnce-_danger: var(--sqnce-danger, #C9542D);
@@ -233,13 +236,13 @@ Run: `npm test` -> FAIL, "Cannot find module '../src/themeTokens.js'".
    .pf-root-tokens class) and mirrors any live consumer override. Pure and
    dependency-free so Node's test runner can import it. */
 export const THEME_TOKENS = [
-  "app-top","app-bottom","paper","card","card-done","input","input-readonly",
+  "app-top","app-bottom","paper","card","input","input-readonly",
   "panel-dark","raised","locked","subtle","hover-paper","ink-strong","ink-on-dark",
   "ink-on-dark-2","ink-muted-dark","ink-muted-on-card",
   "ink-muted-light","ink-muted-light-2","ink-faint-on-card","ink-faint-light",
-  "ink-label-dark","ink-label-light","link","accent","accent-hover","accent-ink",
+  "ink-label-dark","ink-label-light","ink-read","link","accent","accent-hover","accent-ink",
   "done","done-tint","done-bg","draft","draft-bg","danger","danger-soft","danger-strong",
-  "accept-ink","accept-bg","revise-ink","revise-bg","complete","pip","pip-locked",
+  "done-ink","accept-ink","accept-bg","revise-ink","revise-bg","complete","pip","pip-locked",
   "border-paper","border-card","border-soft","border-dot","font-ui","font-mono",
   "size-title","size-body","size-label","space-1","space-2","space-3","space-4",
   "space-5","space-6","space-7","pad-section","radius-card","radius-control",
@@ -420,9 +423,9 @@ Tokenize every non-deferred literal, including every `accent-ink` use (`#7A6A3C`
 .pf-card { position: absolute; left: 50%; top: 12px; max-height: calc(100% - 24px); background: var(--sqnce-_paper); border-radius: var(--sqnce-_radius-card); border: 1px solid var(--sqnce-_border-paper); box-shadow: 0 18px 50px rgba(0,0,0,0.45); padding: 0 0 18px; transition: transform var(--sqnce-_motion-card), width var(--sqnce-_motion-card), opacity var(--sqnce-_motion-fade); transform-style: preserve-3d; display: flex; flex-direction: column; overflow: hidden; }
 .pf-card-desc { padding: 0 20px 6px; font-size: 13.5px; color: var(--sqnce-_ink-muted-light-2); }
 .pf-step { border: 1px solid var(--sqnce-_border-card); border-radius: var(--sqnce-_radius-control); background: var(--sqnce-_card); }
-.pf-step-done { border-color: #BCD9C9; background: var(--sqnce-_card-done); }
+.pf-step-done { border-color: #BCD9C9; background: var(--sqnce-_done-bg); }
 .pf-dot-draft { border-color: var(--sqnce-_draft); background: var(--sqnce-_draft-bg); }
-.pf-dot-done { border-color: var(--sqnce-_done); background: var(--sqnce-_done); color: var(--sqnce-_input); }
+.pf-dot-done { border-color: var(--sqnce-_done); background: var(--sqnce-_done); color: var(--sqnce-_done-ink); }
 .pf-req { color: var(--sqnce-_danger); margin-left: 3px; }
 .pf-step-state { font-family: var(--sqnce-_font-mono); font-size: var(--sqnce-_size-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--sqnce-_ink-muted-on-card); }
 .pf-step-done .pf-step-state { color: var(--sqnce-_done); }
@@ -446,6 +449,10 @@ Tokenize every non-deferred literal, including every `accent-ink` use (`#7A6A3C`
 .pf-read-status[data-tone="revise"] { color: var(--sqnce-_revise-ink); }
 .pf-read-link { color: var(--sqnce-_link); word-break: break-all; }
 .pf-read-toc { text-align: left; background: none; border: none; border-left: 2px solid transparent; padding: 6px 10px; color: var(--sqnce-_ink-label-light); font-size: 13px; cursor: pointer; border-radius: 0 4px 4px 0; }
+.pf-read-sub-name { font-size: 15px; color: var(--sqnce-_ink-read); margin: 0 0 4px; }
+.pf-read-file { font-size: 13px; color: var(--sqnce-_ink-read); margin-bottom: 4px; }
+.pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid var(--sqnce-_border-soft); border-radius: var(--sqnce-_radius-sm); padding: 6px 12px; color: var(--sqnce-_ink-read); cursor: pointer; }
+.pf-btn-primary { background: var(--sqnce-_panel-dark); color: var(--sqnce-_ink-on-dark); border-color: var(--sqnce-_panel-dark); }
 .pf-chev { color: var(--sqnce-_ink-muted-on-card); font-size: 16px; width: 14px; text-align: center; }
 .pf-ov-gate { font-family: var(--sqnce-_font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sqnce-_ink-muted-on-card); }
 .pf-ov-short { margin: 0 0 6px; color: var(--sqnce-_ink-label-light); font-size: 14px; }
@@ -546,6 +553,7 @@ const pairs = [
   ['#565A61','#DCD7C7','ink-muted-light-2 / badge tan'], ['#565A61','#FAF8F0','ink-muted-light-2 / card-desc'],
   ['#23282F','#F4DFAE','ink-strong / draft-dot glyph'], ['#6E6132','#FFFFFF','accent-ink / on white'],
   ['#E08A6D','#23282F','danger-soft / side menu (dark)'], ['#B3402A','#FAF8F0','danger-strong / error on card'],
+  ['#3A434E','#F1EEE3','ink-read / reading text on paper'], ['#3A434E','#E7E2D4','ink-read / read-navbtn hover'],
 ];
 let bad = 0;
 for (const [fg,bg,n] of pairs) { const r = ratio(fg,bg); if (r < 4.5) { bad++; console.log(`FAIL ${r.toFixed(2)}:1 ${fg} on ${bg}  (${n})`); } }
