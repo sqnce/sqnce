@@ -381,8 +381,11 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   };
   const newRun = (workflowId) => {
     clearTransients();
-    setView("rolodex");
-    setStore((s) => addRun(s, newEntryFor(s, workflowId)));
+    /* A normal new run is empty so it authors; a complete first-run seed
+       (from initialRunFor) reads, matching open and switch. */
+    const e = newEntryFor(store, workflowId);
+    setView(viewForRun(e));
+    setStore((s) => addRun(s, e));
   };
   const doRename = (runId, name) => setStore((s) => renameRun(s, runId, name, Date.now()));
   const doArchive = (runId) => setStore((s) => archiveRun(s, runId, Date.now()));
