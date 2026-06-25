@@ -40,6 +40,7 @@ import {
   runDisplayName,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { buildRendererContext } from "./rendererContext.js";
 import ReadingView from "./ReadingView.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
@@ -162,6 +163,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {string} stepId
  * @property {string} subject
  * @property {boolean} readOnly
+ * @property {string | null} runId the active run entry id, or null when there is no active run entry
  * @property {boolean} [expanded]
  */
 /**
@@ -234,6 +236,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const subs = useMemo(() => flattenSubStages(def), [def]);
   const entry = activeRunEntry(store, activeId);
   const readOnly = !!entry && entry.status === "archived";
+  const activeRunId = entry ? entry.id : null;
   /* One-frame fallback while the ensure effect below creates an entry. */
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
@@ -680,7 +683,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           subjectName={subjectName}
           renderRunHeader={renderRunHeader}
           runStatus={runStatus}
-          runId={entry ? entry.id : null}
+          runId={activeRunId}
           complete={complete}
           onJump={(i) => setNav(jumpTo(run, subs, i))}
           onEdit={() => { clearTransients(); setView("rolodex"); }}
@@ -865,7 +868,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                   fileRef.current && fileRef.current.click();
                                 }}
                                 renderers={renderers}
-                                context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
+                                context={buildRendererContext({ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly, runId: activeRunId })}
                                 generated={isGen}
                                 badge={genBadge}
                               />
