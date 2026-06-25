@@ -123,7 +123,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
                     value={outVal}
                     onChange={() => {}}
                     renderers={renderers}
-                    context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: false }}
+                    context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: true }}
                   />
                 );
               }
@@ -421,6 +421,11 @@ Insert these rules into the `CSS` string immediately before the line `@media (ma
 .pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #D8D3C2; margin-top: 8px; }
 .pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
 .pf-read-edit:hover { background: #F3F1E9; }
+/* Uncap renderer-backed outputs in reading mode: the document shows them
+   in full rather than the authoring deck's 280px capped panel, and the
+   expand-to-overlay affordance is redundant once uncapped. */
+.pf-read .pf-render { max-height: none; }
+.pf-read .pf-render-expand { display: none; }
 ```
 
 - [ ] **Step 2: Add the narrow-width rule**
@@ -496,7 +501,7 @@ git commit -m "chore(types): regenerate after #78"
 - "Persistent clickable contents rail with you-are-here, defined by the reachable set": Task 1 (`readable` via `jumpTo`, `pf-read-here`).
 - "Forked run: rail lists kept track stages, not just spine; skipped tracks omitted": Task 1 (`jumpTo` reachability oracle excludes skipped tracks; `def.mainStages` order gives spine then kept tracks).
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
-- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (`OutputView` with `context.readOnly: true`, a no-op `onChange` so custom renderers never throw, filled outputs only).
+- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (`OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read` and hides the redundant expand affordance, so renderer-backed outputs show in full rather than the deck's 280px capped panel.
 - "Reading mode stays valid": Task 3 guard effect routes back to the deck when the active run is reset, deleted, or otherwise no longer complete while reading.
 - "Prev/next defined over a fork (spine then kept tracks, skipped omitted)": Task 1 (`readable` order + prev/next).
 - "Edit toggle both directions, no run-state mutation": Task 1 (`onEdit`) + Task 2 Step 4 (Read button); switching only calls `setView`, never `setRun`.
