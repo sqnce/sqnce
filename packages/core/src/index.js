@@ -631,20 +631,31 @@ export function wasAdvanceForced(run, mainIndex) {
 }
 
 /**
- * Mark a sub-stage not applicable. Returns a new run. No-op (the same
- * run back) when the id is unknown, the sub-stage is not declared
- * skippable, it lies beyond the frontier, or it is already skipped.
- * Skipping never touches stepState.
+ * Mark a sub-stage not applicable. Returns a new run (the normalized run on a
+ * no-op). No-op when the id is unknown, the sub-stage is not declared
+ * skippable, it lies outside the committed reachable region, or it is already
+ * skipped. Skipping never touches stepState.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {string} subStageId
  * @returns {Run}
  */
 export function skipSubStage(run, subStages, subStageId) {
-  const sub = subStages.find((s) => s.id === subStageId);
-  if (!sub || !sub.skippable || sub.mainIndex > run.frontier) return run;
-  if (isSubStageSkipped(run, subStageId)) return run;
-  return { ...run, skips: { ...run.skips, [subStageId]: true } };
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  // committed-in-region: the card must be inside the reachable set (the spine
+  // prefix up to frontier, or an open non-skipped track's committed range).
+  // reachableFlat already rejects an unopened fork and a missing or
+  // out-of-range track frontier (and reads trackFrontier own-property only), so
+  // a corrupted run such as { trackFrontier: { demo: 99 } } cannot make a
+  // tracked sub-stage look committed. Return r (the normalized run) on every
+  // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
+  // even when nothing is skipped.
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  if (isSubStageSkipped(r, subStageId)) return r;
+  return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
 
 /**

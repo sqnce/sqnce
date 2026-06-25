@@ -1328,3 +1328,32 @@ test("a skipped track is unreachable: browse/jumpTo cannot enter it and advance 
   assert.equal(res.advanced, false);
   assert.equal(res.run.trackFrontier.demo, 2); // skipped track frontier untouched
 });
+
+test("skipSubStage marks a skippable sub-stage committed inside a kept track", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open, demo=2
+  r = setOutput(r, "demoScript", "s", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  r = advance(r, subs).run; // demo=3 (demo-build-sub, skippable)
+  const skipped = skipSubStage(r, subs, "demo-build-sub");
+  assert.equal(isSubStageSkipped(skipped, "demo-build-sub"), true);
+});
+
+test("skipSubStage rejects a skippable tracked sub-stage beyond the committed region", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo frontier = 2 only
+  // demo-build-sub (mainIndex 3) IS skippable but lies beyond demo's frontier
+  // (2), so the region guard (not the skippable guard) must reject it.
+  const same = skipSubStage(r, subs, "demo-build-sub");
+  assert.equal(isSubStageSkipped(same, "demo-build-sub"), false);
+});
+
+test("skipSubStage rejects a tracked sub-stage when the track frontier is out of range", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  // a corrupted run: demo's frontier is out of its [2,4] range. demo-build-sub
+  // must not be treated as committed, so it cannot be skipped.
+  r = { ...r, trackFrontier: { ...r.trackFrontier, demo: 99 } };
+  const same = skipSubStage(r, subs, "demo-build-sub");
+  assert.equal(isSubStageSkipped(same, "demo-build-sub"), false);
+});
