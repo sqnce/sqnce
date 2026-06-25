@@ -1343,6 +1343,15 @@ const CSS = `
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
+.pf-read-header-slot { padding: 4px 0 14px; }
+.pf-side-status, .pf-runs-status {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #7A6A3C; background: #F1E8CE;
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+.pf-side-status { margin-left: 6px; }
+.pf-side-status[data-tone="accept"], .pf-runs-status[data-tone="accept"] { color: #2E6E3F; background: #DDEFE0; }
+.pf-side-status[data-tone="revise"], .pf-runs-status[data-tone="revise"] { color: #8F4E2E; background: #F4DFAE; }
 
 .pf-oticon { display: inline-flex; vertical-align: -1px; }
 .pf-counter {

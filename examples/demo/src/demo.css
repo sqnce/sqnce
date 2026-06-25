@@ -58,3 +58,12 @@ body {
 .pf-root {
   min-height: calc(100vh - 44px);
 }
+
+.demo-verdict {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em;
+  text-transform: uppercase; border-radius: 6px; padding: 4px 10px;
+  color: #7A6A3C; background: #F1E8CE;
+}
+.demo-verdict-accept { color: #2E6E3F; background: #DDEFE0; }
+.demo-verdict-revise { color: #8F4E2E; background: #F4DFAE; }
