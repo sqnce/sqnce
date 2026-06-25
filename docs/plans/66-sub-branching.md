@@ -828,12 +828,20 @@ test("a track terminal is a no-op", () => {
   assert.equal(res.run.trackFrontier.demo, 4);
 });
 
-test("a forced advance past an unmet track gate records forces; a met gate records nothing", () => {
+test("a forced advance past an unmet track gate records forces; a met track gate records nothing", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run;
   r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
-  const forced = advance(r, subs, { force: true }); // demoScript output missing
+  const forced = advance(r, subs, { force: true }); // demoScript output missing -> unmet
   assert.equal(forced.run.forces[2], true);
+  // met track gate with force: nothing recorded
+  let r2 = advance(commitSpine(createRun(), subs), subs).run;
+  r2 = setOutput(r2, "demoScript", "s", "x"); // demo-script gate now met
+  r2 = jumpTo(r2, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  const ok = advance(r2, subs, { force: true });
+  assert.equal(ok.advanced, true);
+  assert.equal(ok.run.trackFrontier.demo, 3); // advanced
+  assert.equal(ok.run.forces && ok.run.forces[2], undefined); // met gate records nothing
 });
 
 test("fork-open with the first track skipped lands idx on the next non-skipped track", () => {
@@ -1362,7 +1370,18 @@ export function gateProgress(subStage, run, { validators, subStages } = {}) {
 }
 ```
 
-`mainGateProgress` and `aggregateGate` already forward `opts`; ensure `opts.subStages` reaches them (pass `{ validators, subStages }` through `aggregateGate`). Update `aggregateGate` signature comment accordingly. `advance` passes `{ validators }` today; add `subStages` there too: change its `aggregateGate(..., { validators })` calls to `aggregateGate(..., { validators, subStages })`.
+`mainGateProgress` and `aggregateGate` already forward `opts`; ensure `opts.subStages` reaches them (pass `{ validators, subStages }` through `aggregateGate`). `advance` passes `{ validators }` today; add `subStages` there too: change its `aggregateGate(..., { validators })` calls to `aggregateGate(..., { validators, subStages })`.
+
+Update the public JSDoc `@param` opts type on `gateProgress`, `mainGateProgress`, and the internal `aggregateGate` so `npm run types` emits the new optional property. Each currently declares only `{ validators?: ... }`; add `subStages?: FlatSubStage[]` to all three, for example:
+
+```js
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
+ *   When subStages describes a forked topology, validators are evaluated
+ *   against the step's spine-plus-own-track relation set (cross-track isolation);
+ *   for a linear definition the run is passed through unchanged.
+```
+
+This keeps the parameter lists stable (scoping rides `opts`) while the emitted `.d.ts` documents the accepted `opts.subStages` on the gate helpers.
 
 - [ ] **Step 4: Implement `buildContext` track filter and `normalizeFlat`:**
 
@@ -1668,9 +1687,10 @@ test("cloneRun full clone deep-copies trackFrontier/skippedTracks", () => {
   let s = addRun(createRunStore(), { id: "r1", workflowId: "forked", name: "", status: "active", createdAt: 1, updatedAt: 1, run });
   s = cloneRun(s, { fromId: "r1", newId: "r2", now: 2 });
   const c = s.entries["r2"].run;
-  assert.notEqual(c.trackFrontier, run.trackFrontier);
-  assert.deepEqual(c.trackFrontier, run.trackFrontier);
-  assert.deepEqual(c.skippedTracks, run.skippedTracks);
+  assert.notEqual(c.trackFrontier, run.trackFrontier); // distinct object
+  assert.deepEqual(c.trackFrontier, run.trackFrontier); // same contents
+  assert.notEqual(c.skippedTracks, run.skippedTracks); // distinct object (not aliased)
+  assert.deepEqual(c.skippedTracks, run.skippedTracks); // same contents
 });
 
 test("cloneRun truncating at a tracked stage throws", () => {
@@ -1739,7 +1759,7 @@ Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `se
 ```
 
 - [ ] **Step 3: Regenerate types.** Run `npm run types`. Expected: `packages/core/types/index.d.ts` updates with the new typedefs and exports.
-  - If `tsc` is unavailable locally, skip generation and note that CI runs it; confirm no exported signature changed except the additive new exports. The new exports (`isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`) are additive; `gateProgress`/`mainGateProgress`/`isStepComplete`/`advance`/`browse`/`jumpTo`/`buildContext`/`buildDraftPrompt`/`runSummary` keep their parameter lists (new behavior rides `opts`/annotations).
+  - If `tsc` is unavailable locally, skip generation and note that CI runs it; confirm the only declaration changes are additive. The new exports (`isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`) are additive new functions; the new typedefs (`Track`, `MainStage.track`, `Run.trackFrontier`, `Run.skippedTracks`, the `FlatSubStage` `track`/`optional` fields) are additive; and `gateProgress`/`mainGateProgress` gain an additive optional `opts.subStages` property in their declared opts type (Task 9's JSDoc change), while their parameter lists stay the same. `isStepComplete`/`advance`/`browse`/`jumpTo`/`buildContext`/`buildDraftPrompt`/`runSummary` keep both their parameter lists and their declared types (new behavior rides existing `opts`/annotations). No existing exported signature is removed or narrowed; CI runs the real `tsc` check.
 
 - [ ] **Step 4: Commit.**
 ```bash
