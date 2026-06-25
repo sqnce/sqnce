@@ -20,24 +20,26 @@ and are marked as such inline: the graded eval re-baseline (sqnce has no eval pi
 and graphify orientation plus the post-merge graph refresh (sqnce has no committed graph
 at `graphify-out/` yet; generate one with `graphify` to turn those steps on).
 
-**Codex review loop** means: invoke the Codex plugin manually (`/codex:rescue --fresh`)
-for an independent review of the artifact, address its findings, then re-invoke as a
-fresh, clean-slate review each iteration (`--fresh`, never `--resume`) until a pass
-returns no medium-or-higher findings. Every iteration is fresh-eyes by design: a resumed
-thread carries its own prior findings as context and is biased toward confirming them
-resolved, so it can miss issues a clean-slate read catches, including ones the fixes
-themselves introduce. The loop terminates on the first fresh pass that surfaces no
+**Codex review loop** means: invoke the Codex plugin manually (`/codex:review`,
+arguments `[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch]`)
+for an independent review of the artifact, address its findings, then re-invoke
+`/codex:review` each iteration until a pass returns no medium-or-higher findings.
+`/codex:review` re-reviews the current diff from scratch on every run, so every
+iteration is fresh by construction: there is no resumed thread carrying prior findings
+forward and biasing the read toward confirming them resolved, so each pass catches
+issues a stale read would miss, including ones the fixes themselves
+introduce. The loop terminates on the first pass that surfaces no
 medium-or-higher findings, meaning zero findings or low-only. On a low-only terminating
-pass, fix the low findings but do not run another review (a low fix does not earn a fresh
+pass, fix the low findings but do not run another review (a low fix does not earn a
 confirming pass). Driven by you, not an automated stop-time gate.
 
-> **Termination and cost.** A fresh pass with no medium-or-higher findings is the exit
+> **Termination and cost.** A pass with no medium-or-higher findings is the exit
 > condition. Re-loop only while a pass still returns a medium-or-higher finding. On the
 > terminating pass: if it is low-only, fix those low findings in place but do not run
-> another review, because a low fix does not warrant a fresh confirming pass, and
+> another review, because a low fix does not warrant a confirming pass, and
 > re-reviewing every cosmetic touch-up is what spins the loop on never-ending polish; if
-> it is zero-findings, you are done. `--fresh` re-reads the whole artifact every pass, so
-> it costs more tokens per iteration than a resume. That is the deliberate price of
+> it is zero-findings, you are done. `/codex:review` re-reads the whole diff every pass, so
+> each iteration costs tokens. That is the deliberate price of
 > independence.
 
 > **Codex is review-only.** Codex is the independent second-model reviewer; it must only
@@ -47,7 +49,7 @@ confirming pass). Driven by you, not an automated stop-time gate.
 > `git status` shows Codex changed nothing. (Pass `--wait` so the review runs in the
 > foreground and returns its verdict; a backgrounded pass can lose the result.)
 >
-> **Operational guard (learned the hard way):** the `/codex:rescue` agent will edit and
+> **Operational guard (learned the hard way):** the `/codex:review` agent will edit and
 > commit files unless the invocation explicitly frames it as report-only. State, in every
 > invocation: "Review only, do not modify, create, or delete any files; report findings
 > by severity." After each pass run `git status`; if Codex committed or changed anything,
@@ -104,11 +106,13 @@ through them.
    separation when writing it: the definitions are pure JSON, the engine (`@sqnce/core`)
    is pure and dependency-free, and the UI (`@sqnce/react`) holds all rendering; a spec
    must not blur those layers (see `CLAUDE.md`).
-4. **Codex spec-review loop.** Run `/codex:rescue --fresh` on the spec for an independent
-   second-model review, address findings, then re-review fresh (`--fresh`, a new thread
-   each pass) until a fresh pass returns no medium-or-higher findings (then fix any low
-   findings without re-reviewing, see the loop definition). This comes after the spec is
-   written and before the adversarial review.
+4. **Codex spec-review loop.** Run `/codex:review` on the spec for an independent
+   second-model review (the spec is an uncommitted working-tree change at this point, so
+   `/codex:review --scope working-tree` is the relevant scope; once it is committed on the
+   branch, `--base main` works), address findings, then re-run `/codex:review` until a
+   pass returns no medium-or-higher findings (then fix any low findings without
+   re-reviewing, see the loop definition). This comes after the spec is written and before
+   the adversarial review.
 5. **Adversarial spec review.** Independently verify every codebase claim in the spec
    against the source: assume it is wrong until each claim is confirmed.
 
@@ -152,10 +156,11 @@ through them.
    truth, and a merged plan is stale how-to-build duplication. (Its content stays in branch
    history.) The spec (`docs/specs/`) and any spike (`docs/spikes/`) do stay on main as the
    design and the evidence; only the plan is dropped.
-7. **Codex plan-review loop.** `/codex:rescue --fresh` reviews the plan, address, then
-   re-review fresh (`--fresh`, a new thread each pass) until a fresh pass returns no
-   medium-or-higher findings (then fix any low findings without re-reviewing, see the loop
-   definition).
+7. **Codex plan-review loop.** `/codex:review` reviews the plan (it is committed on the
+   branch by now, so `--base main` reviews the branch diff, or set `--base` to the commit
+   just before the plan to scope the review to the plan alone), address, then re-run
+   `/codex:review` until a pass returns no medium-or-higher findings (then fix any low
+   findings without re-reviewing, see the loop definition).
 8. **Adversarial plan review.** Independently verify the plan the same way as the spec
    (step 5): assume it is wrong until confirmed.
 9. **Implement and test.** Continue in the worktree and branch created when the spec went
@@ -179,9 +184,9 @@ through them.
    claim a gate passed that you did not run. Example: `tsc` for `npm run types` may not be
    installed locally, so confirm the diff touches no exported signature as the local proxy
    and let CI run the real types check.)
-10. **Codex pre-PR code-review loop, then PR.** Run `/codex:rescue --fresh` on the diff,
-    address findings, then re-review fresh (`--fresh`, a new thread each pass) until a fresh
-    pass returns no medium-or-higher findings (then fix any low findings without
+10. **Codex pre-PR code-review loop, then PR.** Run `/codex:review --base main` on the diff,
+    address findings, then re-run `/codex:review` until a pass returns no
+    medium-or-higher findings (then fix any low findings without
     re-reviewing, see the loop definition); then mark the draft PR (opened when the spec
     went up for review, between steps 5 and 6) ready for review and squash-merge to main
     (subject: descriptive imperative plus trailing `(#<issue>)`; the squash appends the PR
@@ -215,10 +220,10 @@ through them.
 
 - **Claude-primary, Codex-side auto-generated.** `.codex/`, `.codex-companion/`, and
   `AGENTS.md` are local, not committed (gitignore them if Codex generates them here).
-- **Manual, not gated.** Review loops fire when you invoke `/codex:rescue --fresh` (always
-  fresh, see the loop definition); there is no stop-time review gate wired in
-  `settings.json`. Run `/codex:setup` on a new machine to confirm the local Codex CLI is
-  ready (the stop-time gate stays off unless you turn it on).
+- **Manual, not gated.** Review loops fire when you invoke `/codex:review` (each run
+  re-reviews the current diff, see the loop definition); there is no stop-time review gate
+  wired in `settings.json`. Run `/codex:setup` on a new machine to confirm the local Codex
+  CLI is ready (the stop-time gate stays off unless you turn it on).
 - **Review-only.** Codex reports; it never edits the artifact. Apply every fix yourself and
   confirm `git status` shows Codex changed nothing (see the Codex-is-review-only note near
   the top). Pair it with `superpowers:requesting-code-review` (drive) and
