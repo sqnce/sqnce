@@ -34,7 +34,7 @@
 - **Modify** `packages/core/test/runstore.test.js`: `cloneRun` fork fail-fast tests.
 - **Modify** `CLAUDE.md`: key-behavior notes for sub-branching.
 - **Modify** `packages/core/README.md`: add the new public helpers to the `Exports:` line.
-- **Regenerate** `packages/core/types/index.d.ts` via `npm run types`.
+- **Regenerate** `packages/core/types/index.d.ts` via `npm run types` (local/CI only: this path is gitignored and never committed; `npm run types` is the type-check gate and prepack regenerates the `.d.ts` for the published tarball).
 
 ## Internal helper inventory (added to `index.js`, not exported)
 
@@ -44,7 +44,6 @@ These back the public functions. All are defined in Task 2 and used thereafter, 
 - `lastSpineIndex(definition)` -> number: index of the last untagged main stage. For a linear definition, `mainStages.length - 1`.
 - `trackMap(definition)` -> `Map<trackId, { name, optional, first, terminal, indices: number[] }>`: derived from `mainStages` order (flat-stage order), so `first`/`terminal` are flat indices.
 - `trackIdOfStage(definition, mainIndex)` -> string | null (null = spine).
-- `firstNonSkippedTrack(definition, run)` -> trackId | null: the flat-first track not effectively skipped, or null when all are skipped.
 - `hasOwn(obj, key)` -> boolean: `Object.prototype.hasOwnProperty.call(obj || {}, key)`.
 - `isTrackSkippedEffective(definition, run, trackId)` -> boolean: declared, `optional`, and `hasOwn(run.skippedTracks, trackId)`.
 - `effectiveSkippedTrackIds(definition, run)` -> `Set<string>`.
@@ -171,7 +170,7 @@ git commit -m "feat(core): add track/forked typedefs and forked test fixture (#6
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Produces: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `hasOwn`, `isTrackSkippedEffective`, `effectiveSkippedTrackIds`, `firstNonSkippedTrack`, `normalizeFlat`, `reachableFlat`. These are internal (not exported), exercised through the public functions in later tasks. None are exported; the spec's exported helpers are added in Tasks 5 and 10.
+- Produces: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `hasOwn`, `isTrackSkippedEffective`, `effectiveSkippedTrackIds`, `normalizeFlat`, `reachableFlat`. These are internal (not exported), exercised through the public functions in later tasks. None are exported; the spec's exported helpers are added in Tasks 5 and 10.
 
 - [ ] **Step 1: Add the helpers.** Insert after `flattenSubStages`:
 
@@ -237,18 +236,6 @@ function effectiveSkippedTrackIds(definition, run) {
     if (tm.optional && hasOwn(run.skippedTracks, id)) set.add(id);
   });
   return set;
-}
-
-/** Flat-first track not effectively skipped, or null. @returns {string|null} */
-function firstNonSkippedTrack(definition, run) {
-  const skipped = effectiveSkippedTrackIds(definition, run);
-  let best = null;
-  let bestFirst = Infinity;
-  trackMap(definition).forEach((tm, id) => {
-    if (skipped.has(id)) return;
-    if (tm.first < bestFirst) { bestFirst = tm.first; best = id; }
-  });
-  return best;
 }
 ```
 
@@ -758,7 +745,7 @@ git commit -m "feat(core): track skip API (skipTrack/unskipTrack/isTrackSkipped)
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Consumes: `isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `firstNonSkippedTrack`, `effectiveSkippedTrackIds`, `hasOwn`, `normalizeFlat` (Task 2), `aggregateGate` (existing).
+- Consumes: `normalizeFlat`, `hasOwn` (Task 2), and `aggregateGate` (existing). `advanceForked` derives the spine end, the per-track ranges, and the effectively-skipped set inline from the flat `subStages` annotations rather than via the definition-based topology helpers, so `advance` keeps its `(run, subStages, opts)` signature with no definition argument.
 - Produces: `advance` opens/repairs the fork at the last spine stage, advances within a track, no-ops at terminals/skipped tracks; `frontier` stays at the spine; track progress in `trackFrontier`.
 
 - [ ] **Step 1: Write failing tests.** Helper to drive the spine to the fork:
@@ -1576,8 +1563,8 @@ test("a skipped optional track is excluded; an all-required-complete run complet
 test("runSummary excludes a skipped track's sub-stages", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run;
-  const before = runSummary(FORKED, r, { subStages: subs }).total;
-  const after = runSummary(FORKED, skipTrack(r, FORKED, "demo"), { subStages: subs }).total;
+  const before = runSummary(FORKED, r).total;
+  const after = runSummary(FORKED, skipTrack(r, FORKED, "demo")).total;
   assert.ok(after < before);
 });
 
@@ -1675,6 +1662,17 @@ test("gateProgress reports a single stage's gate and never consults skippedTrack
   const skipped = { ...r, skippedTracks: { demo: true } };
   assert.equal(gateProgress(sub, r, { subStages: subs }).met, true);
   assert.equal(gateProgress(sub, skipped, { subStages: subs }).met, true); // a whole-track skip is not its concern
+});
+
+test("a linear run is complete when the frontier is at the last main stage with its gate met", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "kickoff", true); // required checklist step in the start sub-stage
+  r = setCheckedDone(r, "evidence", true); // required step in the (skippable) collect sub-stage
+  r = advance(r, subs).run; // alpha boundary gate met -> frontier 1 (omega)
+  assert.equal(r.frontier, 1);
+  r = setCheckedDone(r, "approve", true); // strict signoff gate
+  assert.equal(isRunComplete(FIXTURE, r), true);
 });
 ```
 
@@ -1850,10 +1848,10 @@ git commit -m "feat(core): cloneRun fork fail-fast on tracked truncation (#66)"
 **Files:**
 - Modify: `CLAUDE.md` (Key behaviors to preserve)
 - Modify: `packages/core/README.md` (Exports line)
-- Regenerate: `packages/core/types/index.d.ts`
+- Regenerate (local/CI only, gitignored, not committed): `packages/core/types/index.d.ts`
 
 **Interfaces:**
-- Produces: committed `.d.ts`, README export list, and CLAUDE.md notes.
+- Produces: a clean `npm run types` type-check, the README export list, and the CLAUDE.md notes. The `.d.ts` is generated (gitignored), not committed.
 
 - [ ] **Step 1: Add a CLAUDE.md key-behavior bullet** under "Key behaviors to preserve":
 
@@ -1867,13 +1865,13 @@ git commit -m "feat(core): cloneRun fork fail-fast on tracked truncation (#66)"
 Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `setCheckedDone`, `getStepEntry`, `hasValue`, `stepHasAnyOutput`, `isStepComplete`, `gateTypeOf`, `gateProgress`, `mainGateProgress`, `browse`, `jumpTo`, `advance`, `resolveSubject`, `serializeStep`, `buildContext`, `buildDraftPrompt`, `runSummary`, `cloneRun`, `isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`.
 ```
 
-- [ ] **Step 3: Regenerate types.** Run `npm run types`. Expected: `packages/core/types/index.d.ts` updates with the new typedefs and exports.
-  - If `tsc` is unavailable locally, skip generation and note that CI runs it; confirm the only declaration changes are additive. The new exports (`isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`) are additive new functions; the new typedefs (`Track`, `MainStage.track`, `Run.trackFrontier`, `Run.skippedTracks`, the `FlatSubStage` `track`/`optional` fields) are additive; and `gateProgress`/`mainGateProgress` gain an additive optional `opts.subStages` property in their declared opts type (Task 9's JSDoc change), while their parameter lists stay the same. `isStepComplete`/`advance`/`browse`/`jumpTo`/`buildContext`/`buildDraftPrompt`/`runSummary` keep both their parameter lists and their declared types (new behavior rides existing `opts`/annotations). No existing exported signature is removed or narrowed; CI runs the real `tsc` check.
+- [ ] **Step 3: Type-check the source.** Run `npm run types` (`tsc -p tsconfig.declarations.json`, `checkJs: true`). Expected: it type-checks cleanly and regenerates `packages/core/types/index.d.ts` locally. That directory is gitignored (`.gitignore`: `packages/*/types/`), so the generated `.d.ts` is NOT committed and `git add packages/core/types/index.d.ts` would be a silent no-op: prepack regenerates the `.d.ts` for the published tarball, CI's pack job verifies the tarball contains `package/types/index.d.ts`, and CI's test job runs `npm run types` as the type-check gate. The goal here is a clean type-check, not a committed artifact.
+  - If `tsc` is unavailable locally, note that CI runs it; confirm the only declaration changes are additive. The new exports (`isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`) are additive new functions; the new typedefs (`Track`, `MainStage.track`, `Run.trackFrontier`, `Run.skippedTracks`, the `FlatSubStage` `track`/`optional` fields) are additive; and `gateProgress`/`mainGateProgress` gain an additive optional `opts.subStages` property in their declared opts type (Task 9's JSDoc change), while their parameter lists stay the same. `isStepComplete`/`advance`/`browse`/`jumpTo`/`buildContext`/`buildDraftPrompt`/`runSummary` keep both their parameter lists and their declared types (new behavior rides existing `opts`/annotations). No existing exported signature is removed or narrowed.
 
-- [ ] **Step 4: Commit.**
+- [ ] **Step 4: Commit.** Commit only the tracked docs; the regenerated `.d.ts` is gitignored, so it is not part of this (or any) commit.
 ```bash
-git add CLAUDE.md packages/core/README.md packages/core/types/index.d.ts
-git commit -m "docs(core): sub-branching notes, exports, and regenerated types (#66)"
+git add CLAUDE.md packages/core/README.md
+git commit -m "docs(core): sub-branching notes and README exports (#66)"
 ```
 
 ---
@@ -1886,7 +1884,7 @@ git commit -m "docs(core): sub-branching notes, exports, and regenerated types (
 
 - [ ] **Step 2: Run the demo build.** `npm run build -w examples/demo`, Expected: build succeeds (no forked definition is fed to the UI; the additive engine surface does not break the demo).
 
-- [ ] **Step 3: Confirm types.** `npm run types` then `git status`, Expected: no uncommitted changes to `packages/core/types/` (the `.d.ts` committed in Task 12 is current). If local `tsc` is unavailable, state that CI runs it and confirm the diff added only the new exports.
+- [ ] **Step 3: Type-check.** `npm run types`, Expected: a clean type-check (`checkJs: true`). `packages/core/types/` is gitignored, so this commits nothing and `git status` shows no tracked change there; the type-check passing is the gate. If local `tsc` is unavailable, state that CI runs it (test job) and that CI's pack job verifies the published tarball contains `package/types/index.d.ts`; confirm the diff adds only the additive declarations.
 
 - [ ] **Step 4: Confirm no em dashes and clean tree.**
 ```bash
@@ -1902,7 +1900,7 @@ git status --short
 
 1. **Spec coverage:** every spec section maps to a task, validation (Task 3), flatten (Task 4), track skip API (Task 5), advance (Task 6), navigation + normalization (Task 7), region-aware skipSubStage (Task 8), context + validator scoping + draft prompt (Task 9), isRunComplete + trackStatus + runSummary (Task 10), cloneRun (Task 11), docs + types (Task 12), backward-compat regression (Tasks 6/7/8/10 linear assertions + Task 13).
 2. **Placeholder scan:** no "TBD"/"add validation"/"similar to", every step shows real code or an exact command.
-3. **Type consistency:** the helper names (`isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `effectiveSkippedTrackIds`, `isTrackSkippedEffective`, `firstNonSkippedTrack`, `normalizeFlat`, `reachableFlat`, `scopeValidatorRun`) and public signatures (`isRunComplete(definition, run, opts)`, `trackStatus(definition, run, trackId, opts)`, `skipTrack(run, definition, trackId)`, `unskipTrack(run, definition, trackId)`, `isTrackSkipped(run, definition, trackId)`) are used consistently across tasks. There is a single canonical `subStages`-driven normalization pair (`normalizeFlat`/`reachableFlat`) defined in Task 2; definition-holding callers (`runSummary`, `isRunComplete`, `trackStatus`) call `flattenSubStages(definition)` and pass the result. No definition-driven copy exists.
+3. **Type consistency:** the helper names (`isForked`, `lastSpineIndex`, `trackMap`, `trackIdOfStage`, `effectiveSkippedTrackIds`, `isTrackSkippedEffective`, `normalizeFlat`, `reachableFlat`, `scopeValidatorRun`) and public signatures (`isRunComplete(definition, run, opts)`, `trackStatus(definition, run, trackId, opts)`, `skipTrack(run, definition, trackId)`, `unskipTrack(run, definition, trackId)`, `isTrackSkipped(run, definition, trackId)`) are used consistently across tasks. There is a single canonical `subStages`-driven normalization pair (`normalizeFlat`/`reachableFlat`) defined in Task 2; definition-holding callers (`runSummary`, `isRunComplete`, `trackStatus`) call `flattenSubStages(definition)` and pass the result. No definition-driven copy exists.
 
 ## Known implementation risks (resolve with systematic-debugging, not guessing)
 
