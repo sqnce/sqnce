@@ -1379,6 +1379,33 @@ const CSS = `
 .pf-ov-here { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #23282F; background: #D9A441; border-radius: 4px; padding: 1px 7px; }
 .pf-ov-sub-desc { margin: 3px 0 0; font-size: 12.5px; color: #5E6772; line-height: 1.45; }
 
+/* ---------- reading mode ---------- */
+/* A light document page on the dark app shell, like the cards, so the dark
+   text below stays legible. The page scrolls; the contents rail sticks. */
+.pf-read { display: flex; flex: 1; min-height: 0; gap: 24px; margin: 8px 4px; padding: 20px 24px; background: #F1EEE3; border: 1px solid #D8D3C2; border-radius: 10px; color: #23282F; overflow: auto; }
+.pf-read-rail { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start; position: sticky; top: 0; }
+.pf-read-toc { text-align: left; background: none; border: none; border-left: 2px solid transparent; padding: 6px 10px; color: #5E6772; font-size: 13px; cursor: pointer; border-radius: 0 4px 4px 0; }
+.pf-read-toc:hover { color: #23282F; background: #E7E2D4; }
+.pf-read-here { color: #23282F; border-left-color: #D9A441; font-weight: 600; }
+.pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pf-read-band { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #D8D3C2; padding-bottom: 10px; margin-bottom: 12px; }
+.pf-read-title { font-size: 22px; margin: 0; color: #23282F; }
+.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #2E8F62; }
+.pf-read-canvas { max-width: 760px; }
+.pf-read-stage { font-size: 18px; color: #23282F; margin: 4px 0 12px; }
+.pf-read-sub { margin-bottom: 22px; }
+.pf-read-sub-name { font-size: 15px; color: #3A434E; margin: 0 0 4px; }
+.pf-read-sub-desc { color: #6B6F76; margin: 0 0 10px; }
+.pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #D8D3C2; margin-top: 8px; }
+.pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
+.pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: #E7E2D4; }
+.pf-read-navbtn:disabled { opacity: 0.4; cursor: default; }
+/* Uncap renderer-backed outputs in reading mode: the document shows them in
+   full rather than the authoring deck's 280px capped panel. The expand-to-
+   overlay button stays, so a large output can still go fullscreen and the
+   no-trapped-overlay acceptance check is reachable. */
+.pf-read .pf-render { max-height: none; }
+
 @media (max-width: 720px) {
   .pf-card-side { display: none; }
   .pf-side { display: none; }
@@ -1386,5 +1413,7 @@ const CSS = `
   .pf-nav-btn { min-width: 0; }
   .pf-fields { grid-template-columns: 1fr; }
   .pf-rail { justify-content: flex-start; }
+  .pf-read { flex-direction: column; }
+  .pf-read-rail { flex-basis: auto; position: static; max-height: none; flex-direction: row; flex-wrap: wrap; }
 }
 `;
