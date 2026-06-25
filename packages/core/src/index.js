@@ -1535,6 +1535,14 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
     if (matches.length > 1)
       throw new Error(`cloneRun: main stage "${uptoStageId}" is ambiguous (${matches.length} matches)`);
     const k = matches[0];
+    // Fork-aware truncation is not supported: truncating to a tracked (post-fork)
+    // stage would corrupt the index-order rebuild, so fail loudly. This more
+    // specific error must win over the beyond-frontier throw below (a tracked
+    // stage is typically also beyond a spine frontier).
+    if (definition.mainStages[k] && definition.mainStages[k].track !== undefined)
+      throw new Error(
+        `cloneRun: uptoStageId "${uptoStageId}" is a tracked (post-fork) stage; fork-aware truncation is not supported`
+      );
     if (k > run.frontier)
       throw new Error(
         `cloneRun: uptoStageId "${uptoStageId}" (stage ${k}) is beyond the run frontier ${run.frontier}`
