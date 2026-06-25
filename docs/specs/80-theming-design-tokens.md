@@ -53,7 +53,7 @@ The issue requires the default theme to be accessible, independent of any consum
 
 ## Verification
 
-`npm test` already runs the engine tests plus the existing `@sqnce/react` unit tests (`node --test` over `packages/react/test/*.test.js`), but there is no DOM render harness for visual or CSS verification. So the token defaults, the reskin, and contrast are verified by the demo build (`npm run build -w examples/demo`), a manual before-and-after render confirming the default look is unchanged apart from the enumerated contrast adjustments, a manual reskin confirming that overriding `--sqnce-*` on an ancestor rethemes the shell (including the portaled overlay and overview modal), and a contrast tool against the rendered defaults. The parts that are not pure CSS are covered with `@sqnce/react` unit tests where they are unit-testable: the accessibility labels and glyphs added to the status dots and navigation pips, and the overlay and overview modal mounting within `.pf-root`.
+`npm test` already runs the engine tests plus the existing `@sqnce/react` unit tests (`node --test` over `packages/react/test/*.test.js`), but those react tests cover pure helper modules (`badge`, `markdownInline`, `rendererContext`, `runStatus`) and there is no DOM render harness (no jsdom). So the token defaults, the reskin, contrast, the accessibility cues, and the portaled-overlay behavior are not unit-testable as the repo stands; they are verified by the demo build (`npm run build -w examples/demo`), a manual before-and-after render confirming the default look is unchanged apart from the enumerated contrast adjustments, a manual reskin confirming that overriding `--sqnce-*` on an ancestor rethemes the shell (including the body-portaled overlay and overview modal), an embedded case with a transformed wrapper confirming the overlay still covers the viewport, and a contrast tool against the rendered defaults. Adding a DOM render harness is out of scope; if any token logic is extracted into a pure helper, it is covered by a `@sqnce/react` unit test in the existing style.
 
 ## Acceptance
 
@@ -62,7 +62,7 @@ The issue requires the default theme to be accessible, independent of any consum
 - The renderer-expand overlay and the overview modal, though portaled to `document.body`, render with the same token defaults and pick up consumer overrides, and stay full-screen above the shell regardless of the consumer's embedding context (a transformed or stacking-context wrapper does not bound or mis-stack them).
 - Every status conveys meaning with a word and an icon, not color alone.
 - The default palette meets the contrast minimums, and the reduced-motion path is consistent.
-- `@sqnce/react` unit tests cover the testable non-CSS changes: the status-dot and navigation-pip accessibility labels and glyphs, and the expand overlay and overview modal mounting within `.pf-root`.
+- The accessibility cues, the body-portaled overlay token behavior, and the embedded transformed-wrapper case are confirmed in the demo build and by manual inspection (no DOM render harness exists to unit-test them, and adding one is out of scope).
 - `npm test` and `npm run build -w examples/demo` pass.
 
 ## Open questions for approval
