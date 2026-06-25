@@ -417,10 +417,92 @@ export function validateDefinition(definition) {
     });
   });
 
+  const stageTracks = (definition.mainStages || []).filter((m) => m.track !== undefined);
+  if (definition.tracks === undefined) {
+    if (stageTracks.length)
+      problems.push("a mainStage.track is present without a definition.tracks declaration");
+  } else if (!Array.isArray(definition.tracks)) {
+    problems.push("definition.tracks must be an array");
+  } else {
+    const reserved = new Set(["__proto__", "constructor", "prototype"]);
+    const ids = new Set();
+    if (definition.tracks.length < 2) problems.push("definition.tracks needs at least two tracks");
+    definition.tracks.forEach((t, ti) => {
+      const idOk = t && typeof t.id === "string" && t.id.trim();
+      if (!idOk) problems.push(`tracks[${ti}].id must be a non-empty string`);
+      if (!(t && typeof t.name === "string" && t.name.trim()))
+        problems.push(`tracks[${ti}].name must be a non-empty string`);
+      if (t && t.optional !== undefined && typeof t.optional !== "boolean")
+        problems.push(`track "${t && t.id}": optional must be a boolean`);
+      if (idOk && reserved.has(t.id))
+        problems.push(`track id "${t.id}" is a reserved object-prototype key`);
+      if (idOk && ids.has(t.id)) problems.push(`duplicate track id "${t.id}"`);
+      if (idOk) ids.add(t.id);
+    });
+    // stage track references must be non-empty strings naming a declared track
+    (definition.mainStages || []).forEach((ms, mi) => {
+      if (ms.track === undefined) return;
+      if (typeof ms.track !== "string" || !ms.track.trim())
+        problems.push(`mainStages[${mi}].track must be a non-empty string`);
+      else if (!ids.has(ms.track))
+        problems.push(`mainStages[${mi}].track "${ms.track}" references an undeclared track`);
+    });
+    // spine non-empty: stage 0 must be untagged
+    const stages = definition.mainStages || [];
+    if (stages.length && stages[0].track !== undefined)
+      problems.push("the spine is empty: stage 0 must be a shared (untagged) stage");
+    // no shared stage after the fork: once a tagged stage appears, every later stage is tagged
+    let seenTagged = false;
+    let contiguityBroken = false;
+    const order = [];
+    stages.forEach((ms) => {
+      if (ms.track !== undefined) { seenTagged = true; order.push(ms.track); }
+      else if (seenTagged) problems.push("a shared (untagged) stage appears after the fork (implicit rejoin)");
+    });
+    // contiguity: each track id forms a single contiguous run in `order`
+    const seenRuns = new Set();
+    let prev = null;
+    order.forEach((tid) => {
+      if (tid !== prev) {
+        if (seenRuns.has(tid)) contiguityBroken = true;
+        seenRuns.add(tid);
+        prev = tid;
+      }
+    });
+    if (contiguityBroken) problems.push("a track's stages are non-contiguous (interleaved with another track)");
+    // every declared track owns at least one stage
+    ids.forEach((id) => {
+      if (!order.includes(id)) problems.push(`track "${id}" owns no main stage (unreachable / no terminal)`);
+    });
+  }
+
   if (definition.subject) {
     const s = definition.subject;
-    if (!s.stepId || !s.outputId || !s.field)
+    if (!s.stepId || !s.outputId || !s.field) {
       problems.push("definition.subject requires stepId, outputId, and field");
+    } else if (isForked(definition)) {
+      const spineEnd = lastSpineIndex(definition);
+      const owners = [];
+      (definition.mainStages || []).forEach((ms, mi) => {
+        (ms.subStages || []).forEach((ss) =>
+          (ss.steps || []).forEach((st) => {
+            if (st.id === s.stepId) owners.push({ mi, step: st });
+          })
+        );
+      });
+      if (owners.length !== 1) {
+        problems.push(`definition.subject.stepId "${s.stepId}" must resolve to exactly one step`);
+      } else {
+        const { mi, step } = owners[0];
+        if (mi > spineEnd) problems.push("definition.subject step must live in the spine, not a track");
+        const out = (step.outputs || []).find((o) => o.id === s.outputId);
+        if (!out) problems.push(`definition.subject.outputId "${s.outputId}" is not on step "${s.stepId}"`);
+        else if (out.type !== "fields")
+          problems.push("definition.subject must point at a fields output");
+        else if (!(out.fields || []).some((f) => f.key === s.field))
+          problems.push(`definition.subject.field "${s.field}" is not a field of "${s.outputId}"`);
+      }
+    }
   }
   return problems;
 }

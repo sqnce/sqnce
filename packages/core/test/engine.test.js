@@ -939,3 +939,122 @@ test("the forked fixture has the expected fork shape", () => {
   assert.equal(FORKED.mainStages[2].track, "demo");
   assert.equal(FORKED.mainStages[5].track, "response");
 });
+
+const RESERVED = ["__proto__", "constructor", "prototype"];
+function clone(def) { return JSON.parse(JSON.stringify(def)); }
+
+test("validateDefinition accepts a well-formed fork", () => {
+  assert.deepEqual(validateDefinition(FORKED), []);
+});
+
+test("validateDefinition rejects a stray track tag with no tracks declaration", () => {
+  const d = clone(FORKED); delete d.tracks;
+  assert.ok(validateDefinition(d).some((p) => /track/i.test(p)));
+});
+
+test("validateDefinition rejects tracks that is not an array", () => {
+  const d = clone(FORKED); d.tracks = { demo: true };
+  assert.ok(validateDefinition(d).some((p) => /tracks.*array/i.test(p)));
+});
+
+test("validateDefinition rejects fewer than 2 tracks", () => {
+  const d = clone(FORKED); d.tracks = [{ id: "demo", name: "Demo", optional: true }];
+  d.mainStages = d.mainStages.filter((m) => m.track !== "response");
+  assert.ok(validateDefinition(d).some((p) => /at least two|fewer than 2/i.test(p)));
+});
+
+test("validateDefinition rejects a non-boolean track.optional", () => {
+  const d = clone(FORKED); d.tracks[0].optional = "yes";
+  assert.ok(validateDefinition(d).some((p) => /optional.*boolean/i.test(p)));
+});
+
+test("validateDefinition rejects a whitespace-only or non-string track id/name", () => {
+  const blankId = clone(FORKED); blankId.tracks[0].id = "   ";
+  assert.ok(validateDefinition(blankId).some((p) => /id must be a non-empty string/i.test(p)));
+  const numId = clone(FORKED); numId.tracks[0].id = 7;
+  assert.ok(validateDefinition(numId).some((p) => /id must be a non-empty string/i.test(p)));
+  const blankName = clone(FORKED); blankName.tracks[0].name = "  ";
+  assert.ok(validateDefinition(blankName).some((p) => /name must be a non-empty string/i.test(p)));
+});
+
+test("validateDefinition rejects a non-string mainStage.track", () => {
+  const d = clone(FORKED); d.mainStages[2].track = 7;
+  assert.ok(validateDefinition(d).some((p) => /track.*string/i.test(p)));
+});
+
+test("validateDefinition rejects a duplicate track id", () => {
+  const d = clone(FORKED); d.tracks[1].id = "demo";
+  assert.ok(validateDefinition(d).some((p) => /duplicate track/i.test(p)));
+});
+
+for (const key of RESERVED) {
+  test(`validateDefinition rejects reserved track id ${key}`, () => {
+    const d = clone(FORKED); d.tracks[0].id = key; d.mainStages[2].track = key;
+    d.mainStages[3].track = key; d.mainStages[4].track = key;
+    assert.ok(validateDefinition(d).some((p) => /reserved/i.test(p)));
+  });
+}
+
+test("validateDefinition rejects an undeclared track reference", () => {
+  const d = clone(FORKED); d.mainStages[2].track = "ghost";
+  assert.ok(validateDefinition(d).some((p) => /undeclared|unknown track/i.test(p)));
+});
+
+test("validateDefinition rejects an empty spine (stage 0 tagged)", () => {
+  const d = clone(FORKED); d.mainStages[0].track = "response";
+  assert.ok(validateDefinition(d).some((p) => /spine/i.test(p)));
+});
+
+test("validateDefinition rejects a shared stage after the fork", () => {
+  const d = clone(FORKED); delete d.mainStages[5].track; // untagged after first tagged
+  assert.ok(validateDefinition(d).some((p) => /shared stage|rejoin/i.test(p)));
+});
+
+test("validateDefinition rejects a non-contiguous track", () => {
+  const d = clone(FORKED);
+  // swap a demo stage with a response stage so demo's block is interleaved
+  const tmp = d.mainStages[4]; d.mainStages[4] = d.mainStages[5]; d.mainStages[5] = tmp;
+  assert.ok(validateDefinition(d).some((p) => /contiguous/i.test(p)));
+});
+
+test("validateDefinition rejects a track that owns no main stage", () => {
+  const d = clone(FORKED); d.tracks.push({ id: "extra", name: "Extra" });
+  assert.ok(validateDefinition(d).some((p) => /owns no|no main stage|no terminal/i.test(p)));
+});
+
+test("validateDefinition rejects a subject outside the spine", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "demoScript", outputId: "s", field: "x" };
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject pointing at a non-fields output", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "findings", outputId: "notes", field: "x" }; // notes is text
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject that resolves to no step", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "ghost", outputId: "facts", field: "client" }; // no such step
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject that resolves to more than one step", () => {
+  const d = clone(FORKED);
+  // duplicate the subject step id onto a second spine sub-stage so it resolves twice
+  d.mainStages[1].subStages[0].steps.push({ id: "intake", name: "Dup", outputs: [] });
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject outputId not on the step", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "intake", outputId: "ghost", field: "client" }; // intake has no "ghost" output
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
+
+test("validateDefinition rejects a subject field that is not a field of the fields output", () => {
+  const d = clone(FORKED);
+  d.subject = { stepId: "intake", outputId: "facts", field: "ghost" }; // facts has no "ghost" field
+  assert.ok(validateDefinition(d).some((p) => /subject/i.test(p)));
+});
