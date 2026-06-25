@@ -4,6 +4,7 @@ import { hasValue } from "@sqnce/core";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 import JsonTree from "./renderers/JsonTree.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
+import { ThemeScope } from "./themeScope.jsx";
 
 /*
  * Renderer contract: a renderer is a pure presentation component
@@ -25,15 +26,17 @@ function Overlay({ label, onClose, children }) {
   /* Portal to body: the rolodex cards are CSS-transformed, which would
      trap position: fixed overlays inside the card. */
   return createPortal(
-    <div className="pf-overlay" role="dialog" aria-modal="true">
-      <div className="pf-overlay-head">
-        <span className="pf-overlay-title">{label}</span>
-        <button className="pf-btn pf-btn-sm" onClick={onClose}>
-          Close
-        </button>
+    <ThemeScope>
+      <div className="pf-overlay" role="dialog" aria-modal="true">
+        <div className="pf-overlay-head">
+          <span className="pf-overlay-title">{label}</span>
+          <button className="pf-btn pf-btn-sm" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="pf-overlay-body">{children}</div>
       </div>
-      <div className="pf-overlay-body">{children}</div>
-    </div>,
+    </ThemeScope>,
     document.body
   );
 }

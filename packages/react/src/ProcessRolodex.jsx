@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { ThemeRootContext } from "./themeScope.jsx";
 import {
   flattenSubStages,
   createRun,
@@ -220,6 +221,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const [view, setView] = useState("rolodex");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const pfRootRef = useRef(null);
   const fileRef = useRef(null);
   const attachFor = useRef(null);
   const saveTimer = useRef(null);
@@ -553,7 +555,8 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
 
   /* ---------- render ---------- */
   return (
-    <div className="pf-root">
+    <ThemeRootContext.Provider value={pfRootRef}>
+    <div className="pf-root" ref={pfRootRef}>
       <style>{CSS}</style>
       <input type="file" ref={fileRef} style={{ display: "none" }} onChange={onFile} />
 
@@ -1025,6 +1028,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         />
       )}
     </div>
+    </ThemeRootContext.Provider>
   );
 }
 
