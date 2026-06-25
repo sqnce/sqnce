@@ -12,6 +12,7 @@ import {
   gateTypeOf,
   gateProgress,
   mainGateProgress,
+  isRunComplete,
   browse as coreBrowse,
   jumpTo,
   advance as coreAdvance,
@@ -36,8 +37,10 @@ import {
   updateRunState,
   runsForWorkflow,
   activeRunEntry,
+  runDisplayName,
 } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import ReadingView from "./ReadingView.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
@@ -214,6 +217,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, def.mainStages.length - 1);
+  const complete = useMemo(() => isRunComplete(def, run, { validators }), [def, run, validators]);
 
   /* Repair a loaded store whose active pointers do not match the
      rendered state. Two cases: a foreign activeWorkflowId (workflow no
@@ -499,6 +503,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           <span className="pf-brand-name">{def.name}</span>
           <span className="pf-subject">· {subjectName}</span>
         </div>
+        {view !== "reading" && (
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
             /* Skip-aware: a stage whose remaining sub-stage gates are met
@@ -518,6 +523,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             );
           })}
         </div>
+        )}
         {view === "rolodex" && (
           <span className="pf-counter">
             {idx + 1} / {subs.length}
@@ -539,6 +545,15 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               title="About this process"
             >
               About
+            </button>
+          )}
+          {view === "rolodex" && complete && (
+            <button
+              className="pf-reset"
+              onClick={() => { clearTransients(); setView("reading"); }}
+              title="Read this finished run"
+            >
+              Read
             </button>
           )}
           <button
@@ -595,6 +610,17 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           onArchive={doArchive}
           onUnarchive={doUnarchive}
           onDelete={doDelete}
+        />
+      ) : view === "reading" ? (
+        <ReadingView
+          def={def}
+          run={run}
+          subs={subs}
+          runName={entry ? runDisplayName(def, store, entry.id) : def.name}
+          renderers={renderers}
+          subjectName={subjectName}
+          onJump={(i) => setNav(jumpTo(run, subs, i))}
+          onEdit={() => { clearTransients(); setView("rolodex"); }}
         />
       ) : (
         <>
