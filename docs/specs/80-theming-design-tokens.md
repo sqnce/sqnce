@@ -2,7 +2,7 @@
 
 Issue: #80 (theming via design tokens). Milestone: "UI shell: reading mode, renderers & theming". This is "Phase 0" for any visual redesign: establish shared tokens first, so later renderer and shell work lands against one system rather than each consumer inventing its own and drifting.
 
-A first-draft spec committed to a draft PR ahead of the Codex review loop.
+This spec has cleared the Codex review loop and an independent adversarial review of its codebase claims. The behavioral assumptions it rests on (the token cascade, the contrast audit, and the portaled-overlay fix) are de-risked in `docs/spikes/80-theming-design-tokens.md`.
 
 Layer: pure `@sqnce/react`. Nearly all styles live in one CSS template literal (the `CSS` constant in `packages/react/src/ProcessRolodex.jsx`, injected once via `<style>{CSS}</style>`), and every component (`OutputView`, `RunSidebar`, `RunsScreen`, `OverviewModal`, and the renderers) references the `pf-*` classes defined there, so converting that one constant rethemes the palette, type, and most spacing of the whole shell. The one exception is a small amount of layout geometry computed inline in JavaScript, most importantly the rolodex card transform in `ProcessRolodex` (`translateX(calc(-50% + ${pos * 420}px)) ...`), where the card pitch is a hardcoded `420`. That inline geometry is out of scope here (see Out of scope), and the color, type, and spacing-token work does not touch it. No `@sqnce/core` change.
 
