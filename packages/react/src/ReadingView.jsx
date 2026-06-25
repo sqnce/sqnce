@@ -127,8 +127,8 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
           <span className="pf-read-status" data-tone={status ? status.tone || undefined : "complete"}>
             {status ? status.word : "Complete"}
           </span>
+          {headerNode && <div className="pf-read-header-slot">{headerNode}</div>}
         </header>
-        {headerNode && <div className="pf-read-header-slot">{headerNode}</div>}
 
         <article className="pf-read-canvas">
           <h2 className="pf-read-stage">{def.mainStages[selectedMain].name}</h2>

@@ -1343,7 +1343,7 @@ const CSS = `
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
-.pf-read-header-slot { padding: 4px 0 14px; }
+.pf-read-header-slot { margin-left: auto; }
 .pf-side-status, .pf-runs-status {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em;
   text-transform: uppercase; color: #7A6A3C; background: #F1E8CE;
