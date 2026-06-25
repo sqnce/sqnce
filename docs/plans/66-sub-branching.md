@@ -89,7 +89,20 @@ Add to the `Run` typedef block:
  * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
 ```
 
-- [ ] **Step 2: Create the forked fixture** `packages/core/test/fixtures/forked.js`:
+- [ ] **Step 2: Write a structural test** in `engine.test.js` (import `FORKED` at top: `import { FORKED } from "./fixtures/forked.js";`). Written before the fixture so the fail-first checkpoint is genuine: until the fixture file exists this fails with an import (module-not-found) error. It asserts the fixture's exact shape; the "does it validate" assertion belongs in Task 3, where `validateDefinition` actually gains fork rules:
+
+```js
+test("the forked fixture has the expected fork shape", () => {
+  assert.equal(FORKED.mainStages.length, 8);
+  assert.equal(FORKED.tracks.length, 2);
+  // spine 0,1; demo 2,3,4 (terminal 4); response 5,6,7 (terminal 7)
+  assert.equal(FORKED.mainStages[1].track, undefined);
+  assert.equal(FORKED.mainStages[2].track, "demo");
+  assert.equal(FORKED.mainStages[5].track, "response");
+});
+```
+
+- [ ] **Step 3: Create the forked fixture** `packages/core/test/fixtures/forked.js`:
 
 ```js
 /*
@@ -141,20 +154,7 @@ export const FORKED = {
 };
 ```
 
-- [ ] **Step 3: Write a structural test** in `engine.test.js` (import `FORKED` at top: `import { FORKED } from "./fixtures/forked.js";`). This asserts the fixture's exact shape (it fails with an import error until the fixture exists); the "does it validate" assertion belongs in Task 3, where `validateDefinition` actually gains fork rules:
-
-```js
-test("the forked fixture has the expected fork shape", () => {
-  assert.equal(FORKED.mainStages.length, 8);
-  assert.equal(FORKED.tracks.length, 2);
-  // spine 0,1; demo 2,3,4 (terminal 4); response 5,6,7 (terminal 7)
-  assert.equal(FORKED.mainStages[1].track, undefined);
-  assert.equal(FORKED.mainStages[2].track, "demo");
-  assert.equal(FORKED.mainStages[5].track, "response");
-});
-```
-
-- [ ] **Step 4: Run.** `npm test`, Expected: FAIL before the fixture file exists (import error), PASS once it does. The validation assertion (`validateDefinition(FORKED)` returns `[]`) is the first test in Task 3, where it is meaningfully fail-then-pass.
+- [ ] **Step 4: Run.** `npm test`, Expected: FAIL after Step 2 (the structural test cannot import the not-yet-created fixture), PASS once Step 3 creates `fixtures/forked.js`. The validation assertion (`validateDefinition(FORKED)` returns `[]`) is the first test in Task 3, where it is meaningfully fail-then-pass.
 
 - [ ] **Step 5: Commit.**
 ```bash
@@ -1129,7 +1129,8 @@ git commit -m "feat(core): fork-aware browse/jumpTo with non-contiguous reachabl
 - Test: `packages/core/test/engine.test.js`
 
 **Interfaces:**
-- Produces: `skipSubStage` accepts a sub-stage committed in its own region (spine `<= frontier`, or within its track's `trackFrontier`), normalizing a stale run first; `unskipSubStage` unchanged.
+- Consumes: `normalizeFlat`, `reachableFlat` (Task 2).
+- Produces: `skipSubStage` accepts a sub-stage only when it is inside the reachable region (spine `<= frontier`, or an open non-skipped track's committed in-range frontier), normalizing a stale run first and returning the normalized run on no-op paths; an out-of-range or missing track frontier is not trusted; `unskipSubStage` unchanged.
 
 - [ ] **Step 1: Write failing test.**
 
@@ -1151,6 +1152,16 @@ test("skipSubStage still rejects a beyond-region sub-stage", () => {
   const same = skipSubStage(r, subs, "demo-qa-sub");
   assert.equal(same, r);
 });
+
+test("skipSubStage rejects a tracked sub-stage when the track frontier is out of range", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  // a corrupted run: demo's frontier is out of its [2,4] range. demo-build-sub
+  // must not be treated as committed, so it cannot be skipped.
+  r = { ...r, trackFrontier: { ...r.trackFrontier, demo: 99 } };
+  const same = skipSubStage(r, subs, "demo-build-sub");
+  assert.equal(isSubStageSkipped(same, "demo-build-sub"), false);
+});
 ```
 
 - [ ] **Step 2: Run** `npm test`, Expected: FAIL (the first test; current guard `sub.mainIndex > run.frontier` rejects mainIndex 3 because frontier stays at 1).
@@ -1160,30 +1171,24 @@ test("skipSubStage still rejects a beyond-region sub-stage", () => {
 ```js
 export function skipSubStage(run, subStages, subStageId) {
   const r = normalizeFlat(subStages, run);
-  const sub = subStages.find((s) => s.id === subStageId);
-  if (!sub || !sub.skippable) return run;
-  // committed-in-region check
-  let committed;
-  if (sub.track === undefined) {
-    committed = sub.mainIndex <= r.frontier;
-  } else {
-    // A tracked sub-stage is committed only once the fork is open (the whole
-    // spine is committed) AND its track frontier has reached it. The fork-open
-    // guard mirrors reachableFlat: a corrupted run carrying a trackFrontier
-    // entry while its spine is not yet committed must not become skippable.
-    let spineEnd = -1;
-    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-    // own-property read (spec: never bare key reads on trackFrontier).
-    const tfv = hasOwn(r.trackFrontier, sub.track) ? r.trackFrontier[sub.track] : undefined;
-    committed = r.frontier >= spineEnd && typeof tfv === "number" && sub.mainIndex <= tfv;
-  }
-  if (!committed) return run;
-  if (isSubStageSkipped(r, subStageId)) return run;
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  // committed-in-region: the card must be inside the reachable set (the spine
+  // prefix up to frontier, or an open non-skipped track's committed range).
+  // reachableFlat already rejects an unopened fork and a missing or
+  // out-of-range track frontier (and reads trackFrontier own-property only), so
+  // a corrupted run such as { trackFrontier: { demo: 99 } } cannot make a
+  // tracked sub-stage look committed. Return r (the normalized run) on every
+  // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
+  // even when nothing is skipped.
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  if (isSubStageSkipped(r, subStageId)) return r;
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
 ```
 
-- [ ] **Step 4: Run** `npm test`, Expected: PASS, including the existing linear `skipSubStage` tests (for a linear definition `normalizeFlat` returns the run unchanged and the spine branch reproduces the old `mainIndex > frontier` guard).
+- [ ] **Step 4: Run** `npm test`, Expected: PASS, including the existing linear `skipSubStage` tests. For a linear definition `normalizeFlat` returns the run unchanged (same reference) and `reachableFlat` collapses to the contiguous prefix `[0..lastIndexInMain(frontier)]`, so membership is exactly the old `mainIndex <= frontier` guard and the no-op return is the same reference as before.
 
 - [ ] **Step 5: Commit.**
 ```bash
