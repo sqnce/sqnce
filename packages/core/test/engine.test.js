@@ -1109,3 +1109,172 @@ test("skipTrack and unskipTrack never touch stepState", () => {
   const skipped = skipTrack(run, FORKED, "demo");
   assert.deepEqual(skipped.stepState, run.stepState);
 });
+
+function commitSpine(run, subs) {
+  // commit intake then findings, landing frontier at the last spine stage (1)
+  let r = setOutput(run, "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "intake", true); // hybrid; ensure gate met
+  r = advance(r, subs).run; // commit stage 0 -> frontier 1
+  r = setOutput(r, "findings", "notes", "n");
+  return r;
+}
+
+test("advancing past the last spine stage opens the fork with frontier unchanged", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = commitSpine(createRun(), subs); // frontier == 1 == lastSpineIndex
+  const res = advance(r, subs);
+  assert.equal(res.run.frontier, 1); // spine pointer unchanged
+  assert.equal(res.run.trackFrontier.demo, 2); // demo first stage
+  assert.equal(res.run.trackFrontier.response, 5); // response first stage
+  // idx lands on the first non-skipped track in flat order (demo)
+  assert.equal(subs[res.run.idx].track, "demo");
+});
+
+test("fork-open is idempotent and per-track (browsing back and advancing preserves frontiers)", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  // advance demo one stage
+  r = setOutput(r, "demoScript", "s", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  r = advance(r, subs).run;
+  const demoBefore = r.trackFrontier.demo;
+  // browse back to last spine stage and advance again: no reset
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "findings-sub"));
+  const res = advance(r, subs);
+  assert.equal(res.run.trackFrontier.demo, demoBefore);
+  assert.equal(res.run.trackFrontier.response, 5);
+});
+
+test("advancing inside one track moves only that track's frontier", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "demoScript", "s", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  const res = advance(r, subs);
+  assert.equal(res.run.trackFrontier.demo, 3);
+  assert.equal(res.run.trackFrontier.response, 5); // untouched
+});
+
+test("a track terminal is a no-op", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  // demo at its terminal (stage 4), centered on the terminal card. Set idx
+  // directly rather than via jumpTo: fork-aware navigation only lands in
+  // Task 7, so a jumpTo to mainIndex 4 here would be a linear no-op and leave
+  // idx on demo's first stage, exercising the not-at-frontier guard instead of
+  // the terminal guard this test is asserting.
+  r = {
+    ...r,
+    trackFrontier: { ...r.trackFrontier, demo: 4 },
+    idx: subs.findIndex((s) => s.id === "demo-qa-sub"),
+  };
+  const res = advance(r, subs);
+  assert.equal(res.advanced, false);
+  assert.equal(res.run.trackFrontier.demo, 4);
+});
+
+test("a forced advance past an unmet track gate records forces; a met track gate records nothing", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  const forced = advance(r, subs, { force: true }); // demoScript output missing -> unmet
+  assert.equal(forced.run.forces[2], true);
+  // met track gate with force: nothing recorded
+  let r2 = advance(commitSpine(createRun(), subs), subs).run;
+  r2 = setOutput(r2, "demoScript", "s", "x"); // demo-script gate now met
+  r2 = jumpTo(r2, subs, subs.findIndex((s) => s.id === "demo-script-sub"));
+  const ok = advance(r2, subs, { force: true });
+  assert.equal(ok.advanced, true);
+  assert.equal(ok.run.trackFrontier.demo, 3); // advanced
+  assert.equal(ok.run.forces && ok.run.forces[2], undefined); // met gate records nothing
+});
+
+test("fork-open with the first track skipped lands idx on the next non-skipped track", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = commitSpine(createRun(), subs);
+  r = skipTrack(r, FORKED, "demo");
+  const res = advance(r, subs);
+  assert.equal(subs[res.run.idx].track, "response");
+});
+
+test("a stale forked run normalizes before the boundary advance opens the fork", () => {
+  const subs = flattenSubStages(FORKED);
+  // a run persisted when the definition was still linear: frontier and idx point
+  // past the new spine (last spine index is 1)
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setOutput(r, "findings", "notes", "n");
+  r = { ...r, frontier: 5, idx: subs.findIndex((s) => s.mainIndex === 5) };
+  const res = advance(r, subs);
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.frontier, 1); // clamped to the spine before opening
+  assert.equal(res.run.trackFrontier.demo, 2);
+  assert.equal(res.run.trackFrontier.response, 5);
+});
+
+test("fork-open repairs missing and out-of-range trackFrontier entries", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  // a partially corrupted run: demo out of range (99), response missing entirely.
+  // Center back on the boundary (last spine stage) and re-advance to repair.
+  r = { ...r, trackFrontier: { demo: 99 }, idx: subs.findIndex((s) => s.id === "findings-sub") };
+  const res = advance(r, subs);
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.trackFrontier.demo, 2); // out-of-range -> reinitialized to first
+  assert.equal(res.run.trackFrontier.response, 5); // missing -> reinitialized to first
+});
+
+test("a partially-initialized fork is not navigable: advance repairs at the boundary, it does not advance one track", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  // corrupt: drop the required response entry, with idx centered inside demo.
+  // The fork is not fully open, so demo is not navigable; normalizeFlat
+  // recenters idx to the spine and the boundary advance repairs response
+  // instead of advancing demo to 3 (which the old fork-open check would do).
+  const demoIdx = subs.findIndex((s) => s.id === "demo-script-sub");
+  r = { ...r, trackFrontier: { demo: 2 }, idx: demoIdx };
+  const res = advance(r, subs);
+  assert.equal(res.run.trackFrontier.demo, 2); // demo preserved, NOT advanced to 3
+  assert.equal(res.run.trackFrontier.response, 5); // missing required entry repaired
+  assert.equal(res.run.frontier, 1);
+});
+
+test("a forced open past an unmet boundary gate records forces at the last spine index", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "intake", true);
+  r = advance(r, subs).run; // commit stage 0 -> frontier 1 (findings), whose gate is unmet
+  const res = advance(r, subs, { force: true });
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.forces[1], true); // lastSpineIndex == 1
+  assert.equal(res.run.trackFrontier.demo, 2); // fork opened despite the unmet gate
+});
+
+test("opening a met boundary gate with force records no forces marker", () => {
+  const subs = flattenSubStages(FORKED);
+  const r = commitSpine(createRun(), subs); // findings has a note: the boundary gate is met
+  const res = advance(r, subs, { force: true });
+  assert.equal(res.advanced, true);
+  assert.equal("forces" in res.run, false); // met gate records nothing, even with force
+});
+
+test("opening lands idx on the flat-first track, not the declaration-first track", () => {
+  const def = clone(FORKED);
+  // declare response first while its stage block still follows demo in flat order
+  def.tracks = [{ id: "response", name: "Response" }, { id: "demo", name: "Demo", optional: true }];
+  const subs = flattenSubStages(def);
+  const res = advance(commitSpine(createRun(), subs), subs);
+  assert.equal(subs[res.run.idx].track, "demo"); // flat-first wins over declaration order
+});
+
+test("the linear fixture advances exactly as before (regression)", () => {
+  const subs = flattenSubStages(FIXTURE);
+  // mirror the existing passing advance test: stage 0 (alpha) has start + collect,
+  // so the boundary gate needs intake + kickoff + evidence.
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "kickoff", true);
+  r = setOutput(r, "evidence", "doc", { name: "report.pdf", content: "" });
+  const res = advance(r, subs);
+  assert.equal(res.advanced, true);
+  assert.equal(res.run.frontier, 1);
+  assert.equal("trackFrontier" in res.run, false);
+});
