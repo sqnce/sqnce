@@ -179,7 +179,7 @@ git commit -m "feat(react): add ReadingView component for reading mode (#78)"
 
 - [ ] **Step 1: Import `isRunComplete` and `ReadingView`**
 
-In the `@sqnce/core` import block, add `isRunComplete,` next to the other gate helpers (after `mainGateProgress,` on its own line):
+In the `@sqnce/core` import block, add `isRunComplete,` after `mainGateProgress,` on its own line:
 
 ```jsx
   mainGateProgress,
@@ -187,11 +187,22 @@ In the `@sqnce/core` import block, add `isRunComplete,` next to the other gate h
   browse as coreBrowse,
 ```
 
+and add `runDisplayName,` after `activeRunEntry,` (the run-store helpers, ~38):
+
+```jsx
+  runsForWorkflow,
+  activeRunEntry,
+  runDisplayName,
+} from "@sqnce/core";
+```
+
 After `import OutputView from "./OutputView.jsx";` add:
 
 ```jsx
 import ReadingView from "./ReadingView.jsx";
 ```
+
+`runDisplayName(definition, store, runId)` returns the entry's name, else the subject value, else `Run N`, matching the sidebar and runs table (`RunSidebar.jsx:75`, `RunsScreen.jsx:66`).
 
 - [ ] **Step 2: Derive `complete`**
 
@@ -211,7 +222,7 @@ Replace the view-switch opening (the `view === "runs" ? ( <RunsScreen .../> ) : 
           def={def}
           run={run}
           subs={subs}
-          runName={(entry && entry.name) || def.name}
+          runName={entry ? runDisplayName(def, store, entry.id) : def.name}
           renderers={renderers}
           subjectName={subjectName}
           onJump={(i) => setNav(jumpTo(run, subs, i))}
@@ -324,17 +335,36 @@ with:
               setView(view === "runs" ? viewForRun(entry) : "runs");
 ```
 
-- [ ] **Step 5: Syntax-check**
+- [ ] **Step 5: Route the active run once after load**
+
+Explicit opens and switches route through `viewForRun`, but the active run that is already live at startup does not: without persistence `loaded` starts true, and with persistence `persistence.load()` replaces the store after mount with `view` still `"rolodex"`. Add a one-shot effect so an already-complete active run lands in reading on first paint and on reload. Insert it immediately after the persistence save effect (the `useEffect` ending `}, [store, loaded, persistence]);`, ~292) and add a `routedOnLoad` ref next to the other refs (`const routedOnLoad = useRef(false);`, near `saveTimer`, ~200):
+
+```jsx
+  /* Route the startup active run once: a finished run that was active at
+     load (cold mount without persistence, or after persistence.load
+     swaps the store) opens in reading, matching open and switch. The ref
+     keeps this a one-shot so a later Edit toggle is not snapped back. */
+  useEffect(() => {
+    if (!loaded || routedOnLoad.current) return;
+    routedOnLoad.current = true;
+    setView(viewForRun(entry));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, entry]);
+```
+
+A brand-new seeded run is not complete, so `viewForRun` returns `"rolodex"`; this only changes the landing view when the active run is genuinely complete.
+
+- [ ] **Step 6: Syntax-check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: exits 0, no output.
 
-- [ ] **Step 6: Build the demo**
+- [ ] **Step 7: Build the demo**
 
 Run: `npm run build -w examples/demo`
 Expected: exit 0, `✓ built`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add packages/react/src/ProcessRolodex.jsx
@@ -446,7 +476,7 @@ git commit -m "chore(types): regenerate after #78"
 
 **Spec coverage:**
 - "Add reading as a third view": Task 2 (view switch + branch).
-- "Default a complete run to reading; in-progress to rolodex; open and switch route": Task 3 (`viewForRun`, `openRun`, `switchWorkflow`, Back-to-run). Completeness via `isRunComplete`: Task 2 Step 1-2.
+- "Default a complete run to reading; in-progress to rolodex; open and switch route": Task 3 (`viewForRun`, `openRun`, `switchWorkflow`, Back-to-run, and the one-shot startup routing so a persisted or cold-mounted complete active run also lands in reading). Completeness via `isRunComplete`: Task 2 Step 1-2. Header title via `runDisplayName` so unnamed finished runs stay distinct: Task 2 Step 1 + Step 3.
 - "Persistent clickable contents rail with you-are-here, defined by the reachable set": Task 1 (`readable` via `jumpTo`, `pf-read-here`).
 - "Forked run: rail lists kept track stages, not just spine; skipped tracks omitted": Task 1 (`jumpTo` reachability oracle excludes skipped tracks; `def.mainStages` order gives spine then kept tracks).
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
