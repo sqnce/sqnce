@@ -1,47 +1,32 @@
 import React from "react";
+import { tokenizeInline } from "./markdownInline.js";
 
 /*
  * Minimal markdown subset renderer. React elements only, no innerHTML.
  * Subset: ATX headings, paragraphs, unordered and ordered lists,
  * blockquotes, fenced code, horizontal rules, GFM pipe tables, inline
- * code/bold/italic/links. Link hrefs are whitelisted to http(s),
- * mailto, and fragment; anything else renders as plain text.
+ * code/bold/italic/links, and bare http(s) URL autolinks. Link hrefs are
+ * whitelisted to http(s), mailto, and fragment; anything else renders as
+ * plain text. The inline tokenizer lives in markdownInline.js.
  */
 
-const TOKEN = /(`[^`]+`)|(\*\*[^*]+?\*\*)|(\*[^*]+?\*)|(\[[^\]]+\]\([^)\s]+\))/;
-
 function inline(text) {
-  const out = [];
-  let rest = String(text);
-  let i = 0;
-  while (rest.length) {
-    const m = rest.match(TOKEN);
-    if (!m) {
-      out.push(rest);
-      break;
-    }
-    if (m.index > 0) out.push(rest.slice(0, m.index));
-    const tok = m[0];
-    if (tok.startsWith("`")) out.push(<code key={i}>{tok.slice(1, -1)}</code>);
-    else if (tok.startsWith("**")) out.push(<strong key={i}>{tok.slice(2, -2)}</strong>);
-    else if (tok.startsWith("*")) out.push(<em key={i}>{tok.slice(1, -1)}</em>);
-    else {
-      const mm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
-      const safe = /^(https?:|mailto:|#)/i.test(mm[2]);
-      out.push(
-        safe ? (
-          <a key={i} href={mm[2]} target="_blank" rel="noreferrer">
-            {mm[1]}
-          </a>
-        ) : (
-          `${mm[1]} (${mm[2]})`
-        )
+  return tokenizeInline(text).map((t, i) => {
+    if (t.type === "code") return <code key={i}>{t.value}</code>;
+    if (t.type === "strong") return <strong key={i}>{t.value}</strong>;
+    if (t.type === "em") return <em key={i}>{t.value}</em>;
+    if (t.type === "link") {
+      const safe = /^(https?:|mailto:|#)/i.test(t.href);
+      return safe ? (
+        <a key={i} href={t.href} target="_blank" rel="noreferrer">
+          {t.text}
+        </a>
+      ) : (
+        `${t.text} (${t.href})`
       );
     }
-    rest = rest.slice(m.index + tok.length);
-    i++;
-  }
-  return out;
+    return t.value;
+  });
 }
 
 const BLOCK_START = /^(#{1,6}\s|```|>|\s*[-*]\s+|\s*\d+\.\s+|(-{3,}|\*{3,})\s*$)/;
