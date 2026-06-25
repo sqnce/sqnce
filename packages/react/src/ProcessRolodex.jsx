@@ -1434,7 +1434,10 @@ const CSS = `
 .pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pf-read-band { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #D8D3C2; padding-bottom: 10px; margin-bottom: 12px; }
 .pf-read-title { font-size: 22px; margin: 0; color: #23282F; }
-.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #2E8F62; }
+.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B6F76; }
+.pf-read-status[data-tone="complete"] { color: #2E8F62; }
+.pf-read-status[data-tone="accept"] { color: #2E6E3F; }
+.pf-read-status[data-tone="revise"] { color: #8F4E2E; }
 .pf-read-canvas { max-width: 760px; }
 .pf-read-stage { font-size: 18px; color: #23282F; margin: 4px 0 12px; }
 .pf-read-sub { margin-bottom: 22px; }

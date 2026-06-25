@@ -124,7 +124,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
       <div className="pf-read-doc">
         <header className="pf-read-band">
           <h1 className="pf-read-title">{runName}</h1>
-          <span className="pf-read-status" data-tone={status && status.tone ? status.tone : undefined}>
+          <span className="pf-read-status" data-tone={status ? status.tone || undefined : "complete"}>
             {status ? status.word : "Complete"}
           </span>
         </header>
