@@ -647,6 +647,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         workflows={workflows}
         store={store}
         validators={validators}
+        runStatus={runStatus}
         collapsed={!sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onOpenRun={openRun}
@@ -662,6 +663,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           workflows={workflows}
           store={store}
           validators={validators}
+          runStatus={runStatus}
           onOpenRun={openRun}
           onRename={doRename}
           onArchive={doArchive}

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { runSummary, runDisplayName } from "@sqnce/core";
+import { resolveRunStatus } from "./runStatus.js";
 
 /*
  * Management table over every run, live and archived, most recently
@@ -11,6 +12,7 @@ export default function RunsScreen({
   workflows,
   store,
   validators,
+  runStatus,
   onOpenRun,
   onRename,
   onArchive,
@@ -37,6 +39,7 @@ export default function RunsScreen({
           <tr>
             <th>Run</th>
             <th>Workflow</th>
+            <th>Status</th>
             <th>Progress</th>
             <th>Updated</th>
             <th>Actions</th>
@@ -46,6 +49,7 @@ export default function RunsScreen({
           {rows.map((e) => {
             const w = byId.get(e.workflowId);
             const sum = runSummary(w, e.run, { validators });
+            const status = resolveRunStatus(runStatus, { def: w, run: e.run, runId: e.id });
             return (
               <tr key={e.id} className={e.status === "archived" ? "pf-runs-archived" : ""}>
                 <td>
@@ -69,6 +73,15 @@ export default function RunsScreen({
                   )}
                 </td>
                 <td>{w.short || w.name}</td>
+                <td>
+                  {status ? (
+                    <span className="pf-runs-status" data-tone={status.tone || undefined}>
+                      {status.word}
+                    </span>
+                  ) : (
+                    ""
+                  )}
+                </td>
                 <td>
                   {sum.met}/{sum.total}
                 </td>
