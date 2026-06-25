@@ -890,30 +890,41 @@ function lastIndexInMain(subStages, mainIndex) {
 }
 
 /**
- * Browse within committed main stages. Returns a new run (or the same
- * run if out of range). Movement between sibling sub-stages is plain
- * browsing; nothing commits.
+ * Browse within the committed reachable set. Moves |direction| reachable
+ * positions in the sign of direction, skipping any unreachable gap (an
+ * uncommitted track tail), and is a no-op out of range. For a linear
+ * definition the reachable set is the contiguous committed prefix, so this
+ * collapses to today's idx + direction step.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} direction
  * @returns {Run}
  */
 export function browse(run, subStages, direction) {
-  const target = run.idx + direction;
-  if (target < 0 || target > lastIndexInMain(subStages, run.frontier)) return run;
-  return { ...run, idx: target };
+  const r = normalizeFlat(subStages, run);
+  const reach = reachableFlat(subStages, r);
+  const pos = reach.indexOf(r.idx);
+  if (pos === -1) return r === run ? run : r;
+  const step = direction === 0 ? 0 : direction > 0 ? 1 : -1;
+  const target = pos + step * Math.abs(direction);
+  if (target < 0 || target >= reach.length) return r === run ? run : r;
+  return { ...r, idx: reach[target] };
 }
 
 /**
- * Jump to any sub-stage within the committed main stages.
+ * Jump to a sub-stage; accepts a target only when it is a member of the
+ * committed reachable set (an unreachable gap index is a no-op). For a linear
+ * definition the reachable set is the contiguous committed prefix.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {number} index
  * @returns {Run}
  */
 export function jumpTo(run, subStages, index) {
-  if (index < 0 || index > lastIndexInMain(subStages, run.frontier)) return run;
-  return { ...run, idx: index };
+  const r = normalizeFlat(subStages, run);
+  const reach = reachableFlat(subStages, r);
+  if (!reach.includes(index)) return r === run ? run : r;
+  return { ...r, idx: index };
 }
 
 /**

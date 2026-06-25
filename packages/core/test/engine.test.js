@@ -1278,3 +1278,53 @@ test("the linear fixture advances exactly as before (regression)", () => {
   assert.equal(res.run.frontier, 1);
   assert.equal("trackFrontier" in res.run, false);
 });
+
+test("browse moves across an uncommitted track tail between two open tracks", () => {
+  const subs = flattenSubStages(FORKED);
+  // open the fork, commit demo only partway (demo at stage 3, response at 5)
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  r = { ...r, trackFrontier: { demo: 3, response: 5 } };
+  // center on demo's last reachable sub (mainIndex 3), browse +1 should skip demo-qa (4, unreachable) to response (5)
+  r = jumpTo(r, subs, subs.findIndex((s) => s.mainIndex === 3));
+  const moved = browse(r, subs, 1);
+  assert.equal(subs[moved.idx].mainIndex, 5); // landed on response's first stage, skipping the gap
+});
+
+test("jumpTo rejects an unreachable gap index and accepts a reachable one", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = { ...r, trackFrontier: { demo: 3, response: 5 } };
+  const gap = subs.findIndex((s) => s.mainIndex === 4); // demo-qa, uncommitted
+  assert.equal(jumpTo(r, subs, gap), r); // no-op
+  const ok = subs.findIndex((s) => s.mainIndex === 5);
+  assert.equal(jumpTo(r, subs, ok).idx, ok);
+});
+
+test("browse/jumpTo on the linear fixture are identical to today", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const r = { ...createRun(), frontier: 1, idx: 0 }; // FIXTURE has flat indices 0,1,2
+  assert.equal(browse(r, subs, 2).idx, 2); // magnitude preserved on contiguous prefix
+  assert.equal(jumpTo(r, subs, 2).idx, 2); // reachable target
+  assert.equal(jumpTo(r, subs, 3), r); // index 3 is out of range: no-op (same reference)
+});
+
+test("skipTrack recenters idx out of the skipped track to the last spine sub-stage", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: idx on demo (mainIndex 2)
+  assert.equal(subs[r.idx].track, "demo"); // centered inside the demo track
+  const skipped = skipTrack(r, FORKED, "demo");
+  assert.equal(subs[skipped.idx].track, undefined); // recentered into the spine
+  assert.equal(skipped.idx, subs.findIndex((s) => s.id === "findings-sub")); // last committed spine sub
+});
+
+test("a skipped track is unreachable: browse/jumpTo cannot enter it and advance is a no-op centered in it", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  r = skipTrack(r, FORKED, "demo"); // idx recentered to the spine; demo leaves the reachable set
+  const demoIdx = subs.findIndex((s) => s.id === "demo-script-sub");
+  assert.equal(jumpTo(r, subs, demoIdx).idx, r.idx); // jumpTo cannot enter the skipped track
+  // even with idx forced onto a skipped-track card, advance does not progress it
+  const res = advance({ ...r, idx: demoIdx }, subs);
+  assert.equal(res.advanced, false);
+  assert.equal(res.run.trackFrontier.demo, 2); // skipped track frontier untouched
+});
