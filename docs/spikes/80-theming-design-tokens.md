@@ -46,25 +46,34 @@ spec's override promise is sound as written.
 
 The spec keeps the current values as token defaults and also requires the default palette
 to meet WCAG AA. Whether those two goals conflict is empirical: it depends on whether
-today's palette already passes. It does not. Contrast ratios were computed for the muted
-greys against the lighter end of the surface gradient `#222932` (the more favorable end;
-the gradient darkens to `#1B2129`, where ratios are worse):
+today's palette already passes. It does not. The shell mixes a dark chrome surface (the
+`.pf-root` gradient `#222932` to `#1B2129`) with light card and reading surfaces (the card
+`#FAF8F0`, the reading panel `#F1EEE3`), so each muted-text color is measured against the
+surface it actually renders on, not one global background:
 
-| Foreground | Used by | Ratio vs `#222932` | AA body (4.5:1) |
-|---|---|---|---|
-| `#EDEAE0` | brand / light ink | 12.19:1 | pass |
-| `#D9A441` | gold accent text | 6.52:1 | pass |
-| `#8A919B` | subject, side count | 4.61:1 | pass |
-| `#8A8E96` | step state, gate state | 4.46:1 | fail (body) |
-| `#6B6F76` | reading status | 2.91:1 | fail (body and large) |
-| `#5E6772` | switch label, side label | 2.56:1 | fail (body and large) |
+| Foreground | Used by | Surface | Ratio | AA body (4.5:1) |
+|---|---|---|---|---|
+| `#EDEAE0` | brand / light ink | dark chrome `#222932` | 12.19:1 | pass |
+| `#D9A441` | gold accent text | dark chrome `#222932` | 6.52:1 | pass |
+| `#8A919B` | subject, side count | dark chrome `#222932` | 4.61:1 | pass |
+| `#5E6772` | switch label, side label | dark chrome `#222932` | 2.56:1 | fail |
+| `#8A8E96` | gate state | dark chrome `#222932` | 4.46:1 | fail |
+| `#8A8E96` | step state | light card `#FAF8F0` | 3.09:1 | fail |
+| `#6B6F76` | reading status | light reading `#F1EEE3` | 4.35:1 | fail |
+| `#5E6772` | reading TOC | light reading `#F1EEE3` | 4.94:1 | pass |
 
-So at least three default muted-text colors fail AA today. This means "default rendering
-is visually unchanged" and "the default palette meets the contrast minimums" cannot both
-hold byte-for-byte: making the palette accessible requires changing those specific colors.
-The spec is revised to state the precedence (accessibility wins; the only intentional
-visual changes are the minimal, enumerated muted-text adjustments the audit requires), so
-the two acceptance criteria no longer conflict.
+Several muted colors fail on their real surface, so "default rendering is visually
+unchanged" and "the default palette meets the contrast minimums" cannot both hold
+byte-for-byte. Two of these colors also expose a token-design consequence: `#8A8E96` is
+used on both the dark nav (gate state, fails) and the light card (step state, fails), and
+`#5E6772` is used on both the dark chrome (labels, fails) and the light reading panel (TOC,
+passes). The same literal cannot be one shared token and pass on both a dark and a light
+surface, because the fix moves in opposite directions (lighten on dark, darken on light).
+So the muted-ink token splits by surface into an ink-on-dark and an ink-on-light value. The
+spec is revised to state the precedence (accessibility wins; the only intentional visual
+changes are the minimal, enumerated muted-text adjustments the audit requires) and to
+require the per-surface split muted-ink tokens, so the two acceptance criteria no longer
+conflict.
 
 ## Assumption 3: portaled overlays mounted inside `.pf-root` get tokens and stay full-screen
 
@@ -107,5 +116,5 @@ All three assumptions are settled before approval. Assumption 1 holds as the spe
 Assumption 2 is resolved by reconciling the two acceptance criteria rather than by changing
 the mechanism. Assumption 3 confirms the portal fix: mounting the expand overlay and the
 overview modal inside `.pf-root` themes them with no special-casing. No re-spec of the core
-design is needed; the spec edits are the contrast precedence wording and the portal mounting
-requirement.
+design is needed; the spec edits are the contrast precedence wording, the per-surface split
+of the muted-ink token, and the portal mounting requirement.
