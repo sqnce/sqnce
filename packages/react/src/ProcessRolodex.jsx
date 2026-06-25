@@ -362,11 +362,14 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const switchWorkflow = (id) => {
     if (id === activeId) return;
     clearTransients();
-    const target = activeRunEntry(store, id);
-    setView(target ? viewForRun(target) : "rolodex");
+    /* Route on the entry that will be shown, including a freshly seeded
+       first run: a complete seed (from initialRunFor) lands in reading. */
+    const existing = activeRunEntry(store, id);
+    const entryToShow = existing || newEntryFor(store, id);
+    setView(viewForRun(entryToShow));
     setStore((s) => {
-      const existing = activeRunEntry(s, id);
-      return existing ? coreSetActiveRun(s, existing.id) : addRun(s, newEntryFor(s, id));
+      const e = activeRunEntry(s, id);
+      return e ? coreSetActiveRun(s, e.id) : addRun(s, entryToShow);
     });
   };
 
@@ -1396,6 +1399,15 @@ const CSS = `
 .pf-read-sub { margin-bottom: 22px; }
 .pf-read-sub-name { font-size: 15px; color: #3A434E; margin: 0 0 4px; }
 .pf-read-sub-desc { color: #6B6F76; margin: 0 0 10px; }
+.pf-read-out { margin: 0 0 14px; }
+.pf-read-out-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6F76; margin-bottom: 4px; }
+.pf-read-text { white-space: pre-wrap; line-height: 1.55; color: #2A2F36; margin: 0; }
+.pf-read-link { color: #2F6F8F; word-break: break-all; }
+.pf-read-fields { margin: 0; display: grid; gap: 6px; }
+.pf-read-field { display: flex; gap: 8px; }
+.pf-read-field dt { color: #6B6F76; min-width: 120px; font-size: 13px; }
+.pf-read-field dd { margin: 0; color: #2A2F36; }
+.pf-read-file { font-size: 13px; color: #3A434E; margin-bottom: 4px; }
 .pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #D8D3C2; margin-top: 8px; }
 .pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
 .pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: #E7E2D4; }

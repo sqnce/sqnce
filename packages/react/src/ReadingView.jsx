@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { jumpTo, getStepEntry, hasValue, isSubStageSkipped } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 
 /*
  * Reading mode for a (typically finished) run: a flat, non-3D document
@@ -8,11 +9,56 @@ import OutputView from "./OutputView.jsx";
  * position: fixed overlays. The contents rail lists the committed
  * reachable main stages (the ones jumpTo accepts, so skipped tracks and
  * unreached stages drop out); the canvas renders each stage's filled
- * outputs read-only and expanded; prev/next walk the reachable stages in
+ * outputs as document content; prev/next walk the reachable stages in
  * reading order (def.mainStages order: spine, then kept tracks). No engine
  * change: reachability is jumpTo, output values come from getStepEntry,
  * and the caller decides completeness.
  */
+
+/* A renderer-backed output (an injected or built-in render.kind, or a data
+   output that defaults to the JSON tree) is shown through OutputView, which
+   is uncapped and expanded in reading mode. Everything else is plain and is
+   rendered as document content below, not as OutputView's read-only form
+   controls (a fixed-height scrolling textarea is not a read presentation). */
+function rendererBacked(spec, renderers) {
+  const kind = spec.render && spec.render.kind;
+  const custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
+  return !!custom || spec.type === "data";
+}
+
+/* Plain output as flowing document content: text wraps, a link is a real
+   anchor, fields become labeled lines, a file shows its name and any
+   extracted text. */
+function PlainOutput({ spec, value }) {
+  if (spec.type === "link")
+    return (
+      <a className="pf-read-link" href={value} target="_blank" rel="noreferrer">
+        {value}
+      </a>
+    );
+  if (spec.type === "fields")
+    return (
+      <dl className="pf-read-fields">
+        {(spec.fields || []).map((f) => (
+          <div key={f.key} className="pf-read-field">
+            <dt>{f.label}</dt>
+            <dd>{(value && value[f.key]) || ""}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  if (spec.type === "file") {
+    const text = value && value.content;
+    return (
+      <div>
+        <div className="pf-read-file">📎 {(value && value.name) || "file"}</div>
+        {text && text.trim() ? <div className="pf-read-text">{text}</div> : null}
+      </div>
+    );
+  }
+  return <div className="pf-read-text">{typeof value === "string" ? value : String(value == null ? "" : value)}</div>;
+}
+
 export default function ReadingView({ def, run, subs, runName, renderers, subjectName, onJump, onEdit }) {
   const firstFlatOf = (mi) => subs.findIndex((s) => s.mainIndex === mi);
 
@@ -66,19 +112,29 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
               for (const spec of step.outputs || []) {
                 const outVal = (se.outputs || {})[spec.id];
                 if (!hasValue(spec, outVal)) continue;
-                blocks.push(
-                  <OutputView
-                    key={step.id + ":" + spec.id}
-                    spec={spec}
-                    value={outVal}
-                    onChange={() => {}}
-                    onAttach={() => {}}
-                    renderers={renderers}
-                    context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: true }}
-                    generated={false}
-                    invalid={null}
-                  />
-                );
+                const key = step.id + ":" + spec.id;
+                if (rendererBacked(spec, renderers)) {
+                  blocks.push(
+                    <OutputView
+                      key={key}
+                      spec={spec}
+                      value={outVal}
+                      onChange={() => {}}
+                      onAttach={() => {}}
+                      renderers={renderers}
+                      context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: true }}
+                      generated={false}
+                      invalid={null}
+                    />
+                  );
+                } else {
+                  blocks.push(
+                    <div key={key} className="pf-read-out">
+                      <div className="pf-read-out-label">{spec.label}</div>
+                      <PlainOutput spec={spec} value={outVal} />
+                    </div>
+                  );
+                }
               }
             }
             if (blocks.length === 0) return null;
