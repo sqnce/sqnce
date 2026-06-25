@@ -42,18 +42,14 @@ confirming pass). Driven by you, not an automated stop-time gate.
 > each iteration costs tokens. That is the deliberate price of
 > independence.
 
-> **Codex is review-only.** Codex is the independent second-model reviewer; it must only
-> report findings and must not edit, create, or delete files. Drive each Codex pass with
+> **Codex is review-only.** `/codex:review` is the independent second-model reviewer, and
+> it is review-only by construction: the command itself only reports findings and never
+> edits, creates, or deletes files, so there is no need to frame each invocation as
+> report-only or to reset stray changes afterward. Drive each pass alongside
 > `superpowers:requesting-code-review`, act on the findings with
-> `superpowers:receiving-code-review`, and apply every fix yourself, then confirm
-> `git status` shows Codex changed nothing. (Pass `--wait` so the review runs in the
-> foreground and returns its verdict; a backgrounded pass can lose the result.)
->
-> **Operational guard (learned the hard way):** the `/codex:review` agent will edit and
-> commit files unless the invocation explicitly frames it as report-only. State, in every
-> invocation: "Review only, do not modify, create, or delete any files; report findings
-> by severity." After each pass run `git status`; if Codex committed or changed anything,
-> reset it before you act on the findings, so the reviewer stays independent of the fixer.
+> `superpowers:receiving-code-review`, and apply every fix yourself. Pass `--wait` to run
+> the review in the foreground and get its verdict inline; a backgrounded review runs as a
+> job whose verdict you read back with `/codex:status` and `/codex:result`.
 
 ## Superpowers skills, the methodology layer
 
@@ -224,9 +220,9 @@ through them.
   re-reviews the current diff, see the loop definition); there is no stop-time review gate
   wired in `settings.json`. Run `/codex:setup` on a new machine to confirm the local Codex
   CLI is ready (the stop-time gate stays off unless you turn it on).
-- **Review-only.** Codex reports; it never edits the artifact. Apply every fix yourself and
-  confirm `git status` shows Codex changed nothing (see the Codex-is-review-only note near
-  the top). Pair it with `superpowers:requesting-code-review` (drive) and
+- **Review-only.** `/codex:review` reports; it never edits the artifact (review-only by
+  construction, see the Codex-is-review-only note near the top). Apply every fix yourself.
+  Pair it with `superpowers:requesting-code-review` (drive) and
   `receiving-code-review` (act with technical rigor, not performative agreement).
 
 ## Conventions observed in history
