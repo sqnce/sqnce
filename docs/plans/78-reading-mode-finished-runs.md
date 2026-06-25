@@ -29,15 +29,17 @@
 ## File structure
 
 - Create `packages/react/src/ReadingView.jsx`: the reading-mode component. One responsibility: present a finished run for reading (rail, header band, document canvas, prev/next, edit toggle). Pure props in, no store access.
+- Modify `packages/react/src/OutputView.jsx:169`: let the inline renderer view honor an incoming `expanded` context instead of forcing it false, so reading mode can render renderer-backed outputs in their full form. Backward compatible: the authoring deck never sets `context.expanded`, so it stays false there.
 - Modify `packages/react/src/ProcessRolodex.jsx`: add the `"reading"` view (import, view-switch branch, completeness, routing, the rolodex Read button), and append the reading-mode CSS to the `CSS` template literal.
 
 No other files change. `packages/react/src/index.js` is untouched: `ReadingView` is internal, only `ProcessRolodex` stays exported, so the public API and the generated `.d.ts` do not change.
 
 ---
 
-### Task 1: Create `ReadingView.jsx`
+### Task 1: Reading-mode rendering (OutputView tweak + ReadingView)
 
 **Files:**
+- Modify: `packages/react/src/OutputView.jsx:169`
 - Create: `packages/react/src/ReadingView.jsx`
 
 **Interfaces:**
@@ -45,7 +47,28 @@ No other files change. `packages/react/src/index.js` is untouched: `ReadingView`
 - Produces: `export default function ReadingView({ def, run, subs, runName, renderers, subjectName, onJump, onEdit })`.
   - `def`: the active `Definition`. `run`: the active run state `{ idx, frontier, stepState, ... }`. `subs`: `flattenSubStages(def)` (flat sub-stages, each carrying `id, name, description, mainIndex, steps`). `runName`: string for the header title. `renderers`: injected renderer map (may be undefined). `subjectName`: string for `OutputView` context. `onJump(flatIndex: number): void`: caller jumps the run to that flat sub-stage. `onEdit(): void`: caller switches to the authoring rolodex.
 
-- [ ] **Step 1: Write the component**
+- [ ] **Step 1: Let OutputView's inline view honor an incoming `expanded`**
+
+In `packages/react/src/OutputView.jsx`, the inline render view (~169) forces `expanded: false`, so a renderer that switches on `expanded` (for example the demo `FlowDiagram`) can never render its full layout inline. Change that one line so an explicit `expanded: true` from the caller passes through, while the authoring deck (which never sets `expanded`) keeps the compact form. Replace:
+
+```jsx
+            context={{ ...context, expanded: false }}
+```
+
+with:
+
+```jsx
+            context={{ ...context, expanded: !!(context && context.expanded) }}
+```
+
+(The overlay path at ~209 still passes `expanded: true` and is unchanged.)
+
+- [ ] **Step 2: Syntax-check OutputView**
+
+Run: `npx esbuild packages/react/src/OutputView.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
+Expected: exits 0, no output.
+
+- [ ] **Step 3: Write the component**
 
 ```jsx
 import React, { useMemo } from "react";
@@ -140,13 +163,13 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
         </article>
 
         <div className="pf-read-nav">
-          <button className="pf-nav-btn" disabled={prevMi === null} onClick={() => prevMi !== null && onJump(firstFlatOf(prevMi))}>
+          <button className="pf-read-navbtn" disabled={prevMi === null} onClick={() => prevMi !== null && onJump(firstFlatOf(prevMi))}>
             ← {prevMi !== null ? def.mainStages[prevMi].name : "Back"}
           </button>
           <button className="pf-read-edit" onClick={onEdit}>
             Edit run
           </button>
-          <button className="pf-nav-btn pf-nav-fwd" disabled={nextMi === null} onClick={() => nextMi !== null && onJump(firstFlatOf(nextMi))}>
+          <button className="pf-read-navbtn" disabled={nextMi === null} onClick={() => nextMi !== null && onJump(firstFlatOf(nextMi))}>
             {nextMi !== null ? def.mainStages[nextMi].name : "Forward"} →
           </button>
         </div>
@@ -156,16 +179,16 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
 }
 ```
 
-- [ ] **Step 2: Syntax-check the new file**
+- [ ] **Step 4: Syntax-check the new file**
 
 Run: `npx esbuild packages/react/src/ReadingView.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
 Expected: exits 0, no output (a clean bundle to /dev/null).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/react/src/ReadingView.jsx
-git commit -m "feat(react): add ReadingView component for reading mode (#78)"
+git add packages/react/src/OutputView.jsx packages/react/src/ReadingView.jsx
+git commit -m "feat(react): ReadingView plus OutputView inline expanded passthrough (#78)"
 ```
 
 ---
@@ -404,23 +427,26 @@ Insert these rules into the `CSS` string immediately before the line `@media (ma
 
 ```css
 /* ---------- reading mode ---------- */
-.pf-read { display: flex; flex: 1; min-height: 0; gap: 24px; padding: 8px 4px; }
-.pf-read-rail { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start; position: sticky; top: 8px; max-height: calc(100vh - 120px); overflow: auto; }
+/* A light document page on the dark app shell, like the cards, so the dark
+   text below stays legible. The page scrolls; the contents rail sticks. */
+.pf-read { display: flex; flex: 1; min-height: 0; gap: 24px; margin: 8px 4px; padding: 20px 24px; background: #F1EEE3; border: 1px solid #D8D3C2; border-radius: 10px; color: #23282F; overflow: auto; }
+.pf-read-rail { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; align-self: flex-start; position: sticky; top: 0; }
 .pf-read-toc { text-align: left; background: none; border: none; border-left: 2px solid transparent; padding: 6px 10px; color: #5E6772; font-size: 13px; cursor: pointer; border-radius: 0 4px 4px 0; }
-.pf-read-toc:hover { color: #23282F; background: #F3F1E9; }
+.pf-read-toc:hover { color: #23282F; background: #E7E2D4; }
 .pf-read-here { color: #23282F; border-left-color: #D9A441; font-weight: 600; }
 .pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pf-read-band { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #D8D3C2; padding-bottom: 10px; margin-bottom: 12px; }
 .pf-read-title { font-size: 22px; margin: 0; color: #23282F; }
 .pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #2E8F62; }
-.pf-read-canvas { flex: 1; overflow: auto; max-width: 760px; }
+.pf-read-canvas { max-width: 760px; }
 .pf-read-stage { font-size: 18px; color: #23282F; margin: 4px 0 12px; }
 .pf-read-sub { margin-bottom: 22px; }
 .pf-read-sub-name { font-size: 15px; color: #3A434E; margin: 0 0 4px; }
 .pf-read-sub-desc { color: #6B6F76; margin: 0 0 10px; }
 .pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #D8D3C2; margin-top: 8px; }
-.pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
-.pf-read-edit:hover { background: #F3F1E9; }
+.pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid #C9C3B0; border-radius: 6px; padding: 6px 12px; color: #3A434E; cursor: pointer; }
+.pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: #E7E2D4; }
+.pf-read-navbtn:disabled { opacity: 0.4; cursor: default; }
 /* Uncap renderer-backed outputs in reading mode: the document shows them
    in full rather than the authoring deck's 280px capped panel, and the
    expand-to-overlay affordance is redundant once uncapped. */
@@ -501,11 +527,11 @@ git commit -m "chore(types): regenerate after #78"
 - "Persistent clickable contents rail with you-are-here, defined by the reachable set": Task 1 (`readable` via `jumpTo`, `pf-read-here`).
 - "Forked run: rail lists kept track stages, not just spine; skipped tracks omitted": Task 1 (`jumpTo` reachability oracle excludes skipped tracks; `def.mainStages` order gives spine then kept tracks).
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
-- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (`OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read` and hides the redundant expand affordance, so renderer-backed outputs show in full rather than the deck's 280px capped panel.
+- "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (the `OutputView:169` change so an explicit `expanded: true` reaches the inline renderer, and `ReadingView` calling `OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read` and hides the redundant expand affordance, so renderer-backed outputs (for example `FlowDiagram`) show their full layout, not the deck's 280px capped panel.
 - "Reading mode stays valid": Task 3 guard effect routes back to the deck when the active run is reset, deleted, or otherwise no longer complete while reading.
 - "Prev/next defined over a fork (spine then kept tracks, skipped omitted)": Task 1 (`readable` order + prev/next).
 - "Edit toggle both directions, no run-state mutation": Task 1 (`onEdit`) + Task 2 Step 4 (Read button); switching only calls `setView`, never `setRun`.
-- "Flat layout so no fixed overlay is trapped; responsive rail and bounded measure": Task 4.
+- "Flat layout so no fixed overlay is trapped; responsive rail and bounded measure": Task 4, which also gives reading mode a light document surface on the dark shell (so the dark text is legible) with its own light-styled `pf-read-navbtn` buttons rather than the deck's dark-on-dark nav buttons.
 - "Gates pass": Task 5.
 
 **Placeholder scan:** no TBD/TODO; every code step shows complete code; every command has an expected result.
