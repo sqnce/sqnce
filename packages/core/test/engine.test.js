@@ -1357,3 +1357,145 @@ test("skipSubStage rejects a tracked sub-stage when the track frontier is out of
   const same = skipSubStage(r, subs, "demo-build-sub");
   assert.equal(isSubStageSkipped(same, "demo-build-sub"), false);
 });
+
+test("buildContext for a track step excludes the sibling track", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
+  r = setOutput(r, "demoScript", "s", "DEMO-ONLY");
+  r = setOutput(r, "respDraft", "d", "RESPONSE-ONLY");
+  // Advance response one stage so resp-review-sub is reachable and respDraft is
+  // an earlier (committed) response output. Without this the card would be
+  // unreachable and buildContext would fall back to the spine, dropping the
+  // response output entirely (the assertion under test would then be vacuous).
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs).run; // response = 6 (resp-review-sub)
+  const respIdx = subs.findIndex((s) => s.id === "resp-review-sub");
+  const ctx = buildContext(subs, r, respIdx, "respReview");
+  assert.equal(/DEMO-ONLY/.test(ctx), false);
+  assert.equal(/RESPONSE-ONLY/.test(ctx), true);
+});
+
+test("buildContext ignores a corrupted required-track entry in skippedTracks", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "respDraft", "d", "RESPONSE-ONLY");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs).run; // response = 6, so resp-review-sub is reachable
+  r = { ...r, skippedTracks: { response: true } }; // response is required: not an effective skip
+  const respIdx = subs.findIndex((s) => s.id === "resp-review-sub");
+  const ctx = buildContext(subs, r, respIdx, "respReview");
+  assert.equal(/RESPONSE-ONLY/.test(ctx), true); // still present: required-track skip is ignored
+});
+
+test("buildContext for a linear definition is unchanged", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  const ctx = buildContext(subs, r, 1, null);
+  assert.ok(/Client: Acme/.test(ctx));
+});
+
+test("a forked validator cannot read a sibling track's output via ctx.run", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "demoScript", "s", "SECRET");
+  r = setOutput(r, "respDraft", "d", "ok");
+  let sawSibling = false;
+  const validators = {
+    check: (_value, _spec, ctx) => {
+      if (JSON.stringify(ctx.run.stepState).includes("SECRET")) sawSibling = true;
+      return null;
+    },
+  };
+  // attach validate to respDraft's output dynamically for the test
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "check";
+  const dsubs = flattenSubStages(def);
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.equal(sawSibling, false);
+});
+
+test("a scoped validator run drops out-of-relation-set forces keys", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "respDraft", "d", "ok");
+  // a corrupted forces key naming no real stage (999) plus a sibling demo-stage
+  // force (2): a validator on a response step must see neither.
+  r = { ...r, forces: { 999: true, 2: true } };
+  let seenForce = false;
+  const validators = {
+    check: (_value, _spec, ctx) => {
+      const f = (ctx.run && ctx.run.forces) || {};
+      if (f["999"] || f["2"]) seenForce = true;
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "check"; // respDraft (response)
+  const dsubs = flattenSubStages(def);
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.equal(seenForce, false);
+});
+
+test("a scoped validator run hides sibling trackFrontier/skips, omits skippedTracks, and sets idx to the step", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
+  r = setOutput(r, "respDraft", "d", "ok");
+  // sibling-track skip, a track-skip map, and a stale idx that must all be scoped away
+  r = { ...r, skips: { "demo-build-sub": true }, skippedTracks: { demo: true }, idx: 0 };
+  let seen = {};
+  const validators = {
+    inspect: (_v, _spec, ctx) => {
+      const run = ctx.run || {};
+      seen = {
+        demoFrontier: run.trackFrontier ? run.trackFrontier.demo : undefined,
+        responseFrontier: run.trackFrontier ? run.trackFrontier.response : undefined,
+        demoSkip: run.skips ? run.skips["demo-build-sub"] : undefined,
+        skippedTracks: run.skippedTracks,
+        idx: run.idx,
+      };
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "inspect"; // respDraft (response)
+  const dsubs = flattenSubStages(def);
+  const respIdx = dsubs.findIndex((s) => s.id === "resp-draft-sub");
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.equal(seen.demoFrontier, undefined); // sibling track frontier hidden
+  assert.equal(seen.responseFrontier, 5); // own track frontier present
+  assert.equal(seen.demoSkip, undefined); // sibling-track sub-stage skip hidden
+  assert.equal(seen.skippedTracks, undefined); // skippedTracks omitted entirely
+  assert.equal(seen.idx, respIdx); // idx is the validated step's flat index, not the stale 0
+});
+
+test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo committed to 2 only
+  r = setOutput(r, "demoScript", "s", "DEMO-SECRET");
+  // a stale run.idx pointing at an un-committed tracked card (demo-qa, mainIndex 4)
+  const staleIdx = subs.findIndex((s) => s.id === "demo-qa-sub");
+  const demoQaStep = FORKED.mainStages[4].subStages[0].steps[0];
+  const prompt = buildDraftPrompt(FORKED, subs, r, staleIdx, demoQaStep);
+  // the prompt is scoped to the last committed spine sub-stage (Findings), not
+  // the tracked demo-qa card, and it neither names the tracked step nor leaks
+  // the sibling demo output
+  assert.equal(/Demo QA/.test(prompt), false);
+  assert.equal(/DEMO-SECRET/.test(prompt), false);
+  assert.ok(/Findings/.test(prompt));
+});
+
+test("buildDraftPrompt with a stale tracked idx never reintroduces the tracked step, even with a stepless spine", () => {
+  // a degenerate fork whose committed spine has no step at all (subject dropped)
+  const def = clone(FORKED);
+  delete def.subject;
+  def.mainStages[0].subStages[0].steps = [];
+  def.mainStages[1].subStages[0].steps = [];
+  const subs = flattenSubStages(def);
+  let r = advance(createRun(), subs).run; // stepless stage 0 gate vacuously met -> frontier 1
+  r = advance(r, subs).run; // boundary advance opens the fork
+  const demoQaIdx = subs.findIndex((s) => s.id === "demo-qa-sub"); // un-committed tracked card
+  const demoQaStep = def.mainStages[4].subStages[0].steps[0];
+  const prompt = buildDraftPrompt(def, subs, r, demoQaIdx, demoQaStep);
+  assert.equal(/Demo QA/.test(prompt), false); // the tracked step identity never leaks
+  assert.equal(/QA/.test(prompt), false);
+});

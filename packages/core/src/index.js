@@ -812,24 +812,76 @@ export function gateTypeOf(subStage) {
 }
 
 /**
+ * Sanitized relation-set run for a forked validator: the spine plus the step's
+ * own track, built from the normalized run, as an allowlist so a future field
+ * cannot silently leak. Returns the run unchanged for a linear flat list.
+ * @param {FlatSubStage[]} subStages @param {Run} run @param {number} stepFlatIdx @returns {Run}
+ */
+function scopeValidatorRun(subStages, run, stepFlatIdx) {
+  const forked = subStages.some((s) => s.track !== undefined);
+  if (!forked) return run;
+  const r = normalizeFlat(subStages, run);
+  const cur = subStages[stepFlatIdx];
+  const ownTrack = cur && cur.track !== undefined ? cur.track : null;
+  const inScope = (mainIndex) => {
+    // allowlist: an index that names no real stage (for example a corrupted
+    // forces key like 999) is in NO relation set and must be dropped, not
+    // treated as spine. Only a real spine stage or the step's own track passes.
+    const found = subStages.find((s) => s.mainIndex === mainIndex);
+    if (!found) return false;
+    return found.track === undefined || found.track === ownTrack;
+  };
+  const stepStage = new Map(); // stepId -> mainIndex
+  subStages.forEach((s) => (s.steps || []).forEach((st) => stepStage.set(st.id, s.mainIndex)));
+  const stepState = {};
+  Object.keys(r.stepState || {}).forEach((sid) => {
+    const mi = stepStage.get(sid);
+    // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
+    if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
+  });
+  const skips = {};
+  Object.keys(r.skips || {}).forEach((sub) => {
+    const s = subStages.find((x) => x.id === sub);
+    // allowlist: keep only known, in-scope sub-stage skips
+    if (s && inScope(s.mainIndex)) skips[sub] = true;
+  });
+  const forces = {};
+  Object.keys(r.forces || {}).forEach((mi) => { if (inScope(Number(mi))) forces[mi] = true; });
+  // Annotate as Run so checkJs accepts the later optional-field assignments.
+  /** @type {Run} */
+  const scoped = { idx: stepFlatIdx, frontier: r.frontier, stepState };
+  if (Object.keys(skips).length) scoped.skips = skips;
+  if (Object.keys(forces).length) scoped.forces = forces;
+  if (ownTrack !== null && r.trackFrontier && hasOwn(r.trackFrontier, ownTrack))
+    scoped.trackFrontier = { [ownTrack]: r.trackFrontier[ownTrack] };
+  return scoped;
+}
+
+/**
  * Progress of a sub-stage's gate.
  * Returns { met, done, total, gateType, missing }. A missing entry is
  * the step name, or "name: message" when the step is incomplete
  * because a present output failed its named validator.
  * @param {SubStage} subStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
+ *   When subStages describes a forked topology, validators are evaluated
+ *   against the step's spine-plus-own-track relation set (cross-track isolation);
+ *   for a linear definition the run is passed through unchanged.
  * @returns {GateProgress}
  */
-export function gateProgress(subStage, run, { validators } = {}) {
+export function gateProgress(subStage, run, { validators, subStages } = {}) {
   const gateType = gateTypeOf(subStage);
   const required = (subStage.steps || []).filter((s) => s.required);
+  const forked = !!(subStages && subStages.some((s) => s.track !== undefined));
   /** @type {string[]} */
   const missing = [];
   required.forEach((s) => {
-    const entry = getStepEntry(run, s.id);
-    if (isStepComplete(s, entry, gateType, validators, run)) return;
-    const invalid = firstInvalidOutput(s, entry, validators, run);
+    const flatIdx = forked ? subStages.findIndex((x) => (x.steps || []).some((st) => st.id === s.id)) : -1;
+    const evalRun = forked ? scopeValidatorRun(subStages, run, flatIdx) : run;
+    const entry = getStepEntry(evalRun, s.id);
+    if (isStepComplete(s, entry, gateType, validators, evalRun)) return;
+    const invalid = firstInvalidOutput(s, entry, validators, evalRun);
     missing.push(invalid ? `${s.name}: ${invalid.message}` : s.name);
   });
   return {
@@ -847,7 +899,7 @@ export function gateProgress(subStage, run, { validators } = {}) {
  * single-sub-stage main stages read as before.
  * @param {SubStage[]} subStagesOfMain
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
  * @returns {MainGateProgress}
  */
 function aggregateGate(subStagesOfMain, run, opts) {
@@ -873,7 +925,7 @@ function aggregateGate(subStagesOfMain, run, opts) {
  * sub-stage gates. Skipped sub-stages are excluded.
  * @param {MainStage} mainStage
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, subStages?: FlatSubStage[] }} [opts]
  * @returns {MainGateProgress}
  */
 export function mainGateProgress(mainStage, run, opts) {
@@ -1174,17 +1226,41 @@ export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
  * @returns {string}
  */
 export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
-  const cur = subStages[flatIdx];
+  const forked = subStages.some((s) => s.track !== undefined);
+  const r = normalizeFlat(subStages, run);
+  // a stale or unreachable requested index falls back to the last spine sub-stage,
+  // so a stale run.idx passed straight through cannot draft a tracked card or leak track context
+  let idx = flatIdx;
+  if (forked) {
+    const reach = reachableFlat(subStages, r);
+    if (!reach.includes(flatIdx)) {
+      let spineEnd = -1;
+      subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+      // Math.min keeps the fallback inside the committed spine, matching
+      // normalizeFlat and buildDraftPrompt (a corrupted frontier below spineEnd
+      // must not land the card on an un-committed spine stage).
+      idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
+    }
+  }
+  const cur = subStages[idx];
   const curMain = cur ? cur.mainIndex : 0;
+  const ownTrack = cur && cur.track !== undefined ? cur.track : null;
   const blocks = [];
   subStages.forEach((sub) => {
     if (sub.mainIndex > curMain) return;
-    if (isSubStageSkipped(run, sub.id)) return;
+    if (forked) {
+      const tid = sub.track === undefined ? null : sub.track;
+      if (tid !== null && tid !== ownTrack) return; // exclude sibling tracks
+      // effective skip only: a corrupted required/unknown id in skippedTracks must not suppress context
+      if (tid !== null && sub.optional === true && hasOwn(r.skippedTracks, tid)) return;
+    }
+    if (isSubStageSkipped(r, sub.id)) return;
     const gateType = gateTypeOf(sub);
     (sub.steps || []).forEach((step) => {
       if (step.id === excludeStepId) return;
-      if (!isStepComplete(step, getStepEntry(run, step.id), gateType, validators, run)) return;
-      const block = serializeStep(sub, step, run, { maxChars: maxCharsPerStep });
+      const evalRun = forked ? scopeValidatorRun(subStages, r, subStages.indexOf(sub)) : r;
+      if (!isStepComplete(step, getStepEntry(evalRun, step.id), gateType, validators, evalRun)) return;
+      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep });
       if (block) blocks.push(block);
     });
   });
@@ -1206,21 +1282,58 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
  * @returns {string}
  */
 export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
-  const subStage = subStages[subIdx];
-  const subject = resolveSubject(definition, run);
-  const ctx = buildContext(subStages, run, subIdx, step.id, opts);
-  const target = draftTarget(step);
+  const r = normalizeFlat(subStages, run);
+  const forked = subStages.some((s) => s.track !== undefined);
+  let idx = subIdx;
+  let effStep = step;
+  if (forked && !reachableFlat(subStages, r).includes(subIdx)) {
+    // A stale or unreachable requested index (a tracked card surviving from a
+    // stale run.idx) collapses to the last committed spine sub-stage, and the
+    // tracked step collapses with it: the engine refuses to draft a tracked
+    // card from stale state, so neither a tracked-card draft nor track context
+    // can leak. Target the fallback sub-stage's draft-eligible step (the first
+    // step with a draftTarget), else its first step. If that spine sub-stage is
+    // a stepless checklist, walk earlier reachable spine sub-stages for one that
+    // has a step, so the tracked step is never retained (every flat index at or
+    // below the last spine sub-stage is itself spine). The subject is optional,
+    // so a forked definition is not guaranteed a spine step: if the committed
+    // spine has no step at all, this loop finds none and the synthetic fallback
+    // below applies (it never reuses the tracked step).
+    let spineEnd = -1;
+    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+    idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
+    effStep = undefined;
+    for (let j = idx; j >= 0 && !effStep; j--) {
+      const cand = subStages[j];
+      if (cand && cand.track === undefined && (cand.steps || []).length) {
+        effStep = cand.steps.find((st) => draftTarget(st)) || cand.steps[0];
+        idx = j;
+      }
+    }
+    // Last resort for a degenerate fork whose committed spine has no step at all
+    // (the subject is optional, so a forked definition is not guaranteed a spine
+    // step): use a benign synthetic step, never the stale tracked `step`, so the
+    // tracked-card identity and task text can never leak. The empty `id`
+    // satisfies the required Step.id type and makes excludeStepId a harmless
+    // no-op (no real step has an empty id), and draftTarget tolerates the
+    // empty outputs.
+    if (!effStep) effStep = { id: "", name: "this step", outputs: [] };
+  }
+  const subStage = subStages[idx];
+  const subject = resolveSubject(definition, r);
+  const ctx = buildContext(subStages, r, idx, effStep.id, opts);
+  const target = draftTarget(effStep);
   const closing =
     target && target.type === "data"
       ? "Respond with valid JSON only: no preamble, no code fences, no commentary."
       : `Refer to ${subject} by name where natural. Respond with the draft output only, concise and usable. No preamble.`;
   return [
     `You are assisting inside a staged workflow named "${definition.name}". This process concerns ${subject}.`,
-    `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${step.name} (${step.description || ""}).`,
+    `Current stage: ${subStage.mainName} > ${subStage.name}. Current step: ${effStep.name} (${effStep.description || ""}).`,
     ctx
       ? `Outputs produced so far:\n\n${ctx}`
       : `No prior outputs exist yet; produce a strong first draft from general best practice.`,
-    `Task: ${step.aiPrompt || `Draft the output for the step "${step.name}".`}`,
+    `Task: ${effStep.aiPrompt || `Draft the output for the step "${effStep.name}".`}`,
     closing,
   ].join("\n\n");
 }
