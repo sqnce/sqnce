@@ -1649,15 +1649,103 @@ export function deleteRun(store, runId) {
 
 /**
  * Progress over a definition: how many flattened sub-stage gates are
- * met. Skipped sub-stages are excluded from both counts.
+ * met. Skipped sub-stages are excluded from both counts; for a forked
+ * definition, an effectively-skipped track's sub-stages are excluded too.
  * @param {Definition} definition
  * @param {Run} run
  * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {{ met: number, total: number }}
  */
-export function runSummary(definition, run, opts) {
-  const subs = flattenSubStages(definition).filter((ss) => !isSubStageSkipped(run, ss.id));
-  return { met: subs.filter((ss) => gateProgress(ss, run, opts).met).length, total: subs.length };
+export function runSummary(definition, run, opts = {}) {
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  const skipped = isForked(definition) ? effectiveSkippedTrackIds(definition, run) : new Set();
+  const active = subs.filter((ss) => !isSubStageSkipped(run, ss.id) && !(ss.track !== undefined && skipped.has(ss.track)));
+  return { met: active.filter((ss) => gateProgress(ss, run, o).met).length, total: active.length };
+}
+
+/**
+ * Is the whole run complete? For a forked definition: the spine is committed,
+ * the fork has opened, every kept track has reached its terminal, and every
+ * non-skipped gate along the kept path is met.
+ * @param {Definition} definition
+ * @param {Run} run
+ * @param {{ validators?: Object }} [opts]
+ * @returns {boolean}
+ */
+export function isRunComplete(definition, run, opts = {}) {
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  if (!isForked(definition)) {
+    const last = definition.mainStages.length - 1;
+    if (run.frontier !== last) return false;
+    return mainGateProgress(definition.mainStages[last], run, o).met &&
+      definition.mainStages.every((ms) => mainGateProgress(ms, run, o).met);
+  }
+  const r = normalizeFlat(subs, run);
+  const spineEnd = lastSpineIndex(definition);
+  if (r.frontier !== spineEnd) return false; // spine fully committed
+  const tm = trackMap(definition);
+  const skipped = effectiveSkippedTrackIds(definition, r);
+  // fork OPENED: the boundary advance initialized a valid in-range trackFrontier
+  // entry for EVERY declared track, including skipped ones. Without this, a run
+  // sitting at the last spine stage is only ready-to-open, not complete; this is
+  // also what stops an all-optional, all-skipped run from completing before the
+  // boundary advance ever ran.
+  for (const [id, t] of tm) {
+    // own-property read (spec: never bare key reads on trackFrontier); an
+    // inherited key must not be counted as an opened track.
+    const v = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
+    if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
+  }
+  // every KEPT track has reached its terminal
+  for (const [id, t] of tm) {
+    if (skipped.has(id)) continue;
+    if (!(hasOwn(r.trackFrontier, id) && r.trackFrontier[id] === t.terminal)) return false;
+  }
+  // every non-skipped gate along the kept path is met (spine + kept tracks)
+  for (let i = 0; i < definition.mainStages.length; i++) {
+    const tid = trackIdOfStage(definition, i);
+    if (tid !== null && skipped.has(tid)) continue;
+    if (!mainGateProgress(definition.mainStages[i], r, o).met) return false;
+  }
+  return true;
+}
+
+/**
+ * Derived per-track status: "not-open" | "active" | "complete" | "skipped".
+ * An unknown track id, and any call on a linear definition, returns "not-open".
+ * @param {Definition} definition
+ * @param {Run} run
+ * @param {string} trackId
+ * @param {{ validators?: Object }} [opts]
+ * @returns {"not-open"|"active"|"complete"|"skipped"}
+ */
+export function trackStatus(definition, run, trackId, opts = {}) {
+  if (!isForked(definition)) return "not-open";
+  const subs = flattenSubStages(definition);
+  const o = { ...opts, subStages: subs };
+  const tmap = trackMap(definition);
+  const tm = tmap.get(trackId);
+  if (!tm) return "not-open";
+  const r = normalizeFlat(subs, run);
+  // the fork must be OPEN before any other status: the spine is committed AND
+  // EVERY declared track has a valid in-range own trackFrontier entry. This
+  // matches reachableFlat and isRunComplete's open check: a partially
+  // initialized or corrupted run (any track missing or out of range) is
+  // not-open for ANY track, including a skipped one, until the boundary advance
+  // repairs every entry, so trackStatus never reports a track active/complete
+  // while navigation treats the fork as unopened.
+  if (r.frontier !== lastSpineIndex(definition)) return "not-open";
+  for (const [id, t] of tmap) {
+    // own-property read (spec: never bare key reads on trackFrontier).
+    const ev = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
+    if (!(typeof ev === "number" && ev >= t.first && ev <= t.terminal)) return "not-open";
+  }
+  const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
+  if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
+  if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
+  return "active";
 }
 
 /*

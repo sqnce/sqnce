@@ -34,6 +34,8 @@ import {
   skipTrack,
   unskipTrack,
   isTrackSkipped,
+  isRunComplete,
+  trackStatus,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 import { FORKED } from "./fixtures/forked.js";
@@ -1498,4 +1500,176 @@ test("buildDraftPrompt with a stale tracked idx never reintroduces the tracked s
   const prompt = buildDraftPrompt(def, subs, r, demoQaIdx, demoQaStep);
   assert.equal(/Demo QA/.test(prompt), false); // the tracked step identity never leaks
   assert.equal(/QA/.test(prompt), false);
+});
+
+test("isRunComplete is false before the fork opens even with terminal trackFrontier", () => {
+  const subs = flattenSubStages(FORKED);
+  const r = { ...createRun(), frontier: 0, trackFrontier: { demo: 4, response: 7 } };
+  assert.equal(isRunComplete(FORKED, r), false);
+  assert.equal(trackStatus(FORKED, r, "response"), "not-open");
+});
+
+test("trackStatus is not-open at the last spine stage before the boundary advance", () => {
+  const subs = flattenSubStages(FORKED);
+  const r = commitSpine(createRun(), subs); // frontier == 1, no trackFrontier
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+test("trackStatus reports unknown id and linear definition as not-open without throwing", () => {
+  assert.equal(trackStatus(FORKED, createRun(), "ghost"), "not-open");
+  assert.equal(trackStatus(FIXTURE, createRun(), "any"), "not-open");
+});
+
+test("a skipped optional track is excluded; an all-required-complete run completes", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open
+  r = skipTrack(r, FORKED, "demo");
+  // drive response to its terminal with all gates met
+  r = setOutput(r, "respDraft", "d", "x"); r = setCheckedDone(r, "respDraft", true);
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub")); r = advance(r, subs).run;
+  r = setOutput(r, "respReview", "r", "x"); r = setCheckedDone(r, "respReview", true);
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-review-sub")); r = advance(r, subs).run;
+  r = setCheckedDone(r, "respSignoff", true); // strict terminal
+  assert.equal(trackStatus(FORKED, r, "response"), "complete");
+  assert.equal(trackStatus(FORKED, r, "demo"), "skipped");
+  assert.equal(isRunComplete(FORKED, r), true);
+});
+
+test("runSummary excludes a skipped track's sub-stages", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  const before = runSummary(FORKED, r).total;
+  const after = runSummary(FORKED, skipTrack(r, FORKED, "demo")).total;
+  assert.ok(after < before);
+});
+
+test("inherited-only trackFrontier entries are never read as opened or complete", () => {
+  // A corrupted run whose `demo`/`response` are inherited, not own, properties:
+  // own-property reads must ignore them (spec robustness), so the fork reads as
+  // not-open and the run as incomplete. A bare key read would wrongly see the
+  // terminal values and report "active"/opened. Object.create keeps the
+  // pollution local to this object (no global prototype mutation).
+  const inherited = Object.create({ demo: 4, response: 7 });
+  const r = { ...createRun(), frontier: 1, trackFrontier: inherited }; // frontier at spine end
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+  assert.equal(trackStatus(FORKED, r, "response"), "not-open");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+// Drive the response track to its terminal with every gate met.
+function driveResponseToTerminal(run, subs) {
+  let r = run;
+  r = setOutput(r, "respDraft", "d", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs).run; // response = 6
+  r = setOutput(r, "respReview", "r", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-review-sub"));
+  r = advance(r, subs).run; // response = 7 (terminal)
+  r = setCheckedDone(r, "respSignoff", true); // strict terminal gate met
+  return r;
+}
+
+test("a stage forced past an unmet gate keeps the run incomplete", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = skipTrack(r, FORKED, "demo"); // keep only response
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs, { force: true }).run; // respDraft missing: forced past, response = 6
+  r = setOutput(r, "respReview", "r", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-review-sub"));
+  r = advance(r, subs).run; // response = 7 (terminal)
+  r = setCheckedDone(r, "respSignoff", true);
+  // response is at its terminal, but the forced-unmet draft gate keeps the run incomplete
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+test("a validator-rejected terminal output keeps isRunComplete and trackStatus incomplete", () => {
+  const def = clone(FORKED);
+  def.mainStages[7].subStages[0].steps[0].outputs[0].validate = "reject"; // respSignoff output
+  const subs = flattenSubStages(def);
+  const validators = { reject: () => "nope" };
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = skipTrack(r, def, "demo");
+  r = driveResponseToTerminal(r, subs);
+  r = setOutput(r, "respSignoff", "so", "x"); // terminal output present but the validator rejects it
+  assert.equal(trackStatus(def, r, "response", { validators }), "active");
+  assert.equal(isRunComplete(def, r, { validators }), false);
+});
+
+test("isRunComplete stays false when terminal outputs are prefilled but the frontier has not reached them", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo=2, response=5
+  r = skipTrack(r, FORKED, "demo");
+  // prefill every response output (including the terminal) without advancing the frontier
+  r = setOutput(r, "respDraft", "d", "x");
+  r = setOutput(r, "respReview", "r", "x");
+  r = setOutput(r, "respSignoff", "so", "x");
+  r = setCheckedDone(r, "respSignoff", true);
+  assert.equal(r.trackFrontier.response, 5); // frontier still at the first response stage
+  assert.equal(isRunComplete(FORKED, r), false); // prefilled stepState does not complete the run
+});
+
+test("a kept (unskipped) optional track blocks completion until its own terminal is reached", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // demo kept, at its first stage
+  r = driveResponseToTerminal(r, subs); // response fully complete
+  assert.equal(trackStatus(FORKED, r, "response"), "complete");
+  assert.equal(trackStatus(FORKED, r, "demo"), "active"); // kept optional, not at terminal
+  assert.equal(isRunComplete(FORKED, r), false); // demo blocks completion
+});
+
+test("a stale frontier is normalized before isRunComplete and trackStatus", () => {
+  const subs = flattenSubStages(FORKED);
+  // a run persisted when the definition was linear: frontier/idx point past the new spine,
+  // with no trackFrontier. After normalization the fork is not open: incomplete, tracks not-open.
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setOutput(r, "findings", "notes", "n");
+  r = { ...r, frontier: 7, idx: subs.length - 1 };
+  assert.equal(isRunComplete(FORKED, r), false);
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+});
+
+test("gateProgress reports a single stage's gate and never consults skippedTracks", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run;
+  r = setOutput(r, "demoScript", "s", "x"); // demo-script gate met
+  const sub = subs.find((s) => s.id === "demo-script-sub");
+  const skipped = { ...r, skippedTracks: { demo: true } };
+  assert.equal(gateProgress(sub, r, { subStages: subs }).met, true);
+  assert.equal(gateProgress(sub, skipped, { subStages: subs }).met, true); // a whole-track skip is not its concern
+});
+
+test("a linear run is complete when the frontier is at the last main stage with its gate met", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "kickoff", true); // required checklist step in the start sub-stage
+  r = setCheckedDone(r, "evidence", true); // required step in the (skippable) collect sub-stage
+  r = advance(r, subs).run; // alpha boundary gate met -> frontier 1 (omega)
+  assert.equal(r.frontier, 1);
+  r = setCheckedDone(r, "approve", true); // strict signoff gate
+  assert.equal(isRunComplete(FIXTURE, r), true);
+});
+
+test("trackStatus is not-open for a partially-initialized fork (a required track missing)", () => {
+  const subs = flattenSubStages(FORKED);
+  // demo has a valid entry but the required response entry is missing: the fork
+  // is not fully open, so NO track is active, matching navigation/isRunComplete.
+  const r = { ...createRun(), frontier: 1, trackFrontier: { demo: 2 } };
+  assert.equal(trackStatus(FORKED, r, "demo"), "not-open");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+test("a corrupted required-track skip is ignored by runSummary and isRunComplete", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo=2, response=5
+  const cleanTotal = runSummary(FORKED, r).total;
+  // response is REQUIRED: a skippedTracks entry for it (and an unknown id) must be
+  // ignored by every read path, so runSummary does not drop response's sub-stages.
+  const corrupt = { ...r, skippedTracks: { response: true, ghost: true } };
+  assert.equal(runSummary(FORKED, corrupt).total, cleanTotal);
+  // and isRunComplete still requires response to reach its terminal: demo (optional)
+  // is effectively skipped, response (required) is not, so the run is incomplete.
+  const r2 = { ...r, skippedTracks: { demo: true, response: true } };
+  assert.equal(isRunComplete(FORKED, r2), false);
 });
