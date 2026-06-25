@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { jumpTo, getStepEntry, hasValue, isSubStageSkipped } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { buildRendererContext } from "./rendererContext.js";
 import { resolveRunStatus } from "./runStatus.js";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 
@@ -156,7 +157,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
                       onChange={() => {}}
                       onAttach={() => {}}
                       renderers={renderers}
-                      context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: false }}
+                      context={buildRendererContext({ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, runId })}
                       generated={false}
                       invalid={null}
                     />

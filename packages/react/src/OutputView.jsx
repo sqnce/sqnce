@@ -10,7 +10,8 @@ import { OutputTypeIcon } from "./icons.jsx";
  * receiving { spec, value, onChange, context }. onChange carries value
  * mutations only; renderer view state (selection, pan, zoom) stays
  * internal, because serializeStep feeds values into LLM draft prompts.
- * context = { workflowId, stepId, subject, readOnly, expanded }.
+ * context = { workflowId, stepId, subject, readOnly, runId, expanded }.
+ * runId is the active run entry id (null when there is no active run yet).
  */
 
 function Overlay({ label, onClose, children }) {
