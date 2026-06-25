@@ -72,8 +72,11 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
                     spec={spec}
                     value={outVal}
                     onChange={() => {}}
+                    onAttach={() => {}}
                     renderers={renderers}
                     context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: true }}
+                    generated={false}
+                    invalid={null}
                   />
                 );
               }
