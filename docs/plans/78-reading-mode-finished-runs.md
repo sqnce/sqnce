@@ -409,6 +409,18 @@ Then add a guard effect immediately after it, so reading mode never lingers over
 
 This does not fight the Edit toggle: Edit sets `view` to `"rolodex"`, and the one-shot above does not re-route a still-complete run, so the user stays in the deck.
 
+Finally, stop the global arrow-key handler from browsing the underlying run while reading. The existing keydown effect (~354-363) calls `doBrowse(-1|1)` on the arrow keys in every view, which in reading mode would shift `run.idx` by a sub-stage and move the selected stage outside the reading rail's reachable-stage stepping. Reading mode has its own prev/next, so add `view === "reading"` to that handler's early-return guard. Replace:
+
+```jsx
+      if (overviewOpen) return;
+```
+
+with:
+
+```jsx
+      if (overviewOpen || view === "reading") return;
+```
+
 - [ ] **Step 6: Syntax-check**
 
 Run: `npx esbuild packages/react/src/ProcessRolodex.jsx --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`
@@ -545,6 +557,7 @@ git commit -m "chore(types): regenerate after #78"
 - "Run-header band with name and neutral Complete status": Task 1 (`pf-read-band`).
 - "Reading canvas, outputs expanded, reuse OutputView, editing suppressed": Task 1 (the `OutputView:169` change so an explicit `expanded: true` reaches the inline renderer, and `ReadingView` calling `OutputView` with `context.readOnly: true`, `expanded: true`, a no-op `onChange` so custom renderers never throw, filled outputs only) plus Task 4 CSS that uncaps `.pf-render` inside `.pf-read`, so renderer-backed outputs (for example `FlowDiagram`) show their full layout, not the deck's 280px capped panel. The expand-to-overlay button stays reachable for the overlay acceptance check.
 - "Reading rail replaces the inert header strip": Task 2 Step 5 hides the header `pf-rail` when `view === "reading"`, so only the reachability-filtered contents rail shows.
+- "Navigation stays consistent in reading mode": Task 3 Step 5 guards the global arrow-key handler so the deck's `doBrowse` does not shift the run while reading; reading uses its own prev/next and rail.
 - "Reading mode stays valid": Task 3 guard effect routes back to the deck when the active run is reset, deleted, or otherwise no longer complete while reading.
 - "Prev/next defined over a fork (spine then kept tracks, skipped omitted)": Task 1 (`readable` order + prev/next).
 - "Edit toggle both directions, no run-state mutation": Task 1 (`onEdit`) + Task 2 Step 4 (Read button); switching only calls `setView`, never `setRun`.
