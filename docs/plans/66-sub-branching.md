@@ -1501,10 +1501,10 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
     // step with a draftTarget), else its first step. If that spine sub-stage is
     // a stepless checklist, walk earlier reachable spine sub-stages for one that
     // has a step, so the tracked step is never retained (every flat index at or
-    // below the last spine sub-stage is itself spine; a valid forked definition
-    // always has a spine step, the subject, so this resolves). The original
-    // tracked `step` is a last resort only for a degenerate spine with no steps
-    // anywhere, which a forked definition cannot have.
+    // below the last spine sub-stage is itself spine). The subject is optional,
+    // so a forked definition is not guaranteed a spine step: if the committed
+    // spine has no step at all, this loop finds none and the synthetic fallback
+    // below applies (it never reuses the tracked step).
     let spineEnd = -1;
     subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
     idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
@@ -1519,9 +1519,11 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
     // Last resort for a degenerate fork whose committed spine has no step at all
     // (the subject is optional, so a forked definition is not guaranteed a spine
     // step): use a benign synthetic step, never the stale tracked `step`, so the
-    // tracked-card identity and task text can never leak. draftTarget tolerates
-    // the empty outputs, and the undefined id makes excludeStepId a no-op.
-    if (!effStep) effStep = { name: "this step", outputs: [] };
+    // tracked-card identity and task text can never leak. The empty `id`
+    // satisfies the required Step.id type and makes excludeStepId a harmless
+    // no-op (no real step has an empty id), and draftTarget tolerates the
+    // empty outputs.
+    if (!effStep) effStep = { id: "", name: "this step", outputs: [] };
   }
   const subStage = subStages[idx];
   const subject = resolveSubject(definition, r);
