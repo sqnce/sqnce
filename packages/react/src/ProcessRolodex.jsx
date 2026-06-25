@@ -45,6 +45,8 @@ import { OutputTypeIcon } from "./icons.jsx";
 import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
+import { resolveGeneratedBadge } from "./badge.js";
+import { resolveRunStatus } from "./runStatus.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -95,6 +97,21 @@ function newId() {
  *      owning step incomplete (gates, status, draft context) and
  *      rejects generated drafts. Pure functions; omit to validate
  *      nothing.
+ *  - generatedBadge (optional): (lifecycle, spec) => string | null,
+ *      overrides the generated-output badge label. lifecycle is the owning
+ *      step's status ("done" | "draft" | "open"). A non-empty string is the
+ *      label; null hides the badge. Omit for the default mapping (a done
+ *      step reads "AI generated", otherwise "AI draft").
+ *  - renderRunHeader (optional): ({ def, run, runId, subject, complete })
+ *      => ReactNode, mounted in the reading-mode run header band (a final
+ *      verdict banner, for example). The band only renders for a finished
+ *      run, so complete is true whenever it fires. Omit to mount nothing.
+ *  - runStatus (optional): ({ def, run, runId }) => string | { word, tone }
+ *      | null, a short per-run status word shown in the runs sidebar, the
+ *      runs screen, and the reading-mode band (where it replaces the
+ *      default "Complete"). A bare string is the word; tone is an opaque
+ *      visual hint that must degrade to a plain word. Omit to show no word
+ *      in the lists and keep "Complete" in the band.
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -163,10 +180,13 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+ * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null }) => (string | { word: string, tone?: string } | null)} [runStatus]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -627,6 +647,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         workflows={workflows}
         store={store}
         validators={validators}
+        runStatus={runStatus}
         collapsed={!sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onOpenRun={openRun}
@@ -642,6 +663,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           workflows={workflows}
           store={store}
           validators={validators}
+          runStatus={runStatus}
           onOpenRun={openRun}
           onRename={doRename}
           onArchive={doArchive}
@@ -656,6 +678,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
           runName={entry ? runDisplayName(def, store, entry.id) : def.name}
           renderers={renderers}
           subjectName={subjectName}
+          renderRunHeader={renderRunHeader}
+          runStatus={runStatus}
+          runId={entry ? entry.id : null}
+          complete={complete}
           onJump={(i) => setNav(jumpTo(run, subs, i))}
           onEdit={() => { clearTransients(); setView("rolodex"); }}
         />
@@ -825,6 +851,8 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             const outVal = (entry.outputs || {})[spec.id];
                             const checkFn = spec.validate && validators && validators[spec.validate];
                             const invalidMsg = checkFn && hasValue(spec, outVal) ? checkFn(outVal, spec, { run, stepId: step.id }) : null;
+                            const isGen = isOutputGenerated(run, step.id, spec.id);
+                            const genBadge = resolveGeneratedBadge({ generated: isGen, lifecycle: status, spec, resolver: generatedBadge });
                             return (
                               <OutputView
                                 key={spec.id}
@@ -838,7 +866,8 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                                 }}
                                 renderers={renderers}
                                 context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly }}
-                                generated={isOutputGenerated(run, step.id, spec.id)}
+                                generated={isGen}
+                                badge={genBadge}
                               />
                             );
                           })}
@@ -1314,6 +1343,15 @@ const CSS = `
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: #D9A441; }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
+.pf-read-header-slot { margin-left: auto; }
+.pf-side-status, .pf-runs-status {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #7A6A3C; background: #F1E8CE;
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+.pf-side-status { margin-left: 6px; }
+.pf-side-status[data-tone="accept"], .pf-runs-status[data-tone="accept"] { color: #2E6E3F; background: #DDEFE0; }
+.pf-side-status[data-tone="revise"], .pf-runs-status[data-tone="revise"] { color: #8F4E2E; background: #F4DFAE; }
 
 .pf-oticon { display: inline-flex; vertical-align: -1px; }
 .pf-counter {
@@ -1396,7 +1434,10 @@ const CSS = `
 .pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pf-read-band { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #D8D3C2; padding-bottom: 10px; margin-bottom: 12px; }
 .pf-read-title { font-size: 22px; margin: 0; color: #23282F; }
-.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #2E8F62; }
+.pf-read-status { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #6B6F76; }
+.pf-read-status[data-tone="complete"] { color: #2E8F62; }
+.pf-read-status[data-tone="accept"] { color: #2E6E3F; }
+.pf-read-status[data-tone="revise"] { color: #8F4E2E; }
 .pf-read-canvas { max-width: 760px; }
 .pf-read-stage { font-size: 18px; color: #23282F; margin: 4px 0 12px; }
 .pf-read-sub { margin-bottom: 22px; }

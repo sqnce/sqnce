@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { jumpTo, getStepEntry, hasValue, isSubStageSkipped } from "@sqnce/core";
 import OutputView from "./OutputView.jsx";
+import { resolveRunStatus } from "./runStatus.js";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
 
 /*
@@ -68,7 +69,7 @@ function PlainOutput({ spec, value }) {
   return <div className="pf-read-text">{typeof value === "string" ? value : String(value == null ? "" : value)}</div>;
 }
 
-export default function ReadingView({ def, run, subs, runName, renderers, subjectName, onJump, onEdit }) {
+export default function ReadingView({ def, run, subs, runName, renderers, subjectName, renderRunHeader, runStatus, runId, complete, onJump, onEdit }) {
   const firstFlatOf = (mi) => subs.findIndex((s) => s.mainIndex === mi);
 
   /* The committed reachable main stages, in reading order: the shared spine
@@ -102,6 +103,12 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
 
   const stageSubs = subs.filter((s) => s.mainIndex === selectedMain && !isSubStageSkipped(run, s.id));
 
+  const status = resolveRunStatus(runStatus, { def, run, runId });
+  /* renderRunHeader may be a render-prop function or a React component
+     (memo/forwardRef/class/hooks), so render it as a JSX element with the
+     context as props rather than calling it directly. */
+  const RunHeader = renderRunHeader || null;
+
   return (
     <div className="pf-read">
       <nav className="pf-read-rail" aria-label="Contents">
@@ -120,7 +127,14 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
       <div className="pf-read-doc">
         <header className="pf-read-band">
           <h1 className="pf-read-title">{runName}</h1>
-          <span className="pf-read-status">Complete</span>
+          <span className="pf-read-status" data-tone={status ? status.tone || undefined : "complete"}>
+            {status ? status.word : "Complete"}
+          </span>
+          {complete && RunHeader && (
+            <div className="pf-read-header-slot">
+              <RunHeader def={def} run={run} runId={runId} subject={subjectName} complete={complete} />
+            </div>
+          )}
         </header>
 
         <article className="pf-read-canvas">

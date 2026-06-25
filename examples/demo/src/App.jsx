@@ -49,6 +49,25 @@ const validators = {
   },
 };
 
+/* Illustrative consumer derivation. sqnce stays content-agnostic; a real
+   consumer derives its own verdict. For the presales workflow, read the
+   fit-gap step's text and surface a coarse ACCEPT/REVISE word; other
+   workflows get no status word. */
+function runStatus({ def, run }) {
+  if (def.id !== "presales-pursuit") return null;
+  const e = getStepEntry(run, "fit-gap");
+  const text = e && e.outputs && typeof e.outputs.out === "string" ? e.outputs.out : "";
+  if (!text.trim()) return null;
+  return /\bgap\b/i.test(text) ? { word: "REVISE", tone: "revise" } : { word: "ACCEPT", tone: "accept" };
+}
+
+function renderRunHeader({ def, run, complete }) {
+  if (!complete) return null;
+  const st = runStatus({ def, run });
+  if (!st) return null;
+  return <div className={`demo-verdict demo-verdict-${st.tone}`}>Readiness: {st.word}</div>;
+}
+
 export default function App() {
   return (
     <>
@@ -70,6 +89,8 @@ export default function App() {
         generateDraft={generateDraft}
         validators={validators}
         renderers={RENDERERS}
+        runStatus={runStatus}
+        renderRunHeader={renderRunHeader}
       />
     </>
   );

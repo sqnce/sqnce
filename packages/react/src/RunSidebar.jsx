@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { runsForWorkflow, runSummary, runDisplayName } from "@sqnce/core";
+import { resolveRunStatus } from "./runStatus.js";
 
 /*
  * Collapsible run sidebar: one section per workflow (prop order), live
@@ -12,6 +13,7 @@ export default function RunSidebar({
   workflows,
   store,
   validators,
+  runStatus,
   collapsed,
   onToggle,
   onOpenRun,
@@ -54,6 +56,7 @@ export default function RunSidebar({
             <div className="pf-side-label">{w.short || w.name}</div>
             {live.map((e) => {
               const sum = runSummary(w, e.run, { validators });
+              const status = resolveRunStatus(runStatus, { def: w, run: e.run, runId: e.id });
               const isActive =
                 store.activeWorkflowId === w.id && store.activeRunByWorkflow[w.id] === e.id;
               return (
@@ -82,6 +85,11 @@ export default function RunSidebar({
                       <span className="pf-side-count">
                         {sum.met}/{sum.total}
                       </span>
+                      {status && (
+                        <span className="pf-side-status" data-tone={status.tone || undefined}>
+                          {status.word}
+                        </span>
+                      )}
                     </button>
                   )}
                   <button
