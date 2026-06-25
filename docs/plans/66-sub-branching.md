@@ -88,6 +88,8 @@ Add to the `Run` typedef block:
  * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
 ```
 
+Also update the top-of-file module-header prose comment (the "2) RUN" block, near `index.js:30`, which today lists `{ idx, frontier, stepState, skips?, forces? }`) so the source docs do not go stale: add a sentence that for a forked definition the run also carries optional `trackFrontier` (furthest committed main-stage index per track, present once the fork opens) and `skippedTracks` (optional tracks marked not-applicable), and that both are absent for a linear run (which stays byte-identical). Do not restate the full engine rules here; that lives in CLAUDE.md (Task 12).
+
 - [ ] **Step 2: Write a structural test** in `engine.test.js` (import `FORKED` at top: `import { FORKED } from "./fixtures/forked.js";`). Written before the fixture so the fail-first checkpoint is genuine: until the fixture file exists this fails with an import (module-not-found) error. It asserts the fixture's exact shape; the "does it validate" assertion belongs in Task 3, where `validateDefinition` actually gains fork rules:
 
 ```js
@@ -1336,6 +1338,22 @@ test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a t
   assert.equal(/DEMO-SECRET/.test(prompt), false);
   assert.ok(/Findings/.test(prompt));
 });
+
+test("buildDraftPrompt with a stale tracked idx never reintroduces the tracked step, even with a stepless spine", () => {
+  // a degenerate fork whose committed spine has no step at all (subject dropped)
+  const def = clone(FORKED);
+  delete def.subject;
+  def.mainStages[0].subStages[0].steps = [];
+  def.mainStages[1].subStages[0].steps = [];
+  const subs = flattenSubStages(def);
+  let r = advance(createRun(), subs).run; // stepless stage 0 gate vacuously met -> frontier 1
+  r = advance(r, subs).run; // boundary advance opens the fork
+  const demoQaIdx = subs.findIndex((s) => s.id === "demo-qa-sub"); // un-committed tracked card
+  const demoQaStep = def.mainStages[4].subStages[0].steps[0];
+  const prompt = buildDraftPrompt(def, subs, r, demoQaIdx, demoQaStep);
+  assert.equal(/Demo QA/.test(prompt), false); // the tracked step identity never leaks
+  assert.equal(/QA/.test(prompt), false);
+});
 ```
 
 - [ ] **Step 2: Run** `npm test`, Expected: FAIL.
@@ -1498,7 +1516,12 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
         idx = j;
       }
     }
-    if (!effStep) effStep = step;
+    // Last resort for a degenerate fork whose committed spine has no step at all
+    // (the subject is optional, so a forked definition is not guaranteed a spine
+    // step): use a benign synthetic step, never the stale tracked `step`, so the
+    // tracked-card identity and task text can never leak. draftTarget tolerates
+    // the empty outputs, and the undefined id makes excludeStepId a no-op.
+    if (!effStep) effStep = { name: "this step", outputs: [] };
   }
   const subStage = subStages[idx];
   const subject = resolveSubject(definition, r);
@@ -1883,7 +1906,7 @@ git commit -m "feat(core): cloneRun fork fail-fast on tracked truncation (#66)"
 - Sub-branching (#66): a `Definition` may declare `tracks` and tag main stages with `track`, forking after a non-empty shared spine into contiguous, independent linear tracks, each ending at its own terminal (its last stage). The spine and fork are derived from stage tagging, not stored as nodes. Run state gains optional `trackFrontier` (furthest committed stage per track) and `skippedTracks` (optional tracks marked not-applicable); both absent for a linear run, which stays byte-identical. Read paths honor a track skip only for a declared optional track (effective skip), ignoring required or unknown ids in `skippedTracks`. The fork opens on advancing past the last spine stage (initializing `trackFrontier`); `frontier` at the last spine index alone is only ready-to-open. Each track advances and gates independently; `isRunComplete` is true once the spine is committed, the fork has opened, every kept track has reached its terminal, and every non-skipped gate along the kept path is met. `trackStatus` is `not-open | active | complete | skipped`. Validators on a forked gate see a sanitized relation-set run (spine plus the step's own track), so cross-track state never leaks into gating, completion, status, or draft context. `cloneRun` deep-copies the track maps on a full clone and throws on truncation to a tracked stage (fork-aware truncation is out of scope).
 ```
 
-- [ ] **Step 2: Update `packages/core/README.md`** Exports line to add the new helpers (and reconcile known omissions per the spec):
+- [ ] **Step 2: Update `packages/core/README.md`** Exports line to add the new forked helpers. This line is a curated highlight that intentionally omits several existing exports (`runDisplayName`, the run-store API, `draftTarget`, `parseDraft`, the sub-stage skip helpers, and others); per the spec, this task only requires listing the new forked helpers, and fully reconciling the pre-existing omissions to make the line authoritative is an optional owner decision, not done here unless the owner asks. The snippet below keeps the line curated and adds the new helpers:
 
 ```markdown
 Exports: `flattenSubStages`, `validateDefinition`, `createRun`, `setOutput`, `setCheckedDone`, `getStepEntry`, `hasValue`, `stepHasAnyOutput`, `isStepComplete`, `gateTypeOf`, `gateProgress`, `mainGateProgress`, `browse`, `jumpTo`, `advance`, `resolveSubject`, `serializeStep`, `buildContext`, `buildDraftPrompt`, `runSummary`, `cloneRun`, `isRunComplete`, `trackStatus`, `skipTrack`, `unskipTrack`, `isTrackSkipped`.
