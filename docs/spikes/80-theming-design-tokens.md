@@ -66,9 +66,45 @@ The spec is revised to state the precedence (accessibility wins; the only intent
 visual changes are the minimal, enumerated muted-text adjustments the audit requires), so
 the two acceptance criteria no longer conflict.
 
+## Assumption 3: portaled overlays mounted inside `.pf-root` get tokens and stay full-screen
+
+A later Codex pass found that two subtrees render through `createPortal(..., document.body)`
+(the renderer-expand `Overlay` in `OutputView`, and `OverviewModal`), so they sit outside
+`.pf-root`. If the private `--sqnce-_*` defaults are declared only on `.pf-root`, a
+body-mounted overlay would resolve those tokens to nothing and render unstyled. The fix in
+the spec is to mount those portals inside `.pf-root` instead of `document.body`. That fix
+rests on two behaviors, both checked because `.pf-root` sets `overflow-x: hidden`: a
+`position: fixed` overlay nested in `.pf-root` must still cover the viewport (not be clipped
+by the ancestor's overflow), and it must inherit `.pf-root` tokens and ancestor overrides.
+
+### Method
+
+A fixture (`portal-spike.html`, not committed) reproduced `.pf-root`'s relevant properties
+(`overflow-x: hidden`, `display: flex`, `flex-direction: column`, no transform) wrapping a
+4000px spacer to force a real overflow/scroll context, with a `position: fixed; inset: 0`
+overlay nested inside. Computed `background` and the overlay's bounding rect were read.
+
+- Case D: overlay reads a default token (`var(--sqnce-overlay-bg, #F1EEE3)`); no override.
+- Case E: an ancestor `.theme { --sqnce-bg: rgb(0,128,0) }` wraps `.pf-root`; the nested
+  overlay reads that public token.
+
+### Result
+
+| Case | Computed background | Overlay rect (viewport 945x921) | Reading |
+|---|---|---|---|
+| D | `rgb(241, 238, 227)` (`#F1EEE3`) | x0 y0, 930x921 | default token reaches the nested overlay |
+| E | `rgb(0, 128, 0)` | x0 y0, 930x921 | ancestor override reaches the nested overlay |
+
+Both overlays anchor at (0,0) and span the full viewport height (921 = `vh`). The 930 vs 945
+width gap is the 15px vertical scrollbar gutter that a fixed `inset: 0` element leaves on a
+scrollable page, not clipping by `overflow-x: hidden`. So nesting a fixed overlay in
+`.pf-root` keeps it full-screen and gives it both the default tokens and ancestor overrides.
+
 ## Conclusion
 
-Both assumptions are settled before approval. Assumption 1 holds as the spec describes.
+All three assumptions are settled before approval. Assumption 1 holds as the spec describes.
 Assumption 2 is resolved by reconciling the two acceptance criteria rather than by changing
-the mechanism. No re-spec of the design is needed; the only spec edit is the contrast
-precedence wording.
+the mechanism. Assumption 3 confirms the portal fix: mounting the expand overlay and the
+overview modal inside `.pf-root` themes them with no special-casing. No re-spec of the core
+design is needed; the spec edits are the contrast precedence wording and the portal mounting
+requirement.

@@ -27,7 +27,13 @@ Replace the hardcoded values in the `CSS` constant with references to the privat
 
 First-draft coverage: the shell chrome (header, rail, deck, cards, navigation, sidebar, runs screen) plus the common renderer surfaces (tables, key-value, markdown, code). Deeper per-renderer tokenization can follow once the vocabulary is proven; this issue establishes the vocabulary and converts the shell.
 
-### 3. Accessibility-safe defaults
+### 3. Token scope must cover portaled overlays
+
+Two surfaces render through a portal to `document.body` and so fall outside `.pf-root`: the renderer-expand overlay (`OutputView`'s `Overlay`, class `.pf-overlay`) and the overview modal (`OverviewModal`). Both currently paint hardcoded colors (for example `.pf-overlay` uses `#F1EEE3` with a `#23282F`/`#EDEAE0` head). If their styles become `var(--sqnce-_*)` references while the private tokens are declared only on `.pf-root`, a body-mounted overlay resolves those tokens to nothing and renders unstyled, and a consumer override set on `.pf-root` never reaches it.
+
+So these portals mount inside `.pf-root` rather than `document.body`, which keeps them within the token scope: they inherit the private-token defaults and any consumer override set on `.pf-root` or an ancestor, with no per-portal token plumbing. The overlays are `position: fixed; inset: 0; z-index: 1000`, so nesting them in `.pf-root` does not change their full-screen, top-layer behavior, and `.pf-root` sets only `overflow-x: hidden` (no transform, filter, or other containing-block trigger), so it does not clip a fixed descendant. The demo build is where to confirm the expanded overlay and the overview modal still cover the viewport and sit above the shell. See `docs/spikes/80-theming-design-tokens.md` for the fixture that verifies token inheritance and non-clipping.
+
+### 4. Accessibility-safe defaults
 
 The issue requires the default theme to be accessible, independent of any consumer override:
 
@@ -50,6 +56,7 @@ No React test harness exists (the test suite is engine-only). Verify by the demo
 
 - The shell's palette, type, and spacing are driven by the `--sqnce-*` custom-property vocabulary, with the current values supplied as fallbacks rather than as literal assignments of the public tokens on `.pf-root`; setting those properties on `.pf-root` or any ancestor scope reskins the shell with no fork.
 - Default rendering is visually unchanged from today, apart from the minimal, enumerated muted-text color adjustments the contrast audit requires; those are the only intentional visual changes, and accessibility takes precedence over byte-identical preservation.
+- The renderer-expand overlay and the overview modal, though portaled, resolve the same tokens and honor consumer overrides (they mount within `.pf-root`), and stay full-screen above the shell.
 - Every status conveys meaning with a word and an icon, not color alone.
 - The default palette meets the contrast minimums, and the reduced-motion path is consistent.
 - `npm test` and `npm run build -w examples/demo` pass.
