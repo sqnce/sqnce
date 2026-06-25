@@ -69,15 +69,26 @@ function PlainOutput({ spec, value }) {
 export default function ReadingView({ def, run, subs, runName, renderers, subjectName, onJump, onEdit }) {
   const firstFlatOf = (mi) => subs.findIndex((s) => s.mainIndex === mi);
 
-  /* The committed reachable main stages, in def order. A stage is readable
-     when its first sub-stage is a jumpTo target (jumpTo returns idx === f
-     only when f is reachable), which excludes skipped tracks and stages
-     past the frontier without any frontier math here. */
+  /* The committed reachable main stages, in reading order: the shared spine
+     first (untracked stages in mainStages order), then each declared track
+     in definition.tracks declaration order, since the contiguous track
+     blocks in mainStages may be ordered differently from the declaration.
+     A stage is readable when its first sub-stage is a jumpTo target (jumpTo
+     returns idx === f only when f is reachable), which drops skipped tracks
+     and stages past the frontier without any frontier math here. */
   const readable = useMemo(() => {
+    const reachable = (mi) => {
+      const f = subs.findIndex((s) => s.mainIndex === mi);
+      return f >= 0 && jumpTo(run, subs, f).idx === f;
+    };
     const out = [];
     for (let mi = 0; mi < def.mainStages.length; mi++) {
-      const f = subs.findIndex((s) => s.mainIndex === mi);
-      if (f >= 0 && jumpTo(run, subs, f).idx === f) out.push(mi);
+      if (def.mainStages[mi].track === undefined && reachable(mi)) out.push(mi);
+    }
+    for (const t of def.tracks || []) {
+      for (let mi = 0; mi < def.mainStages.length; mi++) {
+        if (def.mainStages[mi].track === t.id && reachable(mi)) out.push(mi);
+      }
     }
     return out;
   }, [def, run, subs]);
