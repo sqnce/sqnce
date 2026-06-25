@@ -4,7 +4,7 @@ Issue: #80 (theming via design tokens). Milestone: "UI shell: reading mode, rend
 
 A first-draft spec committed to a draft PR ahead of the Codex review loop.
 
-Layer: pure `@sqnce/react`. All styles live in one CSS template literal (the `CSS` constant in `packages/react/src/ProcessRolodex.jsx`, injected once via `<style>{CSS}</style>`). Every component (`OutputView`, `RunSidebar`, `RunsScreen`, `OverviewModal`, and the renderers) references the `pf-*` classes defined there, so converting that one constant rethemes the whole shell. No `@sqnce/core` change.
+Layer: pure `@sqnce/react`. Nearly all styles live in one CSS template literal (the `CSS` constant in `packages/react/src/ProcessRolodex.jsx`, injected once via `<style>{CSS}</style>`), and every component (`OutputView`, `RunSidebar`, `RunsScreen`, `OverviewModal`, and the renderers) references the `pf-*` classes defined there, so converting that one constant rethemes the palette, type, and most spacing of the whole shell. The one exception is a small amount of layout geometry computed inline in JavaScript, most importantly the rolodex card transform in `ProcessRolodex` (`translateX(calc(-50% + ${pos * 420}px)) ...`), where the card pitch is a hardcoded `420`. That inline geometry is out of scope here (see Out of scope), and the color, type, and spacing-token work does not touch it. No `@sqnce/core` change.
 
 ## Current behavior
 
@@ -18,7 +18,7 @@ Introduce a `--sqnce-*` custom-property vocabulary, each token defaulting to the
 
 - Color: surfaces (the app background, the card paper, raised panels), ink (primary text, muted text), the accent, and status colors (done, draft, locked, danger).
 - Typography: the interface font family and the mono family, plus the key sizes that define the type scale.
-- Spacing and density: the common gaps, paddings, and border radii.
+- Spacing and density: the common gaps, paddings, and border radii in the `CSS` constant. (The inline rolodex card-pitch geometry is not tokenized in this issue; see Out of scope.)
 - Motion: the transition timing, tied to the reduced-motion path below.
 
 ### 2. Consume the tokens throughout the shell CSS
@@ -46,11 +46,12 @@ The issue requires the default theme to be accessible, independent of any consum
 - A full second theme implementation. That belongs to the consumer (for example presales-sqnce); this issue ships the token system and accessible defaults.
 - Deep per-renderer tokenization beyond the common surfaces (a follow-up once the vocabulary is proven).
 - Extracting the CSS out of the JavaScript template literal into a separate stylesheet. The token approach works inside the existing `<style>` injection; a file split is a separate concern.
+- The inline rolodex card-pitch geometry (the `420` constant in `ProcessRolodex`'s card `transform`). It is computed in JavaScript, not in the `CSS` constant, so a density token would not reach it without changing that JS; tokenizing the carousel geometry is a separate follow-up. This issue's density tokens cover the gaps, paddings, and radii in the `CSS` constant.
 - Any `@sqnce/core` change.
 
 ## Verification
 
-No React test harness exists (the test suite is engine-only). Verify by the demo build (`npm run build -w examples/demo`), a manual before-and-after render confirming the default look is unchanged apart from the enumerated contrast adjustments, and a manual reskin confirming that overriding `--sqnce-*` on an ancestor rethemes the shell. Contrast is checked with a contrast tool against the rendered defaults.
+`npm test` already runs the engine tests plus the existing `@sqnce/react` unit tests (`node --test` over `packages/react/test/*.test.js`), but there is no DOM render harness for visual or CSS verification. So the token defaults, the reskin, and contrast are verified by the demo build (`npm run build -w examples/demo`), a manual before-and-after render confirming the default look is unchanged apart from the enumerated contrast adjustments, a manual reskin confirming that overriding `--sqnce-*` on an ancestor rethemes the shell (including the portaled overlay and overview modal), and a contrast tool against the rendered defaults. The parts that are not pure CSS are covered with `@sqnce/react` unit tests where they are unit-testable: the accessibility labels and glyphs added to the status dots and navigation pips, and the overlay and overview modal mounting within `.pf-root`.
 
 ## Acceptance
 
@@ -59,6 +60,7 @@ No React test harness exists (the test suite is engine-only). Verify by the demo
 - The renderer-expand overlay and the overview modal, though portaled, resolve the same tokens and honor consumer overrides (they mount within `.pf-root`), and stay full-screen above the shell.
 - Every status conveys meaning with a word and an icon, not color alone.
 - The default palette meets the contrast minimums, and the reduced-motion path is consistent.
+- `@sqnce/react` unit tests cover the testable non-CSS changes: the status-dot and navigation-pip accessibility labels and glyphs, and the expand overlay and overview modal mounting within `.pf-root`.
 - `npm test` and `npm run build -w examples/demo` pass.
 
 ## Open questions for approval
