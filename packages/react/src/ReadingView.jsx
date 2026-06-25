@@ -16,10 +16,12 @@ import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
  */
 
 /* A renderer-backed output (an injected or built-in render.kind, or a data
-   output that defaults to the JSON tree) is shown through OutputView, which
-   is uncapped and expanded in reading mode. Everything else is plain and is
-   rendered as document content below, not as OutputView's read-only form
-   controls (a fixed-height scrolling textarea is not a read presentation). */
+   output that defaults to the JSON tree) is shown through OutputView in its
+   normal inline form, uncapped in reading mode (the CSS drops the 280px panel
+   cap; the renderer's expanded flag stays false, since that flag means the
+   fullscreen overlay). Everything else is plain and is rendered as document
+   content below, not as OutputView's read-only form controls (a fixed-height
+   scrolling textarea is not a read presentation). */
 function rendererBacked(spec, renderers) {
   const kind = spec.render && spec.render.kind;
   const custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
@@ -140,7 +142,7 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
                       onChange={() => {}}
                       onAttach={() => {}}
                       renderers={renderers}
-                      context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: true }}
+                      context={{ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly: true, expanded: false }}
                       generated={false}
                       invalid={null}
                     />
