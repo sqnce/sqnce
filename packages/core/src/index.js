@@ -666,6 +666,53 @@ export function unskipSubStage(run, subStages, subStageId) {
   return next;
 }
 
+/**
+ * Effective track-skip state: true only when the definition declares the
+ * track optional and it is in run.skippedTracks (own-property checked).
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {boolean}
+ */
+export function isTrackSkipped(run, definition, trackId) {
+  return isTrackSkippedEffective(definition, run, trackId);
+}
+
+/**
+ * Mark an optional track not-applicable. No-op unless the track exists and
+ * is declared optional. Recenters idx out of the skipped track to the last
+ * committed spine sub-stage. Never touches stepState.
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {Run}
+ */
+export function skipTrack(run, definition, trackId) {
+  const tm = trackMap(definition).get(trackId);
+  if (!tm || !tm.optional) return run;
+  if (hasOwn(run.skippedTracks, trackId)) return run;
+  const next = { ...run, skippedTracks: { ...run.skippedTracks, [trackId]: true } };
+  const subs = flattenSubStages(definition);
+  const cur = subs[run.idx];
+  if (cur && trackIdOfStage(definition, cur.mainIndex) === trackId) {
+    // recenter to the last COMMITTED spine sub-stage. Math.min keeps the target
+    // inside the committed spine for a run whose frontier sits before the spine
+    // end (a corrupted run could otherwise land idx on an un-committed spine
+    // card and break the reachable-region invariant); when frontier sits at or
+    // past the spine end this is just the last spine sub-stage, as before.
+    const spineEnd = lastSpineIndex(definition);
+    next.idx = lastIndexInMain(subs, Math.min(run.frontier, spineEnd));
+  }
+  return next;
+}
+
+/**
+ * Remove a track skip; drop the map when empty.
+ * @param {Run} run @param {Definition} definition @param {string} trackId @returns {Run}
+ */
+export function unskipTrack(run, definition, trackId) {
+  if (!hasOwn(run.skippedTracks, trackId)) return run;
+  const skippedTracks = { ...run.skippedTracks };
+  delete skippedTracks[trackId];
+  const next = { ...run, skippedTracks };
+  if (!Object.keys(skippedTracks).length) delete next.skippedTracks;
+  return next;
+}
+
 /* ------------------------------------------------------------------ */
 /* Completion and gating                                               */
 /* ------------------------------------------------------------------ */

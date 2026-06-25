@@ -31,6 +31,9 @@ import {
   isSubStageSkipped,
   runSummary,
   wasAdvanceForced,
+  skipTrack,
+  unskipTrack,
+  isTrackSkipped,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 import { FORKED } from "./fixtures/forked.js";
@@ -1078,4 +1081,31 @@ test("flatten of a linear definition adds no track/optional fields", () => {
     assert.equal("track" in s, false);
     assert.equal("optional" in s, false);
   }
+});
+
+test("skipTrack marks an optional track and is a no-op on required/unknown", () => {
+  const base = createRun();
+  const skipped = skipTrack(base, FORKED, "demo");
+  assert.equal(isTrackSkipped(skipped, FORKED, "demo"), true);
+  assert.equal(skipTrack(base, FORKED, "response"), base); // required: no-op
+  assert.equal(skipTrack(base, FORKED, "ghost"), base); // unknown: no-op
+});
+
+test("isTrackSkipped ignores a required or unknown id present in skippedTracks", () => {
+  const run = { ...createRun(), skippedTracks: { response: true, ghost: true } };
+  assert.equal(isTrackSkipped(run, FORKED, "response"), false);
+  assert.equal(isTrackSkipped(run, FORKED, "ghost"), false);
+});
+
+test("unskipTrack restores and drops the map when empty", () => {
+  const run = skipTrack(createRun(), FORKED, "demo");
+  const back = unskipTrack(run, FORKED, "demo");
+  assert.equal(isTrackSkipped(back, FORKED, "demo"), false);
+  assert.equal("skippedTracks" in back, false);
+});
+
+test("skipTrack and unskipTrack never touch stepState", () => {
+  const run = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  const skipped = skipTrack(run, FORKED, "demo");
+  assert.deepEqual(skipped.stepState, run.stepState);
 });
