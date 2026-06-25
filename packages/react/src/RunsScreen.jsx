@@ -25,6 +25,9 @@ export default function RunsScreen({
   const rows = Object.values(store.entries)
     .filter((e) => byId.has(e.workflowId))
     .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : 1));
+  /* The Status column appears only when a consumer supplies runStatus, so
+     omitting the prop renders the runs screen exactly as before. */
+  const showStatus = typeof runStatus === "function";
 
   const commitRename = () => {
     if (!renaming) return;
@@ -39,7 +42,7 @@ export default function RunsScreen({
           <tr>
             <th>Run</th>
             <th>Workflow</th>
-            <th>Status</th>
+            {showStatus && <th>Status</th>}
             <th>Progress</th>
             <th>Updated</th>
             <th>Actions</th>
@@ -73,15 +76,17 @@ export default function RunsScreen({
                   )}
                 </td>
                 <td>{w.short || w.name}</td>
-                <td>
-                  {status ? (
-                    <span className="pf-runs-status" data-tone={status.tone || undefined}>
-                      {status.word}
-                    </span>
-                  ) : (
-                    ""
-                  )}
-                </td>
+                {showStatus && (
+                  <td>
+                    {status ? (
+                      <span className="pf-runs-status" data-tone={status.tone || undefined}>
+                        {status.word}
+                      </span>
+                    ) : (
+                      ""
+                    )}
+                  </td>
+                )}
                 <td>
                   {sum.met}/{sum.total}
                 </td>
