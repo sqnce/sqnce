@@ -1098,6 +1098,18 @@ const CSS = `
   --sqnce-_border-card: var(--sqnce-border-card, #DCD7C7);
   --sqnce-_border-soft: var(--sqnce-border-soft, #C9C3B0);
   --sqnce-_border-dot: var(--sqnce-border-dot, #B6BAC1);
+  /* Decorative shell tints: low-saturation accent washes on small shell
+     surfaces (the generated textarea and its invite box, the status and input
+     pills, the active list card, the archived-run banner) plus the done-step
+     border. Defaults match today's literals so default rendering is unchanged;
+     a consumer override reskins these along with the rest of the shell. */
+  --sqnce-_generated-bg: var(--sqnce-generated-bg, #FCF7E9);
+  --sqnce-_gen-invite-bg: var(--sqnce-gen-invite-bg, #FCFBF5);
+  --sqnce-_status-bg: var(--sqnce-status-bg, #F1E8CE);
+  --sqnce-_cards-active-bg: var(--sqnce-cards-active-bg, #FBF3DD);
+  --sqnce-_archived-bg: var(--sqnce-archived-bg, #3A3424);
+  --sqnce-_archived-ink: var(--sqnce-archived-ink, #EDD9A8);
+  --sqnce-_done-border: var(--sqnce-done-border, #BCD9C9);
   --sqnce-_font-ui: var(--sqnce-font-ui, 'IBM Plex Sans', system-ui, sans-serif);
   --sqnce-_font-mono: var(--sqnce-font-mono, 'IBM Plex Mono', monospace);
   --sqnce-_size-title: var(--sqnce-size-title, 26px);
@@ -1167,7 +1179,7 @@ const CSS = `
 .pf-archived {
   display: flex; align-items: center; gap: var(--sqnce-_space-5); margin: 6px var(--sqnce-_pad-section) 0;
   padding: 8px 14px; border: 1px solid var(--sqnce-_accent); border-radius: var(--sqnce-_radius-control);
-  background: #3A3424; color: #EDD9A8; font-size: 12.5px;
+  background: var(--sqnce-_archived-bg); color: var(--sqnce-_archived-ink); font-size: 12.5px;
   font-family: var(--sqnce-_font-mono);
 }
 .pf-ta[readonly], .pf-field-input[readonly] { background: var(--sqnce-_input-readonly); color: var(--sqnce-_ink-muted-light); }
@@ -1282,7 +1294,7 @@ const CSS = `
 .pf-steps { margin: 12px 14px 0; display: flex; flex-direction: column; gap: var(--sqnce-_space-2); overflow-y: auto; }
 .pf-steps-side { pointer-events: none; }
 .pf-step { border: 1px solid var(--sqnce-_border-card); border-radius: var(--sqnce-_radius-control); background: var(--sqnce-_card); }
-.pf-step-done { border-color: #BCD9C9; background: var(--sqnce-_done-bg); }
+.pf-step-done { border-color: var(--sqnce-_done-border); background: var(--sqnce-_done-bg); }
 .pf-step-row { display: flex; align-items: center; gap: var(--sqnce-_space-4); padding-right: 14px; }
 .pf-dot-btn {
   width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-left: 14px;
@@ -1369,7 +1381,7 @@ const CSS = `
 .pf-gen-invite {
   border: 1.5px dashed var(--sqnce-_border-soft); border-radius: var(--sqnce-_radius-control); padding: 18px;
   display: flex; align-items: center; justify-content: center; gap: var(--sqnce-_space-5);
-  background: #FCFBF5; min-height: 46px;
+  background: var(--sqnce-_gen-invite-bg); min-height: 46px;
 }
 .pf-gen-manual {
   background: none; border: none; color: var(--sqnce-_accent-ink); cursor: pointer;
@@ -1432,12 +1444,12 @@ const CSS = `
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--sqnce-_accent-ink); background: var(--sqnce-_draft-bg); border-radius: 4px; padding: 1px 6px;
 }
-.pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: var(--sqnce-_accent); }
+.pf-ta-generated, .pf-ta-generated[readonly] { background: var(--sqnce-_generated-bg); border-color: var(--sqnce-_accent); }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
 .pf-read-header-slot { margin-left: auto; }
 .pf-side-status, .pf-runs-status {
   font-family: var(--sqnce-_font-mono); font-size: 9px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--sqnce-_accent-ink); background: #F1E8CE;
+  text-transform: uppercase; color: var(--sqnce-_accent-ink); background: var(--sqnce-_status-bg);
   border-radius: 4px; padding: 1px 5px; white-space: nowrap;
 }
 .pf-side-status { margin-left: 6px; }
@@ -1458,7 +1470,7 @@ const CSS = `
 .pf-chip {
   display: inline-flex; align-items: center; gap: 3px;
   font-family: var(--sqnce-_font-mono); font-size: 9px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--sqnce-_accent-ink); background: #F1E8CE;
+  text-transform: uppercase; color: var(--sqnce-_accent-ink); background: var(--sqnce-_status-bg);
   border-radius: 4px; padding: 1px 5px;
 }
 .pf-jt-meta { color: var(--sqnce-_ink-faint-on-card); }
@@ -1473,7 +1485,7 @@ const CSS = `
 .pf-cards-list { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; max-height: 420px; }
 .pf-cards-item { text-align: left; background: var(--sqnce-_card); border: 1px solid var(--sqnce-_border-card); border-radius: var(--sqnce-_radius-sm); padding: 7px 9px; cursor: pointer; font-family: inherit; }
 .pf-cards-item:hover { border-color: var(--sqnce-_ink-strong); }
-.pf-cards-active { border-color: var(--sqnce-_accent); background: #FBF3DD; }
+.pf-cards-active { border-color: var(--sqnce-_accent); background: var(--sqnce-_cards-active-bg); }
 .pf-cards-title { font-size: 12.5px; font-weight: 600; color: var(--sqnce-_ink-strong); }
 .pf-cards-sub { font-size: 11px; color: var(--sqnce-_ink-muted-light); }
 .pf-cards-detail { border-left: 2px solid var(--sqnce-_accent); padding-left: 12px; overflow: auto; }
