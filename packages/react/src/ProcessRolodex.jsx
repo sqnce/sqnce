@@ -1368,7 +1368,7 @@ const CSS = `
 .pf-spinner {
   width: 14px; height: 14px; border-radius: 50%; display: inline-block;
   border: 2px solid var(--sqnce-_accent); border-top-color: transparent;
-  animation: pf-spin 0.8s linear infinite; vertical-align: -2px;
+  animation: pf-spin var(--sqnce-_motion-spin) linear infinite; vertical-align: -2px;
 }
 .pf-spinner-sm { width: 11px; height: 11px; }
 @keyframes pf-spin { to { transform: rotate(360deg); } }
