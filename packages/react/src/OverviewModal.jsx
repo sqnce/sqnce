@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { ThemeScope } from "./themeScope.jsx";
 import {
   gateProgress,
   gateTypeOf,
@@ -34,6 +35,7 @@ export default function OverviewModal({ def, run, subs, idx, frontier, validator
   const progress = runSummary(def, run, { validators });
 
   return createPortal(
+    <ThemeScope>
     <div className="pf-overlay" role="dialog" aria-modal="true">
       <div className="pf-overlay-head">
         <span className="pf-overlay-title">About this process</span>
@@ -125,7 +127,8 @@ export default function OverviewModal({ def, run, subs, idx, frontier, validator
           })}
         </div>
       </div>
-    </div>,
+    </div>
+    </ThemeScope>,
     document.body
   );
 }
