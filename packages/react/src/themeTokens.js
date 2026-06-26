@@ -14,6 +14,7 @@ export const THEME_TOKENS = [
   "revise-bg", "complete", "pip", "pip-locked", "border-paper", "border-card",
   "border-soft", "border-dot", "generated-bg", "gen-invite-bg", "status-bg",
   "cards-active-bg", "archived-bg", "archived-ink", "done-border", "lock-scrim",
+  "jt-key", "jt-string", "jt-number", "jt-keyword",
   "font-ui", "font-mono", "size-title", "size-body",
   "size-label", "space-1", "space-2", "space-3", "space-4", "space-5", "space-6",
   "space-7", "pad-section", "radius-card", "radius-control", "radius-sm",

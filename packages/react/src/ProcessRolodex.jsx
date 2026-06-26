@@ -1111,6 +1111,13 @@ const CSS = `
   --sqnce-_archived-ink: var(--sqnce-archived-ink, #EDD9A8);
   --sqnce-_done-border: var(--sqnce-done-border, #BCD9C9);
   --sqnce-_lock-scrim: var(--sqnce-lock-scrim, rgba(241,238,227,0.55));
+  /* JSON-tree (data fallback renderer) syntax colors, by role. Defaults match
+     today's literals; a consumer reskinning to a dark or branded surface
+     overrides these so JSON output stays legible. */
+  --sqnce-_jt-key: var(--sqnce-jt-key, #7A6A3C);
+  --sqnce-_jt-string: var(--sqnce-jt-string, #2E6E8F);
+  --sqnce-_jt-number: var(--sqnce-jt-number, #8F4E2E);
+  --sqnce-_jt-keyword: var(--sqnce-jt-keyword, #6B4E8F);
   --sqnce-_font-ui: var(--sqnce-font-ui, 'IBM Plex Sans', system-ui, sans-serif);
   --sqnce-_font-mono: var(--sqnce-font-mono, 'IBM Plex Mono', monospace);
   --sqnce-_size-title: var(--sqnce-size-title, 26px);
@@ -1435,8 +1442,8 @@ const CSS = `
 .pf-jt-children { padding-left: 16px; }
 .pf-jt-node > summary { cursor: pointer; }
 .pf-jt-leaf { padding-left: 16px; }
-.pf-jt-key { color: #7A6A3C; }
-.pf-jt-string { color: #2E6E8F; } .pf-jt-number { color: #8F4E2E; } .pf-jt-boolean, .pf-jt-null { color: #6B4E8F; }
+.pf-jt-key { color: var(--sqnce-_jt-key); }
+.pf-jt-string { color: var(--sqnce-_jt-string); } .pf-jt-number { color: var(--sqnce-_jt-number); } .pf-jt-boolean, .pf-jt-null { color: var(--sqnce-_jt-keyword); }
 
 .pf-ta-wrap { position: relative; }
 .pf-gen-badge {
