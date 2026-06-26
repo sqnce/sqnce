@@ -1110,6 +1110,7 @@ const CSS = `
   --sqnce-_archived-bg: var(--sqnce-archived-bg, #3A3424);
   --sqnce-_archived-ink: var(--sqnce-archived-ink, #EDD9A8);
   --sqnce-_done-border: var(--sqnce-done-border, #BCD9C9);
+  --sqnce-_lock-scrim: var(--sqnce-lock-scrim, rgba(241,238,227,0.55));
   --sqnce-_font-ui: var(--sqnce-font-ui, 'IBM Plex Sans', system-ui, sans-serif);
   --sqnce-_font-mono: var(--sqnce-font-mono, 'IBM Plex Mono', monospace);
   --sqnce-_size-title: var(--sqnce-size-title, 26px);
@@ -1353,7 +1354,7 @@ const CSS = `
 
 .pf-lock {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(241,238,227,0.55); backdrop-filter: blur(1px);
+  background: var(--sqnce-_lock-scrim); backdrop-filter: blur(1px);
 }
 .pf-lock-icon { font-size: 30px; opacity: 0.7; }
 
