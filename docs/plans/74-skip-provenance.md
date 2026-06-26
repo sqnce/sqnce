@@ -174,9 +174,21 @@ test("a manual skip takes ownership of an auto-skipped sub-stage", () => {
 Run: `node --test --test-name-pattern="manual keep-in|takes ownership" packages/core/test/engine.test.js`
 Expected: FAIL (today `unskipSubStage` deletes the entry, so `run.skips.collect` is `undefined`, not the keep-in object; `skipSubStage` over an auto entry returns early because `isSubStageSkipped` is already true, leaving the auto object instead of `true`).
 
-- [ ] **Step 3: Replace `skipSubStage`**
+- [ ] **Step 3: Replace `skipSubStage`'s idempotence guard (one line)**
 
-In `packages/core/src/index.js`, replace `skipSubStage`'s final two lines (the `if (isSubStageSkipped(r, subStageId)) return r;` guard and the return) so the whole function reads:
+In `packages/core/src/index.js`, in `skipSubStage`, replace **only** this line:
+
+```js
+  if (isSubStageSkipped(r, subStageId)) return r;
+```
+
+with:
+
+```js
+  if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
+```
+
+Leave the rest of the function unchanged: keep the committed-in-region comment block above the `reachableFlat` check and the final `return { ...r, skips: { ...r.skips, [subStageId]: true } };`. The new guard no-ops only when the entry is already the canonical user skip (`true`); an `auto` or keep-in entry falls through to the return, so a manual skip overwrites it with `true` (the user takes ownership). The resulting function reads:
 
 ```js
 export function skipSubStage(run, subStages, subStageId) {
@@ -184,6 +196,7 @@ export function skipSubStage(run, subStages, subStageId) {
   const idx = subStages.findIndex((s) => s.id === subStageId);
   const sub = idx === -1 ? null : subStages[idx];
   if (!sub || !sub.skippable) return r;
+  // committed-in-region: the card must be inside the reachable set ... (existing comment kept verbatim)
   if (!reachableFlat(subStages, r).includes(idx)) return r;
   if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
