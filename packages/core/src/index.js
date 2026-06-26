@@ -900,12 +900,12 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
     // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
     if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
   });
-  /** @type {Object<string, true>} */
+  /** @type {Object<string, SkipEntry>} */
   const skips = {};
   Object.keys(r.skips || {}).forEach((sub) => {
     const s = subStages.find((x) => x.id === sub);
-    // allowlist: keep only known, in-scope sub-stage skips
-    if (s && inScope(s.mainIndex)) skips[sub] = true;
+    // allowlist: keep only known, in-scope sub-stage skips, preserving provenance
+    if (s && inScope(s.mainIndex)) skips[sub] = r.skips[sub];
   });
   /** @type {Object<string, true>} */
   const forces = {};
@@ -1625,14 +1625,14 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
       if (stepMain.get(stepId) <= k) stepState[stepId] = entry;
     }
 
-    /** @type {Object<string, true>} */
+    /** @type {Object<string, SkipEntry>} */
     const skips = {};
     for (const subId of Object.keys(run.skips || {})) {
       if (!subMain.has(subId))
         throw new Error(`cloneRun: skip sub-stage "${subId}" is not in definition "${definition.id}"`);
       if (subMain.get(subId) <= k) {
         if (!skippable.get(subId)) throw new Error(`cloneRun: sub-stage "${subId}" is no longer skippable`);
-        skips[subId] = true;
+        skips[subId] = run.skips[subId];
       }
     }
 

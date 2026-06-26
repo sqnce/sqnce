@@ -390,6 +390,24 @@ test("cloneRun truncated fork drops empty skips/forces maps", () => {
   assert.ok(!("forces" in r));
 });
 
+test("cloneRun preserves skip provenance on a full clone", () => {
+  const run = { idx: 1, frontier: 0, stepState: { p0: { checkedDone: true, outputs: {} } },
+    skips: { a0x: { source: "auto", skipped: true } } };
+  let s = multiStore(run);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200 });
+  assert.deepEqual(s.entries["r2"].run.skips, { a0x: { source: "auto", skipped: true } });
+});
+
+test("cloneRun truncation preserves a kept skip's provenance value", () => {
+  const run = { idx: 3, frontier: 2, stepState: {
+      p0: { checkedDone: true, outputs: {} }, px: { checkedDone: true, outputs: {} },
+      p1: { checkedDone: true, outputs: {} }, p2: { checkedDone: false, outputs: {} } },
+    skips: { a0x: { source: "auto", skipped: true } }, forces: { 0: true } };
+  let s = multiStore(run);
+  s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1", definition: MULTI });
+  assert.deepEqual(s.entries["r2"].run.skips, { a0x: { source: "auto", skipped: true } }); // not coerced to true
+});
+
 test("cloneRun truncated clone is drivable and isolated from the source", () => {
   let s = multiStore(multiSource());
   s = cloneRun(s, { fromId: "r1", newId: "r2", now: 200, uptoStageId: "m1", definition: MULTI });

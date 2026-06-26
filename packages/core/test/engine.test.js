@@ -1563,6 +1563,26 @@ test("a scoped validator run hides sibling trackFrontier/skips, omits skippedTra
   assert.equal(seen.idx, respIdx); // idx is the validated step's flat index, not the stale 0
 });
 
+test("a scoped validator run preserves an in-scope skip's provenance value", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open
+  r = setOutput(r, "respDraft", "d", "ok");
+  // an in-scope spine skip carrying provenance must reach the validator intact
+  r = { ...r, skips: { "intake-sub": { source: "auto", skipped: true } } };
+  let seen;
+  const validators = {
+    inspect: (_v, _spec, ctx) => {
+      seen = ctx.run && ctx.run.skips && ctx.run.skips["intake-sub"];
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "inspect"; // respDraft (response track)
+  const dsubs = flattenSubStages(def);
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.deepEqual(seen, { source: "auto", skipped: true }); // value preserved, not coerced to true
+});
+
 test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
   const subs = flattenSubStages(FORKED);
   let r = advance(commitSpine(createRun(), subs), subs).run; // fork open: demo committed to 2 only
