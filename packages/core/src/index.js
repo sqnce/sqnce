@@ -694,6 +694,49 @@ export function unskipSubStage(run, subStages, subStageId) {
 }
 
 /**
+ * Apply an automated skip (orchestration policy). No-op (the normalized run)
+ * when the id is unknown, not declared skippable, beyond the committed region,
+ * when a user decision is already recorded (the user wins), or when an
+ * automated skip is already set (idempotent). Never touches stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function autoSkipSubStage(run, subStages, subStageId) {
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const entry = r.skips && r.skips[subStageId];
+  if (entry === true || (entry && entry.source === "user")) return r; // user wins
+  if (entry && entry.source === "auto" && entry.skipped === true) return r; // already auto-skipped
+  return { ...r, skips: { ...r.skips, [subStageId]: { source: "auto", skipped: true } } };
+}
+
+/**
+ * Clear an automated skip. Removes the entry only when it is an automated skip,
+ * dropping the skips field when it empties. A user decision or an absent entry
+ * is a no-op (a user choice is never touched). Idempotent. Never touches
+ * stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function clearAutoSkipSubStage(run, subStages, subStageId) {
+  const r = normalizeFlat(subStages, run);
+  const entry = r.skips && r.skips[subStageId];
+  if (!entry || entry === true || entry.source !== "auto") return r;
+  const skips = { ...r.skips };
+  delete skips[subStageId];
+  const next = { ...r, skips };
+  if (!Object.keys(skips).length) delete next.skips;
+  return next;
+}
+
+/**
  * Effective track-skip state: true only when the definition declares the
  * track optional and it is in run.skippedTracks (own-property checked).
  * @param {Run} run @param {Definition} definition @param {string} trackId @returns {boolean}
