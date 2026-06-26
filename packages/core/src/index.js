@@ -667,27 +667,30 @@ export function skipSubStage(run, subStages, subStageId) {
   // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
   // even when nothing is skipped.
   if (!reachableFlat(subStages, r).includes(idx)) return r;
-  if (isSubStageSkipped(r, subStageId)) return r;
+  if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
 
 /**
- * Undo a skip. Returns a new run with the entry removed; the skips
- * field is dropped entirely when it empties. No-op when the id is not
- * currently skipped. Outputs and done flags survive untouched.
+ * Record a durable manual keep-in: the person wants this sub-stage in, and a
+ * later automated re-evaluation cannot re-skip it. Returns a new run with
+ * skips[subStageId] = { source: "user", skipped: false }. No-op (the normalized
+ * run) when the id is unknown, not declared skippable, beyond the committed
+ * region, or already a keep-in. Never touches stepState.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {string} subStageId
  * @returns {Run}
  */
 export function unskipSubStage(run, subStages, subStageId) {
-  if (!isSubStageSkipped(run, subStageId)) return run;
-  /** @type {Object<string, true>} */
-  const skips = { ...run.skips };
-  delete skips[subStageId];
-  const next = { ...run, skips };
-  if (!Object.keys(skips).length) delete next.skips;
-  return next;
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const entry = r.skips && r.skips[subStageId];
+  if (entry && entry !== true && entry.source === "user" && entry.skipped === false) return r; // already a keep-in
+  return { ...r, skips: { ...r.skips, [subStageId]: { source: "user", skipped: false } } };
 }
 
 /**

@@ -549,19 +549,33 @@ test("skipping beyond the frontier is a no-op", () => {
   assert.equal(isSubStageSkipped(skipSubStage(committed, subs, "b"), "b"), true);
 });
 
-test("unskip restores state and drops the empty map", () => {
+test("a manual keep-in is durable and never touches stepState", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
-  assert.equal(unskipSubStage(run, subs, "collect"), run); // not skipped: no-op
-  run = skipSubStage(run, subs, "collect");
+  run = skipSubStage(run, subs, "collect"); // user skip
+  assert.equal(isSubStageSkipped(run, "collect"), true);
   assert.equal(getStepEntry(run, "evidence").outputs.doc.name, "report.pdf"); // skip never touches stepState
-  run = unskipSubStage(run, subs, "collect");
+  run = unskipSubStage(run, subs, "collect"); // manual keep-in: records, does not delete
   assert.equal(isSubStageSkipped(run, "collect"), false);
-  assert.equal(run.skips, undefined); // absent when empty
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
   const collect = subs.find((s) => s.id === "collect");
   const evidence = collect.steps.find((s) => s.id === "evidence");
-  assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true);
+  assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true); // outputs survive
+});
+
+test("a manual keep-in on a never-decided sub-stage records a durable include", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = unskipSubStage(createRun(), subs, "collect");
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
+  assert.equal(isSubStageSkipped(run, "collect"), false);
+});
+
+test("a manual skip takes ownership of an auto-skipped sub-stage", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = { ...createRun(), skips: { collect: { source: "auto", skipped: true } } };
+  run = skipSubStage(run, subs, "collect"); // manual skip overrides the auto entry
+  assert.equal(run.skips.collect, true);
 });
 
 test("a skipped sub-stage is excluded from the stage boundary gate", () => {
