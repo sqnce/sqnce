@@ -38,9 +38,13 @@
  *    `reopened` suppresses hybrid content-completion until the step is
  *    touched again. `generated` maps outputId -> true for values
  *    written by draft generation; any hand edit clears the mark.
- *    `skips` maps sub-stage id -> true for sub-stages this run marked
- *    not applicable: excluded from boundary gates, runSummary, and
- *    draft context. `forces` maps main-stage index -> true when the
+ *    `skips` maps sub-stage id -> a skip entry recording who set it:
+ *    `true` (a user skip, also the legacy shape) or
+ *    { source: "user" | "auto", skipped } telling a person's decision
+ *    from an orchestration policy's. A user decision wins: an auto
+ *    operation never overrides it. isSubStageSkipped resolves an entry
+ *    to its effective boolean; a skipped sub-stage is excluded from
+ *    boundary gates, runSummary, and draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
  *    For a forked definition (one declaring `tracks`) the run also
@@ -137,11 +141,18 @@
  * @property {Object<string, true>} [generated]
  */
 /**
+ * A skip entry records who set a sub-stage's skip. `true` is the legacy and
+ * canonical shape for a user skip; the object form distinguishes an
+ * orchestration policy's skip (`source: "auto"`) from a person's keep-in
+ * (`source: "user", skipped: false`).
+ * @typedef {true | { source: "user" | "auto", skipped: boolean }} SkipEntry
+ */
+/**
  * @typedef {Object} Run
  * @property {number} idx
  * @property {number} frontier
  * @property {Object<string, StepEntry>} stepState
- * @property {Object<string, true>} [skips]
+ * @property {Object<string, SkipEntry>} [skips]
  * @property {Object<string, true>} [forces]
  * @property {Object<string, number>} [trackFrontier] Furthest committed main-stage index within each track; appears when the fork opens.
  * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
@@ -616,7 +627,9 @@ export function reopenStep(run, stepId) {
  * @returns {boolean}
  */
 export function isSubStageSkipped(run, subStageId) {
-  return !!(run.skips && run.skips[subStageId]);
+  const entry = run.skips ? run.skips[subStageId] : undefined;
+  if (entry === true) return true;
+  return !!(entry && entry.skipped === true);
 }
 
 /**
@@ -654,25 +667,71 @@ export function skipSubStage(run, subStages, subStageId) {
   // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
   // even when nothing is skipped.
   if (!reachableFlat(subStages, r).includes(idx)) return r;
-  if (isSubStageSkipped(r, subStageId)) return r;
+  if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
 
 /**
- * Undo a skip. Returns a new run with the entry removed; the skips
- * field is dropped entirely when it empties. No-op when the id is not
- * currently skipped. Outputs and done flags survive untouched.
+ * Record a durable manual keep-in: the person wants this sub-stage in, and a
+ * later automated re-evaluation cannot re-skip it. Returns a new run with
+ * skips[subStageId] = { source: "user", skipped: false }. No-op (the normalized
+ * run) when the id is unknown, not declared skippable, beyond the committed
+ * region, or already a keep-in. Never touches stepState.
  * @param {Run} run
  * @param {FlatSubStage[]} subStages
  * @param {string} subStageId
  * @returns {Run}
  */
 export function unskipSubStage(run, subStages, subStageId) {
-  if (!isSubStageSkipped(run, subStageId)) return run;
-  /** @type {Object<string, true>} */
-  const skips = { ...run.skips };
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const entry = r.skips && r.skips[subStageId];
+  if (entry && entry !== true && entry.source === "user" && entry.skipped === false) return r; // already a keep-in
+  return { ...r, skips: { ...r.skips, [subStageId]: { source: "user", skipped: false } } };
+}
+
+/**
+ * Apply an automated skip (orchestration policy). No-op (the normalized run)
+ * when the id is unknown, not declared skippable, beyond the committed region,
+ * when a user decision is already recorded (the user wins), or when an
+ * automated skip is already set (idempotent). Never touches stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function autoSkipSubStage(run, subStages, subStageId) {
+  const r = normalizeFlat(subStages, run);
+  const idx = subStages.findIndex((s) => s.id === subStageId);
+  const sub = idx === -1 ? null : subStages[idx];
+  if (!sub || !sub.skippable) return r;
+  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const entry = r.skips && r.skips[subStageId];
+  if (entry === true || (entry && entry.source === "user")) return r; // user wins
+  if (entry && entry.source === "auto" && entry.skipped === true) return r; // already auto-skipped
+  return { ...r, skips: { ...r.skips, [subStageId]: { source: "auto", skipped: true } } };
+}
+
+/**
+ * Clear an automated skip. Removes the entry only when it is an automated skip,
+ * dropping the skips field when it empties. A user decision or an absent entry
+ * is a no-op (a user choice is never touched). Idempotent. Never touches
+ * stepState.
+ * @param {Run} run
+ * @param {FlatSubStage[]} subStages
+ * @param {string} subStageId
+ * @returns {Run}
+ */
+export function clearAutoSkipSubStage(run, subStages, subStageId) {
+  const r = normalizeFlat(subStages, run);
+  const entry = r.skips && r.skips[subStageId];
+  if (!entry || entry === true || entry.source !== "auto") return r;
+  const skips = { ...r.skips };
   delete skips[subStageId];
-  const next = { ...run, skips };
+  const next = { ...r, skips };
   if (!Object.keys(skips).length) delete next.skips;
   return next;
 }
@@ -841,12 +900,12 @@ function scopeValidatorRun(subStages, run, stepFlatIdx) {
     // allowlist: keep only known, in-scope steps; drop foreign/stale ids entirely
     if (mi !== undefined && inScope(mi)) stepState[sid] = r.stepState[sid];
   });
-  /** @type {Object<string, true>} */
+  /** @type {Object<string, SkipEntry>} */
   const skips = {};
   Object.keys(r.skips || {}).forEach((sub) => {
     const s = subStages.find((x) => x.id === sub);
-    // allowlist: keep only known, in-scope sub-stage skips
-    if (s && inScope(s.mainIndex)) skips[sub] = true;
+    // allowlist: keep only known, in-scope sub-stage skips, preserving provenance
+    if (s && inScope(s.mainIndex)) skips[sub] = r.skips[sub];
   });
   /** @type {Object<string, true>} */
   const forces = {};
@@ -1566,14 +1625,14 @@ export function cloneRun(store, { fromId, newId, name = "", now, uptoStageId, de
       if (stepMain.get(stepId) <= k) stepState[stepId] = entry;
     }
 
-    /** @type {Object<string, true>} */
+    /** @type {Object<string, SkipEntry>} */
     const skips = {};
     for (const subId of Object.keys(run.skips || {})) {
       if (!subMain.has(subId))
         throw new Error(`cloneRun: skip sub-stage "${subId}" is not in definition "${definition.id}"`);
       if (subMain.get(subId) <= k) {
         if (!skippable.get(subId)) throw new Error(`cloneRun: sub-stage "${subId}" is no longer skippable`);
-        skips[subId] = true;
+        skips[subId] = run.skips[subId];
       }
     }
 

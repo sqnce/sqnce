@@ -32,7 +32,8 @@ ENGINE (@sqnce/core, pure functions, zero dependencies)
 UI (@sqnce/react)
   Rolodex: active sub-stage centered, neighbors faded,
   locked beyond the frontier main stage, gated "Advance" at stage boundaries with override,
-  skippable sub-stages can be marked not applicable
+  skippable sub-stages can be marked not applicable (a manual choice
+  always wins over an orchestration policy's auto-skip)
 ```
 
 Core concepts:

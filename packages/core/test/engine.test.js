@@ -28,6 +28,8 @@ import {
   stepHasAnyOutput,
   skipSubStage,
   unskipSubStage,
+  autoSkipSubStage,
+  clearAutoSkipSubStage,
   isSubStageSkipped,
   runSummary,
   wasAdvanceForced,
@@ -520,6 +522,20 @@ test("skipSubStage records only legal skips", () => {
   assert.equal(skipSubStage(skipped, subs, "collect"), skipped); // idempotent
 });
 
+test("isSubStageSkipped resolves legacy, object, and absent skip entries", () => {
+  const base = createRun();
+  assert.equal(isSubStageSkipped(base, "collect"), false); // absent
+  assert.equal(isSubStageSkipped({ ...base, skips: { collect: true } }, "collect"), true); // legacy user skip
+  assert.equal(
+    isSubStageSkipped({ ...base, skips: { collect: { source: "auto", skipped: true } } }, "collect"),
+    true
+  );
+  assert.equal(
+    isSubStageSkipped({ ...base, skips: { collect: { source: "user", skipped: false } } }, "collect"),
+    false // a keep-in resolves as not skipped
+  );
+});
+
 test("skipping beyond the frontier is a no-op", () => {
   const def = {
     id: "d", name: "D",
@@ -535,19 +551,96 @@ test("skipping beyond the frontier is a no-op", () => {
   assert.equal(isSubStageSkipped(skipSubStage(committed, subs, "b"), "b"), true);
 });
 
-test("unskip restores state and drops the empty map", () => {
+test("a manual keep-in is durable and never touches stepState", () => {
   const subs = flattenSubStages(FIXTURE);
   let run = createRun();
   run = setOutput(run, "evidence", "doc", { name: "report.pdf", content: "" });
-  assert.equal(unskipSubStage(run, subs, "collect"), run); // not skipped: no-op
-  run = skipSubStage(run, subs, "collect");
+  run = skipSubStage(run, subs, "collect"); // user skip
+  assert.equal(isSubStageSkipped(run, "collect"), true);
   assert.equal(getStepEntry(run, "evidence").outputs.doc.name, "report.pdf"); // skip never touches stepState
-  run = unskipSubStage(run, subs, "collect");
+  run = unskipSubStage(run, subs, "collect"); // manual keep-in: records, does not delete
   assert.equal(isSubStageSkipped(run, "collect"), false);
-  assert.equal(run.skips, undefined); // absent when empty
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
   const collect = subs.find((s) => s.id === "collect");
   const evidence = collect.steps.find((s) => s.id === "evidence");
-  assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true);
+  assert.equal(stepHasAnyOutput(evidence, getStepEntry(run, "evidence")), true); // outputs survive
+});
+
+test("a manual keep-in on a never-decided sub-stage records a durable include", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = unskipSubStage(createRun(), subs, "collect");
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
+  assert.equal(isSubStageSkipped(run, "collect"), false);
+});
+
+test("a manual skip takes ownership of an auto-skipped sub-stage", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = { ...createRun(), skips: { collect: { source: "auto", skipped: true } } };
+  run = skipSubStage(run, subs, "collect"); // manual skip overrides the auto entry
+  assert.equal(run.skips.collect, true);
+});
+
+test("autoSkipSubStage applies, is idempotent, and yields to a user decision", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const once = autoSkipSubStage(createRun(), subs, "collect");
+  assert.deepEqual(once.skips.collect, { source: "auto", skipped: true });
+  assert.equal(isSubStageSkipped(once, "collect"), true);
+  const twice = autoSkipSubStage(once, subs, "collect");
+  assert.equal(twice, once); // idempotent: same reference, no cumulative effect
+
+  const userSkip = skipSubStage(createRun(), subs, "collect"); // user skip -> true
+  assert.equal(autoSkipSubStage(userSkip, subs, "collect").skips.collect, true); // user wins
+});
+
+test("a manual keep-in survives repeated auto re-evaluation", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = autoSkipSubStage(createRun(), subs, "collect");
+  run = unskipSubStage(run, subs, "collect"); // person keeps it in
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
+  run = autoSkipSubStage(run, subs, "collect"); // signal still says skip; re-evaluate
+  assert.equal(isSubStageSkipped(run, "collect"), false); // keep-in wins
+  assert.deepEqual(run.skips.collect, { source: "user", skipped: false });
+});
+
+test("clearAutoSkipSubStage clears only an auto skip and never a user decision", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = autoSkipSubStage(createRun(), subs, "collect");
+  run = clearAutoSkipSubStage(run, subs, "collect");
+  assert.equal(isSubStageSkipped(run, "collect"), false);
+  assert.equal(run.skips, undefined); // map dropped when empty
+  assert.equal(clearAutoSkipSubStage(run, subs, "collect"), run); // idempotent no-op
+
+  const userSkip = skipSubStage(createRun(), subs, "collect");
+  assert.equal(clearAutoSkipSubStage(userSkip, subs, "collect").skips.collect, true); // user skip untouched
+});
+
+test("the automated operations respect the skip guards", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const run = createRun();
+  assert.equal(autoSkipSubStage(run, subs, "nope"), run); // unknown id
+  assert.equal(autoSkipSubStage(run, subs, "start"), run); // not skippable
+  const def = {
+    id: "d", name: "D",
+    mainStages: [
+      { id: "m1", subStages: [{ id: "a", name: "A", steps: [] }] },
+      { id: "m2", subStages: [{ id: "b", name: "B", skippable: true, steps: [] }] },
+    ],
+  };
+  const subs2 = flattenSubStages(def);
+  const fresh = createRun();
+  assert.equal(autoSkipSubStage(fresh, subs2, "b"), fresh); // m2 beyond frontier
+});
+
+test("an auto skip is excluded from the boundary gate; a keep-in is included", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Vexel Tools" });
+  run = setCheckedDone(run, "kickoff", true);
+  assert.equal(mainGateProgress(FIXTURE.mainStages[0], run).met, false); // collect still open
+  const autoRun = autoSkipSubStage(run, subs, "collect");
+  assert.equal(mainGateProgress(FIXTURE.mainStages[0], autoRun).met, true); // auto skip excludes collect
+  const keptRun = unskipSubStage(autoRun, subs, "collect");
+  assert.equal(mainGateProgress(FIXTURE.mainStages[0], keptRun).met, false); // keep-in re-includes collect
 });
 
 test("a skipped sub-stage is excluded from the stage boundary gate", () => {
@@ -1468,6 +1561,26 @@ test("a scoped validator run hides sibling trackFrontier/skips, omits skippedTra
   assert.equal(seen.demoSkip, undefined); // sibling-track sub-stage skip hidden
   assert.equal(seen.skippedTracks, undefined); // skippedTracks omitted entirely
   assert.equal(seen.idx, respIdx); // idx is the validated step's flat index, not the stale 0
+});
+
+test("a scoped validator run preserves an in-scope skip's provenance value", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open
+  r = setOutput(r, "respDraft", "d", "ok");
+  // an in-scope spine skip carrying provenance must reach the validator intact
+  r = { ...r, skips: { "intake-sub": { source: "auto", skipped: true } } };
+  let seen;
+  const validators = {
+    inspect: (_v, _spec, ctx) => {
+      seen = ctx.run && ctx.run.skips && ctx.run.skips["intake-sub"];
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "inspect"; // respDraft (response track)
+  const dsubs = flattenSubStages(def);
+  gateProgress(dsubs.find((s) => s.id === "resp-draft-sub"), r, { validators, subStages: dsubs });
+  assert.deepEqual(seen, { source: "auto", skipped: true }); // value preserved, not coerced to true
 });
 
 test("buildDraftPrompt with a stale tracked idx falls back to the spine, not a tracked-card draft", () => {
