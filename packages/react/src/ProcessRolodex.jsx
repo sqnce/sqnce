@@ -1430,7 +1430,7 @@ const CSS = `
   position: absolute; top: 6px; right: 10px; z-index: 2; pointer-events: none;
   font-family: var(--sqnce-_font-mono); font-size: 9.5px;
   letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--sqnce-_accent-ink); background: #F4DFAE; border-radius: 4px; padding: 1px 6px;
+  color: var(--sqnce-_accent-ink); background: var(--sqnce-_draft-bg); border-radius: 4px; padding: 1px 6px;
 }
 .pf-ta-generated, .pf-ta-generated[readonly] { background: #FCF7E9; border-color: var(--sqnce-_accent); }
 .pf-render > .pf-gen-badge { left: 10px; right: auto; }
