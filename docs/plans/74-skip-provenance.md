@@ -53,7 +53,7 @@ test("isSubStageSkipped resolves legacy, object, and absent skip entries", () =>
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test --test-name-pattern="resolves legacy, object, and absent" packages/core/test/engine.test.js`
-Expected: FAIL (the object-valued entry `{ source: "auto", skipped: true }` currently makes the truthy `run.skips[id]` return `true`, but the keep-in `{ source: "user", skipped: false }` is also truthy, so `isSubStageSkipped` wrongly returns `true` for the keep-in case — assertion fails on the keep-in line).
+Expected: FAIL (the object-valued entry `{ source: "auto", skipped: true }` currently makes the truthy `run.skips[id]` return `true`, but the keep-in `{ source: "user", skipped: false }` is also truthy, so `isSubStageSkipped` wrongly returns `true` for the keep-in case, so the assertion fails on the keep-in line).
 
 - [ ] **Step 3: Replace `isSubStageSkipped`**
 
