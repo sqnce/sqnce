@@ -13,3 +13,13 @@ test("THEME_TOKENS lists public token names without the --sqnce- prefix", () => 
   assert.ok(THEME_TOKENS.includes("accent"));
   assert.ok(THEME_TOKENS.every((n) => !n.startsWith("--")));
 });
+
+test("THEME_TOKENS includes the reading-mode document font token", () => {
+  assert.ok(THEME_TOKENS.includes("font-read"));
+});
+
+test("readThemeVars mirrors a set --sqnce-font-read override", () => {
+  const set = { "--sqnce-font-read": "Georgia, 'Times New Roman', serif" };
+  const vars = readThemeVars((name) => set[name] ?? "");
+  assert.equal(vars["--sqnce-font-read"], "Georgia, 'Times New Roman', serif");
+});
