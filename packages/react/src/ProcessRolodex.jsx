@@ -1120,6 +1120,7 @@ const CSS = `
   --sqnce-_jt-keyword: var(--sqnce-jt-keyword, #6B4E8F);
   --sqnce-_font-ui: var(--sqnce-font-ui, 'IBM Plex Sans', system-ui, sans-serif);
   --sqnce-_font-mono: var(--sqnce-font-mono, 'IBM Plex Mono', monospace);
+  --sqnce-_font-read: var(--sqnce-font-read, var(--sqnce-_font-ui));
   --sqnce-_size-title: var(--sqnce-size-title, 26px);
   --sqnce-_size-body: var(--sqnce-size-body, 13.5px);
   --sqnce-_size-label: var(--sqnce-size-label, 10.5px);
@@ -1544,25 +1545,25 @@ const CSS = `
 .pf-read-here { color: var(--sqnce-_ink-strong); border-left-color: var(--sqnce-_accent); font-weight: 600; }
 .pf-read-doc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pf-read-band { display: flex; align-items: baseline; gap: var(--sqnce-_space-5); border-bottom: 1px solid var(--sqnce-_border-paper); padding-bottom: 10px; margin-bottom: 12px; }
-.pf-read-title { font-size: 22px; margin: 0; color: var(--sqnce-_ink-strong); }
+.pf-read-title { font-family: var(--sqnce-_font-read); font-size: 22px; margin: 0; color: var(--sqnce-_ink-strong); }
 .pf-read-status { font-family: var(--sqnce-_font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sqnce-_ink-muted-light); }
 .pf-read-status[data-tone="complete"] { color: var(--sqnce-_complete); }
 .pf-read-status[data-tone="accept"] { color: var(--sqnce-_accept-ink); }
 .pf-read-status[data-tone="revise"] { color: var(--sqnce-_revise-ink); }
 .pf-read-canvas { max-width: 760px; }
-.pf-read-stage { font-size: 18px; color: var(--sqnce-_ink-strong); margin: 4px 0 12px; }
+.pf-read-stage { font-family: var(--sqnce-_font-read); font-size: 18px; color: var(--sqnce-_ink-strong); margin: 4px 0 12px; }
 .pf-read-sub { margin-bottom: 22px; }
-.pf-read-sub-name { font-size: 15px; color: var(--sqnce-_ink-read); margin: 0 0 4px; }
-.pf-read-sub-desc { color: var(--sqnce-_ink-muted-light); margin: 0 0 10px; }
+.pf-read-sub-name { font-family: var(--sqnce-_font-read); font-size: 15px; color: var(--sqnce-_ink-read); margin: 0 0 4px; }
+.pf-read-sub-desc { font-family: var(--sqnce-_font-read); color: var(--sqnce-_ink-muted-light); margin: 0 0 10px; }
 .pf-read-out { margin: 0 0 14px; }
 .pf-read-out-label { font-family: var(--sqnce-_font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sqnce-_ink-muted-light); margin-bottom: 4px; }
-.pf-read-text { white-space: pre-wrap; line-height: 1.55; color: var(--sqnce-_ink-faint-light); margin: 0; }
-.pf-read-link { color: var(--sqnce-_link); word-break: break-all; }
-.pf-read-fields { margin: 0; display: grid; gap: var(--sqnce-_space-2); }
+.pf-read-text { font-family: var(--sqnce-_font-read); white-space: pre-wrap; line-height: 1.55; color: var(--sqnce-_ink-faint-light); margin: 0; }
+.pf-read-link { font-family: var(--sqnce-_font-read); color: var(--sqnce-_link); word-break: break-all; }
+.pf-read-fields { font-family: var(--sqnce-_font-read); margin: 0; display: grid; gap: var(--sqnce-_space-2); }
 .pf-read-field { display: flex; gap: var(--sqnce-_space-3); }
 .pf-read-field dt { color: var(--sqnce-_ink-muted-light); min-width: 120px; font-size: 13px; }
 .pf-read-field dd { margin: 0; color: var(--sqnce-_ink-faint-light); }
-.pf-read-file { font-size: 13px; color: var(--sqnce-_ink-read); margin-bottom: 4px; }
+.pf-read-file { font-family: var(--sqnce-_font-read); font-size: 13px; color: var(--sqnce-_ink-read); margin-bottom: 4px; }
 .pf-read-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--sqnce-_space-5); padding-top: 12px; border-top: 1px solid var(--sqnce-_border-paper); margin-top: 8px; }
 .pf-read-navbtn, .pf-read-edit { background: none; border: 1px solid var(--sqnce-_border-soft); border-radius: var(--sqnce-_radius-sm); padding: 6px 12px; color: var(--sqnce-_ink-read); cursor: pointer; }
 .pf-read-navbtn:hover:not(:disabled), .pf-read-edit:hover { background: var(--sqnce-_hover-paper); }
