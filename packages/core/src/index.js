@@ -38,9 +38,13 @@
  *    `reopened` suppresses hybrid content-completion until the step is
  *    touched again. `generated` maps outputId -> true for values
  *    written by draft generation; any hand edit clears the mark.
- *    `skips` maps sub-stage id -> true for sub-stages this run marked
- *    not applicable: excluded from boundary gates, runSummary, and
- *    draft context. `forces` maps main-stage index -> true when the
+ *    `skips` maps sub-stage id -> a skip entry recording who set it:
+ *    `true` (a user skip, also the legacy shape) or
+ *    { source: "user" | "auto", skipped } telling a person's decision
+ *    from an orchestration policy's. A user decision wins: an auto
+ *    operation never overrides it. isSubStageSkipped resolves an entry
+ *    to its effective boolean; a skipped sub-stage is excluded from
+ *    boundary gates, runSummary, and draft context. `forces` maps main-stage index -> true when the
  *    run advanced past that stage's unmet gate with the override.
  *    Both maps are optional and absent when empty.
  *    For a forked definition (one declaring `tracks`) the run also
@@ -137,11 +141,18 @@
  * @property {Object<string, true>} [generated]
  */
 /**
+ * A skip entry records who set a sub-stage's skip. `true` is the legacy and
+ * canonical shape for a user skip; the object form distinguishes an
+ * orchestration policy's skip (`source: "auto"`) from a person's keep-in
+ * (`source: "user", skipped: false`).
+ * @typedef {true | { source: "user" | "auto", skipped: boolean }} SkipEntry
+ */
+/**
  * @typedef {Object} Run
  * @property {number} idx
  * @property {number} frontier
  * @property {Object<string, StepEntry>} stepState
- * @property {Object<string, true>} [skips]
+ * @property {Object<string, SkipEntry>} [skips]
  * @property {Object<string, true>} [forces]
  * @property {Object<string, number>} [trackFrontier] Furthest committed main-stage index within each track; appears when the fork opens.
  * @property {Object<string, true>} [skippedTracks] Optional tracks marked not-applicable this run.
@@ -616,7 +627,9 @@ export function reopenStep(run, stepId) {
  * @returns {boolean}
  */
 export function isSubStageSkipped(run, subStageId) {
-  return !!(run.skips && run.skips[subStageId]);
+  const entry = run.skips ? run.skips[subStageId] : undefined;
+  if (entry === true) return true;
+  return !!(entry && entry.skipped === true);
 }
 
 /**

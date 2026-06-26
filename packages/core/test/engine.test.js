@@ -520,6 +520,20 @@ test("skipSubStage records only legal skips", () => {
   assert.equal(skipSubStage(skipped, subs, "collect"), skipped); // idempotent
 });
 
+test("isSubStageSkipped resolves legacy, object, and absent skip entries", () => {
+  const base = createRun();
+  assert.equal(isSubStageSkipped(base, "collect"), false); // absent
+  assert.equal(isSubStageSkipped({ ...base, skips: { collect: true } }, "collect"), true); // legacy user skip
+  assert.equal(
+    isSubStageSkipped({ ...base, skips: { collect: { source: "auto", skipped: true } } }, "collect"),
+    true
+  );
+  assert.equal(
+    isSubStageSkipped({ ...base, skips: { collect: { source: "user", skipped: false } } }, "collect"),
+    false // a keep-in resolves as not skipped
+  );
+});
+
 test("skipping beyond the frontier is a no-op", () => {
   const def = {
     id: "d", name: "D",
