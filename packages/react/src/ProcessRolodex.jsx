@@ -578,9 +578,10 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
             return (
               <React.Fragment key={ms.id}>
                 {mi > 0 && <span className={`pf-rail-line ${mi <= frontier ? "pf-rail-line-fill" : ""}`} />}
-                <span className={`pf-rail-stage pf-rail-${state}`}>
+                <span className={`pf-rail-stage pf-rail-${state}`} aria-current={state === "active" ? "step" : undefined}>
                   <span className="pf-rail-circle">{glyph}</span>
                   {ms.name}
+                  {state === "active" && <span className="pf-rail-here" aria-hidden="true">▾</span>}
                 </span>
               </React.Fragment>
             );
@@ -792,10 +793,14 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                           className={`pf-dot-btn pf-dot-${status}`}
                           disabled={!center || readOnly || skipped}
                           title={status === "done" ? "Reopen" : "Mark done"}
-                          aria-label={status === "done" ? `Reopen ${step.name}` : `Mark ${step.name} done`}
+                          aria-label={
+                            status === "done" ? `Step ${step.name}: done. Reopen`
+                            : status === "draft" ? `Step ${step.name}: draft. Mark done`
+                            : `Step ${step.name}: not started. Mark done`
+                          }
                           onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
                         >
-                          {status === "done" ? "✓" : ""}
+                          {status === "done" ? "✓" : status === "draft" ? "·" : ""}
                         </button>
                         <button
                           className="pf-step-expand"
@@ -990,9 +995,13 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         <div className="pf-nav-mid">
           <div className="pf-dots">
             {subs.map((s, i) => (
-              <span
+              <button
                 key={s.id}
+                type="button"
                 className={`pf-pip ${i === idx ? "pf-pip-active" : ""} ${s.mainIndex > frontier ? "pf-pip-locked" : ""} ${isSubStageSkipped(run, s.id) ? "pf-pip-skipped" : ""}`}
+                disabled={s.mainIndex > frontier}
+                aria-label={`${s.name}${i === idx ? " (current)" : ""}${s.mainIndex > frontier ? " (locked)" : ""}${isSubStageSkipped(run, s.id) ? " (skipped)" : ""}`}
+                aria-current={i === idx ? "step" : undefined}
                 onClick={() => setNav(jumpTo(run, subs, i))}
               />
             ))}
@@ -1132,7 +1141,8 @@ const CSS = `
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 10px; border: 1px solid currentColor;
 }
-.pf-rail-active { color: var(--sqnce-_accent); } .pf-rail-active .pf-rail-circle { background: var(--sqnce-_accent); border-color: var(--sqnce-_accent); color: var(--sqnce-_ink-strong); }
+.pf-rail-active { color: var(--sqnce-_accent); } .pf-rail-active .pf-rail-circle { background: var(--sqnce-_accent); border-color: var(--sqnce-_accent); color: var(--sqnce-_ink-strong); box-shadow: 0 0 0 2px var(--sqnce-_accent-hover); }
+.pf-rail-here { font-size: 9px; margin-left: 2px; }
 .pf-rail-done { color: var(--sqnce-_done-tint); } .pf-rail-done .pf-rail-circle { background: var(--sqnce-_done); border-color: var(--sqnce-_done); color: var(--sqnce-_ink-on-dark); }
 .pf-rail-ahead { color: var(--sqnce-_ink-label-dark); }
 .pf-rail-line { width: 34px; height: 1px; background: var(--sqnce-_raised); }
@@ -1282,7 +1292,7 @@ const CSS = `
 }
 .pf-dot-btn:hover:not(:disabled) { border-color: var(--sqnce-_done); color: var(--sqnce-_done); }
 .pf-dot-btn:disabled { cursor: default; }
-.pf-dot-draft { border-color: var(--sqnce-_draft); background: var(--sqnce-_draft-bg); }
+.pf-dot-draft { border-color: var(--sqnce-_draft); background: var(--sqnce-_draft-bg); color: var(--sqnce-_ink-strong); }
 .pf-dot-done { border-color: var(--sqnce-_done); background: var(--sqnce-_done); color: var(--sqnce-_done-ink); }
 .pf-step-expand {
   flex: 1; display: flex; align-items: center; gap: var(--sqnce-_space-4); min-width: 0;
@@ -1346,9 +1356,9 @@ const CSS = `
 .pf-nav-fwd { margin-left: auto; text-align: right; }
 .pf-nav-mid { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .pf-dots { display: flex; gap: 7px; }
-.pf-pip { width: 9px; height: 9px; border-radius: 50%; background: var(--sqnce-_pip); cursor: pointer; }
-.pf-pip-active { background: var(--sqnce-_accent); transform: scale(1.25); }
-.pf-pip-locked { background: var(--sqnce-_pip-locked); cursor: default; }
+.pf-pip { width: 9px; height: 9px; border-radius: 50%; background: var(--sqnce-_pip); cursor: pointer; border: none; padding: 0; }
+.pf-pip-active { background: var(--sqnce-_accent); transform: scale(1.25); box-shadow: 0 0 0 2px var(--sqnce-_accent-hover); }
+.pf-pip-locked { background: transparent; border: 1px solid var(--sqnce-_pip-locked); box-sizing: border-box; cursor: default; }
 .pf-card-foot {
   margin: 12px 14px 0; padding: 10px 2px 0;
   border-top: 1px solid var(--sqnce-_border-card);
@@ -1393,7 +1403,7 @@ const CSS = `
 .pf-gate-forced { color: var(--sqnce-_accent-ink); }
 .pf-card-skipped .pf-card-desc, .pf-card-skipped .pf-inputs { opacity: 0.5; }
 .pf-card-skipped .pf-steps { opacity: 0.5; pointer-events: none; }
-.pf-pip-skipped { background: transparent; border: 1px solid var(--sqnce-_pip); box-sizing: border-box; }
+.pf-pip-skipped { background: transparent; border: 1px dashed var(--sqnce-_pip); box-sizing: border-box; }
 .pf-gate-hint { font-size: 11.5px; color: var(--sqnce-_ink-muted-dark); font-family: var(--sqnce-_font-mono); text-align: center; }
 .pf-legend { font-size: 11px; color: var(--sqnce-_ink-label-dark); margin: 2px 0 0; text-align: center; }
 
