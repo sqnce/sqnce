@@ -1025,7 +1025,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                 disabled={s.mainIndex > frontier}
                 aria-label={`${s.name}${i === idx ? " (current)" : ""}${s.mainIndex > frontier ? " (locked)" : ""}${isSubStageSkipped(run, s.id) ? " (skipped)" : ""}`}
                 aria-current={i === idx ? "step" : undefined}
-                onClick={() => setNav(jumpTo(run, subs, i))}
+                onClick={() => { clearTransients(); setNav(jumpTo(run, subs, i)); }}
               />
             ))}
           </div>
