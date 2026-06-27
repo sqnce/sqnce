@@ -1125,6 +1125,16 @@ export function jumpTo(run, subStages, index) {
  * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {AdvanceResult}
  */
+/** The shared gate-commit decision: run the stage aggregate, then decide. `ok`
+ * false means the gate is unmet and not forced (no advance); `ok` true with
+ * `forced` true means a forced commit past an unmet gate. Each caller still
+ * builds its own next run and records forces[boundary] when forced. */
+function evalCommitGate(stageSubs, run, opts, force) {
+  const progress = aggregateGate(stageSubs, run, opts);
+  if (!progress.met && !force) return { ok: false, missing: progress.missing };
+  return { ok: true, forced: !progress.met };
+}
+
 export function advance(run, subStages, { force = false, validators } = {}) {
   // Infer the definition-less topology from the flat list: a tracked card
   // carries `track`; the spine end is the last untracked mainIndex.
@@ -1138,11 +1148,11 @@ export function advance(run, subStages, { force = false, validators } = {}) {
     const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
     if (!cur || cur.mainIndex !== r.frontier || r.frontier >= maxMain)
       return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     /** @type {Run} */
     const next = { ...r, idx: subStages.findIndex((s) => s.mainIndex === r.frontier + 1), frontier: r.frontier + 1 };
-    if (!progress.met) next.forces = { ...r.forces, [r.frontier]: true };
+    if (g.forced) next.forces = { ...r.forces, [r.frontier]: true };
     return { run: next, advanced: true, missing: [] };
   }
   return advanceForked(r, subStages, { force, validators });
@@ -1171,18 +1181,18 @@ function advanceForked(run, subStages, { force, validators }) {
   // browsing a committed spine stage that is not the fork boundary: spine advance
   if (curTrack === null && cur.mainIndex < spineEnd) {
     if (cur.mainIndex !== run.frontier) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const next = { ...run, idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1), frontier: run.frontier + 1 };
-    if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+    if (g.forced) next.forces = { ...run.forces, [run.frontier]: true };
     return { run: next, advanced: true, missing: [] };
   }
 
   // at the last spine stage: open or repair the fork
   if (curTrack === null && cur.mainIndex === spineEnd) {
     if (run.frontier !== spineEnd) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const tf = { ...run.trackFrontier };
     let initialized = false;
     ranges.forEach((r, id) => {
@@ -1193,7 +1203,7 @@ function advanceForked(run, subStages, { force, validators }) {
     });
     if (!initialized) return { run, advanced: false, missing: [] }; // already open: no-op
     const next = { ...run, trackFrontier: tf };
-    if (!progress.met) next.forces = { ...run.forces, [spineEnd]: true };
+    if (g.forced) next.forces = { ...run.forces, [spineEnd]: true };
     // idx -> first non-skipped track's first sub, else last spine sub
     let target = null, targetFirst = Infinity;
     ranges.forEach((r, id) => { if (!skipped.has(id) && r.first < targetFirst) { targetFirst = r.first; target = id; } });
@@ -1214,14 +1224,14 @@ function advanceForked(run, subStages, { force, validators }) {
     const r = ranges.get(curTrack);
     const tfv = hasOwn(run.trackFrontier, curTrack) ? run.trackFrontier[curTrack] : undefined;
     if (cur.mainIndex !== tfv || tfv >= r.terminal) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const next = {
       ...run,
       trackFrontier: { ...run.trackFrontier, [curTrack]: tfv + 1 },
       idx: subStages.findIndex((s) => s.mainIndex === tfv + 1),
     };
-    if (!progress.met) next.forces = { ...run.forces, [tfv]: true };
+    if (g.forced) next.forces = { ...run.forces, [tfv]: true };
     return { run: next, advanced: true, missing: [] };
   }
   return { run, advanced: false, missing: [] };
