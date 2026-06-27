@@ -68,6 +68,16 @@ function renderRunHeader({ def, run, complete }) {
   return <div className={`demo-verdict demo-verdict-${st.tone}`}>Readiness: {st.word}</div>;
 }
 
+/* Reference per-step badge: on the presales workflow, paint the coarse
+   ACCEPT/REVISE verdict over the fit-gap step's status word once it is
+   done. Other steps and workflows keep the generic word. */
+function renderStageStatus({ def, run, stepId, status }) {
+  if (def.id !== "presales-pursuit" || stepId !== "fit-gap" || status !== "done") return null;
+  const st = runStatus({ def, run });
+  if (!st) return null;
+  return <span className={`demo-verdict demo-verdict-${st.tone}`}>{st.word}</span>;
+}
+
 export default function App() {
   return (
     <>
@@ -91,6 +101,7 @@ export default function App() {
         renderers={RENDERERS}
         runStatus={runStatus}
         renderRunHeader={renderRunHeader}
+        renderStageStatus={renderStageStatus}
       />
     </>
   );
