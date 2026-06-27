@@ -11,8 +11,11 @@
 /**
  * Apply reconcile to one run. When reconcileFn is not a function, returns the
  * run unchanged (the absent-prop no-op, same reference). Otherwise returns
- * reconcileFn(run, context); if that returns anything that is not a non-null
- * object (a consumer bug), the original run is returned unchanged.
+ * reconcileFn(run, context); a consumer bug degrades to the original run
+ * unchanged, whether the function returns a non-object or throws. This is
+ * total by design: on the load path a thrown hook must not escape to the
+ * persistence catch, where the placeholder store would be saved over the
+ * user's runs, and on a transition it must not break the state updater.
  * @param {((run: any, context: any) => any) | null | undefined} reconcileFn
  * @param {any} run
  * @param {any} [context]
@@ -20,7 +23,12 @@
  */
 export function applyReconcile(reconcileFn, run, context) {
   if (typeof reconcileFn !== "function") return run;
-  const next = reconcileFn(run, context);
+  let next;
+  try {
+    next = reconcileFn(run, context);
+  } catch (e) {
+    return run;
+  }
   if (next === null || typeof next !== "object") return run;
   return next;
 }

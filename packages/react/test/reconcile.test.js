@@ -32,6 +32,11 @@ test("applyReconcile: passes the context to the fn", () => {
   assert.deepEqual(seen, ctx);
 });
 
+test("applyReconcile: a throwing fn degrades to a no-op", () => {
+  const r = run();
+  assert.equal(applyReconcile(() => { throw new Error("boom"); }, r), r);
+});
+
 test("applyReconcile: an idempotent fn applied twice equals applied once", () => {
   const fn = (rr) => (rr.frontier === 1 ? rr : { ...rr, frontier: 1 });
   const once = applyReconcile(fn, run());
@@ -106,6 +111,16 @@ test("applyReconcileToStore: a prototype-key entry id stays an own entry, not pr
   assert.equal(out.entries["__proto__"].run.mark, true);
   // No global prototype pollution.
   assert.equal({}.mark, undefined);
+});
+
+test("applyReconcileToStore: a throwing fn degrades per entry without losing the store", () => {
+  // A throwing reconcile must not fall through to a load fallback that drops
+  // persisted runs: every entry is preserved with its original run, no throw.
+  const s = store();
+  const out = applyReconcileToStore(() => { throw new Error("boom"); }, s, workflows);
+  assert.equal(Object.keys(out.entries).length, 2);
+  assert.equal(out.entries.e1.run, s.entries.e1.run);
+  assert.equal(out.entries.e2.run, s.entries.e2.run);
 });
 
 test("applyReconcileToStore: a workflow id matching a prototype key is not a definition", () => {
