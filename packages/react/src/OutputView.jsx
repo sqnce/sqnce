@@ -1,7 +1,8 @@
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useState, useRef, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { hasValue } from "@sqnce/core";
 import { BUILTIN_RENDERERS } from "./renderers/builtins.js";
+import { parseOutline } from "./renderers/markdownOutline.js";
 import JsonTree from "./renderers/JsonTree.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import { ThemeScope } from "./themeScope.jsx";
@@ -15,7 +16,8 @@ import { ThemeScope } from "./themeScope.jsx";
  * runId is the active run entry id (null when there is no active run yet).
  */
 
-function Overlay({ label, onClose, children }) {
+function Overlay({ label, outline, onClose, children }) {
+  const bodyRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
@@ -23,6 +25,17 @@ function Overlay({ label, onClose, children }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  const showOutline = Array.isArray(outline) && outline.length >= 2;
+  /* Scope the lookup to the overlay's own scroll container, never
+     document.getElementById: the inline (non-overlay) render is mounted at
+     the same time with the same heading ids, so a global lookup would
+     scroll the inline copy behind the overlay. */
+  const jump = (slug) => {
+    const container = bodyRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[id="${slug}"]`);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   /* Portal to body: the rolodex cards are CSS-transformed, which would
      trap position: fixed overlays inside the card. */
   return createPortal(
@@ -34,7 +47,25 @@ function Overlay({ label, onClose, children }) {
             Close
           </button>
         </div>
-        <div className="pf-overlay-body">{children}</div>
+        <div className="pf-overlay-main">
+          {showOutline && (
+            <details className="pf-overlay-outline" open>
+              <summary>Sections</summary>
+              <ul className="pf-outline-list">
+                {outline.map((e, idx) => (
+                  <li key={idx} className={`pf-outline-item pf-outline-l${e.level}`}>
+                    <button type="button" className="pf-outline-link" onClick={() => jump(e.slug)}>
+                      {e.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <div className="pf-overlay-body" ref={bodyRef}>
+            {children}
+          </div>
+        </div>
       </div>
     </ThemeScope>,
     document.body
@@ -143,6 +174,7 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
   const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
   const isData = spec.type === "data";
   const Renderer = Custom || (isData ? JsonTree : null);
+  const isMarkdownBuiltin = Renderer === BUILTIN_RENDERERS.markdown;
   const filled = hasValue(spec, value);
   const viewValue = spec.type === "file" ? (value && value.content) || "" : value;
   /* A file value with no extracted text has nothing for a renderer to
@@ -204,7 +236,11 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
       {body}
       {invalid && <div className="pf-error">{invalid}</div>}
       {big && Renderer && (
-        <Overlay label={spec.label} onClose={() => setBig(false)}>
+        <Overlay
+          label={spec.label}
+          outline={isMarkdownBuiltin ? parseOutline(String(viewValue ?? "")) : null}
+          onClose={() => setBig(false)}
+        >
           <RenderView
             Renderer={Renderer}
             spec={spec}
