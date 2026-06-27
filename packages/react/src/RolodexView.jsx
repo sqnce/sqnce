@@ -186,6 +186,9 @@ export default function RolodexView({
                 {sub.steps.map((step) => {
                   const entry = getStepEntry(run, step.id);
                   const status = statusOf(sub, step);
+                  // one handler for the done dot, used by both the compact and
+                  // expanded step rows (#114).
+                  const onToggleDone = () => (status === "done" ? reopen(step.id) : toggleDone(step.id, true));
                   const target = draftTarget(step);
                   const canGenerate = !!generateDraft && !!target && !step.manual;
                   const open = center && expanded === step.id;
@@ -201,7 +204,7 @@ export default function RolodexView({
                             : status === "draft" ? `Step ${step.name}: draft. Mark done`
                             : `Step ${step.name}: not started. Mark done`
                           }
-                          onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
+                          onClick={onToggleDone}
                         >
                           {status === "done" ? "✓" : status === "draft" ? "·" : ""}
                         </button>
@@ -320,7 +323,7 @@ export default function RolodexView({
                             <button
                               className={`pf-btn ${status === "done" ? "" : "pf-btn-primary"}`}
                               disabled={readOnly}
-                              onClick={() => (status === "done" ? reopen(step.id) : toggleDone(step.id, true))}
+                              onClick={onToggleDone}
                             >
                               {status === "done" ? "Reopen" : "Mark done"}
                             </button>
