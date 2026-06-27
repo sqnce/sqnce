@@ -17,6 +17,7 @@ import {
   buildDraftPrompt,
   draftTarget,
   parseDraft,
+  validateOutputValue,
   createRunStore,
   createRunEntry,
   addRun,
@@ -494,8 +495,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
         setGenError({ stepId: step.id, message: parsed.error });
         return;
       }
-      const fn = target.validate && validators && validators[target.validate];
-      const message = fn ? fn(parsed.value, target, { run, stepId: step.id }) : null;
+      const message = validateOutputValue(subs, run, idx, step.id, target, parsed.value, validators);
       if (typeof message === "string") {
         setGenError({ stepId: step.id, message: `Draft failed validation: ${message}` });
         return;

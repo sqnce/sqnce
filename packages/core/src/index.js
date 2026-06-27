@@ -964,6 +964,29 @@ export function gateProgress(subStage, run, { validators, subStages } = {}) {
 }
 
 /**
+ * Validate one output value with the same spine-plus-own-track relation-set
+ * scoping the gate uses, so a draft-time check matches the boundary gate. For
+ * a linear definition the scoping is a pass-through. Returns the validator's
+ * message string when invalid, else null (also null when no validator resolves).
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @param {number} flatIdx flat sub-stage index of the drafted step's sub-stage
+ * @param {string} stepId
+ * @param {OutputSpec} spec
+ * @param {any} value
+ * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @returns {string|null}
+ */
+export function validateOutputValue(subStages, run, flatIdx, stepId, spec, value, validators) {
+  const fn = spec && spec.validate && validators && validators[spec.validate];
+  if (typeof fn !== "function") return null;
+  const forked = subStages.some((s) => s.track !== undefined);
+  const evalRun = forked ? scopeValidatorRun(subStages, run, flatIdx) : run;
+  const message = fn(value, spec, { run: evalRun, stepId });
+  return typeof message === "string" ? message : null;
+}
+
+/**
  * Aggregate gate over one main stage's sub-stages. Missing step names
  * are qualified by sub-stage when the stage has more than one, so
  * single-sub-stage main stages read as before.
