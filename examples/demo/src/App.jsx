@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { ProcessRolodex } from "@sqnce/react";
+import { Sqnce } from "@sqnce/react";
 import { getStepEntry, flattenSubStages, autoSkipSubStage, clearAutoSkipSubStage } from "@sqnce/core";
 import carBuying from "../../../definitions/car-buying.json";
 import moving from "../../../definitions/moving.json";
@@ -109,7 +109,7 @@ export default function App() {
           GitHub
         </a>
       </header>
-      <ProcessRolodex
+      <Sqnce
         workflows={WORKFLOWS}
         workflowGroups={GROUPS}
         initialRunFor={initialRunFor}

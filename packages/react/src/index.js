@@ -1,1 +1,1 @@
-export { default as ProcessRolodex } from "./ProcessRolodex.jsx";
+export { default as Sqnce } from "./Sqnce.jsx";

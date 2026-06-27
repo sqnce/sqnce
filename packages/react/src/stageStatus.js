@@ -3,12 +3,12 @@
  * consumer-supplied render slot. Pure and React-free so it runs under
  * node:test: it never renders, it only decides whether the consumer's
  * node or the generic word is shown. The node is opaque here; the JSX in
- * ProcessRolodex renders whichever side this returns.
+ * Sqnce renders whichever side this returns.
  */
 
 /**
  * Default per-step status word, by lifecycle state. Mirrors the mapping
- * that was inline in ProcessRolodex: a done step reads "Done", a draft
+ * that was inline in Sqnce: a done step reads "Done", a draft
  * step reads "Draft", an open step reads nothing.
  * @param {"done"|"draft"|"open"} status
  * @returns {string}

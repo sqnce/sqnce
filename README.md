@@ -63,13 +63,13 @@ pnpm add link:../sqnce/packages/core link:../sqnce/packages/react
 Two notes for linked consumers: dedupe React in your bundler so the linked package resolves your app's copy (Vite: `resolve: { dedupe: ["react", "react-dom"] }`), and run `npm run types` in this repo after public API changes so your editor sees fresh declarations.
 
 ```jsx
-import { ProcessRolodex } from "@sqnce/react";
+import { Sqnce } from "@sqnce/react";
 import presales from "../definitions/presales.json";
 import hiring from "../definitions/hiring.json";
 
 export default function App() {
   return (
-    <ProcessRolodex
+    <Sqnce
       workflows={[presales, hiring]}
       persistence={{
         load: async () => JSON.parse(localStorage.getItem("sqnce") || "null"),
@@ -164,11 +164,11 @@ Outputs render as plain editors by default. Two pieces of data change that: an o
 
 ```jsx
 import { lazy } from "react";
-import { ProcessRolodex } from "@sqnce/react";
+import { Sqnce } from "@sqnce/react";
 
 const FlowDiagram = lazy(() => import("./renderers/FlowDiagram.jsx"));
 
-<ProcessRolodex workflows={[presales]} renderers={{ flow: FlowDiagram }} />
+<Sqnce workflows={[presales]} renderers={{ flow: FlowDiagram }} />
 ```
 
 A renderer is a pure presentation component receiving `{ spec, value, onChange, context }`. Two rules: `onChange` carries value mutations only (renderer view state like selection or pan/zoom stays internal, because values feed the LLM draft prompts via `serializeStep`), and renderers fail soft on shape drift (render what is there, never throw). `context.expanded` flips to true inside the full-screen overlay; re-fit on its change. `context.runId` is the active run entry id (null when there is no active run yet), so a host can resolve run-wide data (for example a citation pointing into another step of the same run) from a shared store while rendering one step's output. The kind vocabulary, normative built-in value shapes, reserved names (`flow`, `lanes`, `erd`), and the namespacing rule for app-private kinds (`myapp:org-chart`) live in [docs/render-kinds.md](docs/render-kinds.md).
