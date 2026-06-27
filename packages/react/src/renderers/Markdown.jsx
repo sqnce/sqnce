@@ -1,5 +1,6 @@
 import React from "react";
 import { tokenizeInline } from "./markdownInline.js";
+import { createSlugger } from "./markdownOutline.js";
 
 /*
  * Minimal markdown subset renderer. React elements only, no innerHTML.
@@ -36,6 +37,7 @@ export default function Markdown({ value }) {
   const blocks = [];
   let i = 0;
   let key = 0;
+  const slug = createSlugger();
   const splitRow = (l) =>
     l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
   while (i < lines.length) {
@@ -59,7 +61,7 @@ export default function Markdown({ value }) {
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
       const Tag = /** @type {keyof React.JSX.IntrinsicElements} */ (`h${h[1].length}`);
-      blocks.push(<Tag key={key++}>{inline(h[2])}</Tag>);
+      blocks.push(<Tag key={key++} id={slug(h[2])}>{inline(h[2])}</Tag>);
       i++;
       continue;
     }
