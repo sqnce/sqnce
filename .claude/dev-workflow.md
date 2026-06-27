@@ -32,12 +32,13 @@ automatically as part of the agreed process, without pausing to ask; it is not a
 stop-time gate. For an approach-challenge pass, `/codex:adversarial-review` takes the same
 flags plus a focus string.
 
-## Two human gates
+## One human gate
 
-Only two steps pause for a human: the owner approves the spec on the draft PR (between
-steps 5 and 6), and the owner approves the squash-merge to main (step 10, also gated on
-CI going green). Everything else is autonomous: the review loops, the commits, the test
-runs, the branch cleanup. Do not present option forks for non-gate decisions; pick the
+Only one step pauses for a human: the owner approves the spec on the draft PR (between
+steps 5 and 6). The squash-merge to main is autonomous and durably authorized, gated only
+on CI going green and the code-review loop returning no medium-or-higher findings (step
+10). Everything else is autonomous too: the review loops, the commits, the test runs, the
+merge itself, the branch cleanup. Do not present option forks for non-gate decisions; pick the
 sensible default and proceed.
 
 ## Superpowers skills, the methodology layer
@@ -126,10 +127,12 @@ sensible default and proceed.
     `chore: drop plan before merge, code is the source of truth`), so it never reaches main
     and the code review and the PR show only the code. Then run the Codex review loop on the
     branch diff, mark the draft PR ready, and squash-merge to main (subject: descriptive
-    imperative plus trailing `(#<issue>)`). Drive it with `superpowers:requesting-code-review`
+    imperative plus trailing `(#<issue>) (#<pr>)`). Drive it with `superpowers:requesting-code-review`
     and `receiving-code-review`, run `verification-before-completion` before marking ready,
-    and use `finishing-a-development-branch`. The squash-merge is the owner's gate; pause for
-    it. The plan's content stays in branch history; the spec and spike remain on main.
+    and use `finishing-a-development-branch`. Squash-merge autonomously once CI is green and
+    the code-review loop returns no medium-or-higher findings; this merge is durably
+    authorized, so do not pause for approval. The plan's content stays in branch history;
+    the spec and spike remain on main.
 11. **Post-merge cleanup.** _(graphify refresh deferred in sqnce: once a committed graph
     exists, run `graphify update .` on main, the command is `graphify update <path>`, then
     commit the refreshed `graphify-out/graph.json` and `GRAPH_REPORT.md`.)_ Always clean up
