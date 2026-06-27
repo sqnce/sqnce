@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { ThemeRootContext } from "./themeScope.jsx";
+import { railChip } from "./railNav.js";
 import {
   flattenSubStages,
   createRun,
@@ -569,16 +570,38 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         {view !== "reading" && (
         <div className="pf-rail">
           {def.mainStages.map((ms, mi) => {
-            /* Skip-aware: a stage whose remaining sub-stage gates are met
-               reads done even when a skipped sub-stage's own gate is not. */
-            const allDone = mainGateProgress(ms, run, { validators }).met;
-            const stageLocked = mi > frontier;
-            const state = mi === current.mainIndex ? "active" : allDone ? "done" : "ahead";
-            const glyph = allDone ? "✓" : stageLocked ? "🔒" : String(mi + 1);
+            /* Reachability, glyph, and color-state come from the shared rail
+               model: a chip is interactive exactly when the engine accepts a
+               jump to its first sub-stage, so this is fork-aware with no
+               frontier math and no core change. The active/done/ahead color
+               class is unchanged; only the lock glyph and interactivity follow
+               reachability. */
+            const { firstFlat, interactive, glyph, state } = railChip(run, subs, def.mainStages, mi, validators);
+            const go = () => {
+              clearTransients();
+              setNav(jumpTo(run, subs, firstFlat));
+            };
             return (
               <React.Fragment key={ms.id}>
                 {mi > 0 && <span className={`pf-rail-line ${mi <= frontier ? "pf-rail-line-fill" : ""}`} />}
-                <span className={`pf-rail-stage pf-rail-${state}`} aria-current={state === "active" ? "step" : undefined}>
+                <span
+                  className={`pf-rail-stage pf-rail-${state} ${interactive ? "pf-rail-clickable" : ""}`}
+                  aria-current={state === "active" ? "step" : undefined}
+                  role={interactive ? "button" : undefined}
+                  tabIndex={interactive ? 0 : undefined}
+                  aria-label={interactive ? `Go to ${ms.name}` : undefined}
+                  onClick={interactive ? go : undefined}
+                  onKeyDown={
+                    interactive
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            go();
+                          }
+                        }
+                      : undefined
+                  }
+                >
                   <span className="pf-rail-circle">{glyph}</span>
                   {ms.name}
                   {state === "active" && <span className="pf-rail-here" aria-hidden="true">▾</span>}
@@ -1166,6 +1189,9 @@ const CSS = `
 .pf-rail-here { font-size: 9px; margin-left: 2px; }
 .pf-rail-done { color: var(--sqnce-_done-tint); } .pf-rail-done .pf-rail-circle { background: var(--sqnce-_done); border-color: var(--sqnce-_done); color: var(--sqnce-_ink-on-dark); }
 .pf-rail-ahead { color: var(--sqnce-_ink-label-dark); }
+.pf-rail-clickable { cursor: pointer; }
+.pf-rail-clickable:hover { color: var(--sqnce-_accent); }
+.pf-rail-clickable:focus-visible { outline: 2px solid var(--sqnce-_accent); outline-offset: 3px; border-radius: 4px; }
 .pf-rail-line { width: 34px; height: 1px; background: var(--sqnce-_raised); }
 .pf-rail-line-fill { background: var(--sqnce-_accent); }
 .pf-header-right { display: flex; align-items: center; gap: var(--sqnce-_space-4); }
