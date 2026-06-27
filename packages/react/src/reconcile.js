@@ -49,14 +49,27 @@ export function applyReconcile(reconcileFn, run, context) {
  */
 export function applyReconcileToStore(reconcileFn, store, workflows) {
   if (typeof reconcileFn !== "function") return store;
+  // Totality on the load path: a malformed saved store must degrade to a no-op,
+  // never throw into the Sqnce load catch where the placeholder store would be
+  // saved over the user's runs.
+  if (!store || typeof store !== "object" || !store.entries || typeof store.entries !== "object")
+    return store;
   // Null-prototype maps: store ids (workflow id, entry id) are data, so a key
   // like "__proto__" or "toString" must become an own entry, never reach the
   // prototype or be mistaken for an inherited member.
   const defsById = Object.create(null);
-  for (const w of workflows || []) defsById[w.id] = w;
+  for (const w of workflows || []) {
+    if (w && typeof w === "object" && typeof w.id === "string") defsById[w.id] = w;
+  }
   const entries = Object.create(null);
   for (const id of Object.keys(store.entries)) {
     const entry = store.entries[id];
+    // A malformed entry is preserved unchanged rather than dropped: totality
+    // here means non-destructive, even on garbage input.
+    if (!entry || typeof entry !== "object") {
+      entries[id] = entry;
+      continue;
+    }
     const def = defsById[entry.workflowId];
     const run = def
       ? applyReconcile(reconcileFn, entry.run, { def, runId: entry.id })

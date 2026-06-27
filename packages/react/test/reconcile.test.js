@@ -139,3 +139,44 @@ test("applyReconcileToStore: a workflow id matching a prototype key is not a def
   assert.equal(called, false);
   assert.equal(out.entries.e1.run, s.entries.e1.run);
 });
+
+test("applyReconcileToStore: a non-object store returns it unchanged", () => {
+  const fn = (r) => ({ ...r, mark: 1 });
+  assert.equal(applyReconcileToStore(fn, null, workflows), null);
+  assert.equal(applyReconcileToStore(fn, undefined, workflows), undefined);
+  assert.equal(applyReconcileToStore(fn, "nope", workflows), "nope");
+});
+
+test("applyReconcileToStore: a store without an entries object returns it unchanged", () => {
+  const fn = (r) => ({ ...r, mark: 1 });
+  const s1 = { version: 3, activeRunByWorkflow: {} };
+  assert.equal(applyReconcileToStore(fn, s1, workflows), s1);
+  const s2 = { version: 3, entries: null, activeRunByWorkflow: {} };
+  assert.equal(applyReconcileToStore(fn, s2, workflows), s2);
+});
+
+test("applyReconcileToStore: a malformed entry is preserved, valid entries still reconcile", () => {
+  const s = {
+    version: 3,
+    activeWorkflowId: "w1",
+    activeRunByWorkflow: { w1: "e1" },
+    entries: {
+      e1: { id: "e1", workflowId: "w1", name: "A", status: "active", createdAt: 1, updatedAt: 5, run: run() },
+      e2: null,
+      e3: "garbage",
+    },
+  };
+  const fn = (rr) => ({ ...rr, mark: true });
+  const out = applyReconcileToStore(fn, s, workflows);
+  assert.equal(out.entries.e1.run.mark, true);
+  assert.equal(out.entries.e2, null);
+  assert.equal(out.entries.e3, "garbage");
+});
+
+test("applyReconcileToStore: a malformed workflows element does not throw", () => {
+  const s = store();
+  const fn = (rr) => ({ ...rr, mark: true });
+  const out = applyReconcileToStore(fn, s, [null, { id: "w1" }, "nope", { name: "no id" }]);
+  assert.equal(out.entries.e1.run.mark, true); // w1 still resolved
+  assert.equal(out.entries.e2.run, s.entries.e2.run); // w2 absent -> unchanged
+});
