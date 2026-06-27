@@ -690,20 +690,24 @@ export function wasAdvanceForced(run, mainIndex) {
  * @param {string} subStageId
  * @returns {Run}
  */
-export function skipSubStage(run, subStages, subStageId) {
+/** Shared skip-mutator preamble: normalize, locate, check skippable + reachable.
+ * Returns { r, idx, sub }; idx === -1 (sub null) on any no-op path, with r the
+ * normalized run so callers return r unchanged on a no-op, matching browse/jumpTo
+ * (a stale frontier/idx is normalized even when nothing is skipped). The reachable
+ * check rejects an unopened fork and a missing or out-of-range track frontier
+ * (own-property read), so a corrupted run such as { trackFrontier: { demo: 99 } }
+ * cannot make a tracked sub-stage look committed. */
+function locateReachableSkippable(run, subStages, subStageId) {
   const r = normalizeFlat(subStages, run);
   const idx = subStages.findIndex((s) => s.id === subStageId);
   const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  // committed-in-region: the card must be inside the reachable set (the spine
-  // prefix up to frontier, or an open non-skipped track's committed range).
-  // reachableFlat already rejects an unopened fork and a missing or
-  // out-of-range track frontier (and reads trackFrontier own-property only), so
-  // a corrupted run such as { trackFrontier: { demo: 99 } } cannot make a
-  // tracked sub-stage look committed. Return r (the normalized run) on every
-  // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
-  // even when nothing is skipped.
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  if (!sub || !sub.skippable || !reachableFlat(subStages, r).includes(idx)) return { r, idx: -1, sub: null };
+  return { r, idx, sub };
+}
+
+export function skipSubStage(run, subStages, subStageId) {
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
@@ -720,11 +724,8 @@ export function skipSubStage(run, subStages, subStageId) {
  * @returns {Run}
  */
 export function unskipSubStage(run, subStages, subStageId) {
-  const r = normalizeFlat(subStages, run);
-  const idx = subStages.findIndex((s) => s.id === subStageId);
-  const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   const entry = r.skips && r.skips[subStageId];
   if (entry && entry !== true && entry.source === "user" && entry.skipped === false) return r; // already a keep-in
   return { ...r, skips: { ...r.skips, [subStageId]: { source: "user", skipped: false } } };
@@ -741,11 +742,8 @@ export function unskipSubStage(run, subStages, subStageId) {
  * @returns {Run}
  */
 export function autoSkipSubStage(run, subStages, subStageId) {
-  const r = normalizeFlat(subStages, run);
-  const idx = subStages.findIndex((s) => s.id === subStageId);
-  const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   const entry = r.skips && r.skips[subStageId];
   if (entry === true || (entry && entry.source === "user")) return r; // user wins
   if (entry && entry.source === "auto" && entry.skipped === true) return r; // already auto-skipped
