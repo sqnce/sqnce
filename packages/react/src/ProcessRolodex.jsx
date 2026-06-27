@@ -50,6 +50,7 @@ import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
 import { resolveGeneratedBadge } from "./badge.js";
 import { resolveRunStatus } from "./runStatus.js";
+import { resolveStageStatus } from "./stageStatus.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -115,6 +116,13 @@ function newId() {
  *      default "Complete"). A bare string is the word; tone is an opaque
  *      visual hint that must degrade to a plain word. Omit to show no word
  *      in the lists and keep "Complete" in the band.
+ *  - renderStageStatus (optional): ({ def, run, runId, stepId, status })
+ *      => ReactNode, a per-step status badge shown in place of the generic
+ *      "Done"/"Draft" word on a deck card's step row. status is the step's
+ *      lifecycle ("done" | "draft" | "open"). Only a null or undefined
+ *      return falls back to the generic word; any other return is shown as
+ *      given. Called once per drawn step, so keep it cheap and pure. Omit
+ *      to show the generic word everywhere.
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -187,10 +195,11 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null }) => (string | { word: string, tone?: string } | null)} [runStatus]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, stepId: string, status: "done"|"draft"|"open" }) => import("react").ReactNode} [renderStageStatus]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -841,7 +850,14 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                             {step.required && <span className="pf-req">*</span>}
                           </span>
                           <span className="pf-step-state">
-                            {status === "done" ? "Done" : status === "draft" ? "Draft" : ""}
+                            {(() => {
+                              const ss = resolveStageStatus({
+                                render: renderStageStatus,
+                                ctx: { def, run, runId: activeRunId, stepId: step.id, status },
+                                status,
+                              });
+                              return "node" in ss ? ss.node : ss.word;
+                            })()}
                           </span>
                           {center && <span className="pf-chev">{open ? "−" : "+"}</span>}
                         </button>
