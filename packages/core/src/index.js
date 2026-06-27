@@ -1823,12 +1823,7 @@ export function isRunComplete(definition, run, opts = {}) {
   // sitting at the last spine stage is only ready-to-open, not complete; this is
   // also what stops an all-optional, all-skipped run from completing before the
   // boundary advance ever ran.
-  for (const [id, t] of tm) {
-    // own-property read (spec: never bare key reads on trackFrontier); an
-    // inherited key must not be counted as an opened track.
-    const v = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
-    if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
-  }
+  if (!allTrackFrontiersInRange(r, tm)) return false;
   // every KEPT track has reached its terminal
   for (const [id, t] of tm) {
     if (skipped.has(id)) continue;
@@ -1868,12 +1863,8 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   // repairs every entry, so trackStatus never reports a track active/complete
   // while navigation treats the fork as unopened.
   if (r.frontier !== lastSpineIndex(definition)) return "not-open";
-  for (const [id, t] of tmap) {
-    // own-property read (spec: never bare key reads on trackFrontier).
-    const ev = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
-    if (!(typeof ev === "number" && ev >= t.first && ev <= t.terminal)) return "not-open";
-  }
-  const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
+  if (!allTrackFrontiersInRange(r, tmap)) return "not-open";
+  const v = r.trackFrontier[trackId]; // own + in-range, verified by the check above
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
   // "complete" must mean every gate along this track's path is met (the shared
   // spine plus the track's own stages), matching the gates isRunComplete checks.
