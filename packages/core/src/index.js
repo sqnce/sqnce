@@ -1581,7 +1581,10 @@ export function updateRunState(store, runId, run, now) {
  * blank, idx lands on the first sub-stage of the fork stage, the force at
  * the fork stage's own outgoing boundary is dropped, and skips/forces past
  * the fork stage are dropped. The supplied definition must be the run's own
- * workflow and must currently describe every retained step and kept skip.
+ * workflow and must currently describe every step and kept skip the run
+ * carries: any step or skip the definition no longer describes throws (even one
+ * a truncation would otherwise discard), and a retained kept skip's sub-stage
+ * must still be skippable.
  * Throws rather than silently producing a broken store on bad, colliding,
  * mismatched, or too-far input.
  * @param {RunStore} store
