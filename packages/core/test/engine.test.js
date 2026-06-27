@@ -1786,3 +1786,68 @@ test("a corrupted required-track skip is ignored by runSummary and isRunComplete
   const r2 = { ...r, skippedTracks: { demo: true, response: true } };
   assert.equal(isRunComplete(FORKED, r2), false);
 });
+
+/* ---- engine correctness bundle (#107, #108, #110) ---- */
+
+test("validateDefinition catches a missing or duplicate output id", () => {
+  const mk = (outputs) => ({
+    id: "d", name: "D",
+    mainStages: [{ id: "m", name: "M", subStages: [{ id: "s", name: "S",
+      steps: [{ id: "st", name: "St", outputs }] }] }],
+  });
+  assert.ok(validateDefinition(mk([{ type: "text" }])).some((p) => /output is missing an id/.test(p)));
+  assert.ok(validateDefinition(mk([{ id: "  ", type: "text" }])).some((p) => /output is missing an id/.test(p)));
+  assert.ok(
+    validateDefinition(mk([{ id: "o", type: "text" }, { id: "o", type: "text" }]))
+      .some((p) => /duplicate output id "o"/.test(p))
+  );
+  assert.deepEqual(validateDefinition(mk([{ id: "a", type: "text" }, { id: "b", type: "text" }])), []);
+});
+
+test("validateDefinition validates the subject for a linear definition", () => {
+  const mk = (subject) => ({
+    id: "d", name: "D", subject,
+    mainStages: [{ id: "m", name: "M", subStages: [{ id: "s", name: "S",
+      steps: [{ id: "st", name: "St", outputs: [
+        { id: "o", type: "fields", fields: [{ key: "client", label: "Client" }] }] }] }] }],
+  });
+  assert.ok(validateDefinition(mk({ stepId: "st", outputId: "o", field: "nope" }))
+    .some((p) => /field "nope" is not a field/.test(p)));
+  assert.ok(validateDefinition(mk({ stepId: "ghost", outputId: "o", field: "client" }))
+    .some((p) => /must resolve to exactly one step/.test(p)));
+  assert.deepEqual(validateDefinition(mk({ stepId: "st", outputId: "o", field: "client" })), []);
+});
+
+test("trackStatus is active (not complete) when an intermediate track gate was forced", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subs), subs).run; // fork open
+  r = skipTrack(r, FORKED, "demo"); // keep only response
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-draft-sub"));
+  r = advance(r, subs, { force: true }).run; // respDraft missing: forced, response = 6
+  r = setOutput(r, "respReview", "r", "x");
+  r = jumpTo(r, subs, subs.findIndex((s) => s.id === "resp-review-sub"));
+  r = advance(r, subs).run; // response = 7 (terminal)
+  r = setCheckedDone(r, "respSignoff", true);
+  assert.equal(trackStatus(FORKED, r, "response"), "active");
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+test("trackStatus is active (not complete) when a spine gate was forced open", () => {
+  const subs = flattenSubStages(FORKED);
+  let r = setOutput(createRun(), "intake", "facts", { client: "Acme" });
+  r = setCheckedDone(r, "intake", true);
+  r = advance(r, subs).run; // frontier at findings (1), findings gate NOT met
+  r = advance(r, subs, { force: true }).run; // force-open the fork past the unmet findings gate
+  r = skipTrack(r, FORKED, "demo");
+  r = driveResponseToTerminal(r, subs); // response fully met
+  assert.equal(trackStatus(FORKED, r, "response"), "active"); // unmet spine gate keeps it incomplete
+  assert.equal(isRunComplete(FORKED, r), false);
+});
+
+test("buildDraftPrompt falls back on an out-of-range idx instead of throwing", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const step = subs[0].steps[0];
+  const prompt = buildDraftPrompt(FIXTURE, subs, createRun(), 999, step);
+  assert.equal(typeof prompt, "string");
+  assert.ok(prompt.length > 0);
+});

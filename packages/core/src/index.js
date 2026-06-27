@@ -408,7 +408,13 @@ export function validateDefinition(definition) {
         stepIds.add(st.id);
         if (st.manual !== undefined && typeof st.manual !== "boolean")
           problems.push(`step "${st.id}": manual must be a boolean`);
+        const outputIds = new Set();
         (st.outputs || []).forEach((o) => {
+          if (typeof o.id !== "string" || !o.id.trim())
+            problems.push(`step "${st.id}": an output is missing an id`);
+          else if (outputIds.has(o.id))
+            problems.push(`step "${st.id}": duplicate output id "${o.id}"`);
+          else outputIds.add(o.id);
           if (!["text", "fields", "file", "link", "data"].includes(o.type))
             problems.push(`step "${st.id}": unknown output type "${o.type}"`);
           if (o.type === "fields" && (!Array.isArray(o.fields) || !o.fields.length))
@@ -501,8 +507,7 @@ export function validateDefinition(definition) {
     const s = definition.subject;
     if (!s.stepId || !s.outputId || !s.field) {
       problems.push("definition.subject requires stepId, outputId, and field");
-    } else if (isForked(definition)) {
-      const spineEnd = lastSpineIndex(definition);
+    } else {
       const owners = [];
       (definition.mainStages || []).forEach((ms, mi) => {
         (ms.subStages || []).forEach((ss) =>
@@ -515,7 +520,9 @@ export function validateDefinition(definition) {
         problems.push(`definition.subject.stepId "${s.stepId}" must resolve to exactly one step`);
       } else {
         const { mi, step } = owners[0];
-        if (mi > spineEnd) problems.push("definition.subject step must live in the spine, not a track");
+        // spine-membership is the only forked-specific constraint
+        if (isForked(definition) && mi > lastSpineIndex(definition))
+          problems.push("definition.subject step must live in the spine, not a track");
         const out = (step.outputs || []).find((o) => o.id === s.outputId);
         if (!out) problems.push(`definition.subject.outputId "${s.outputId}" is not on step "${s.stepId}"`);
         else if (out.type !== "fields")
@@ -1382,7 +1389,14 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
     // empty outputs.
     if (!effStep) effStep = { id: "", name: "this step", outputs: [] };
   }
-  const subStage = subStages[idx];
+  let subStage = subStages[idx];
+  if (!subStage) {
+    // A stale or corrupted persisted index has no sub-stage on the linear path
+    // (normalizeFlat leaves a linear run unchanged), so fall back to the last
+    // committed sub-stage, mirroring the forked fallback, instead of throwing.
+    idx = lastIndexInMain(subStages, r.frontier);
+    subStage = subStages[idx];
+  }
   const subject = resolveSubject(definition, r);
   const ctx = buildContext(subStages, r, idx, effStep.id, opts);
   const target = draftTarget(effStep);
@@ -1815,8 +1829,16 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   }
   const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
-  if (v === tm.terminal && mainGateProgress(definition.mainStages[tm.terminal], r, o).met) return "complete";
-  return "active";
+  // "complete" must mean every gate along this track's path is met (the shared
+  // spine plus the track's own stages), matching the gates isRunComplete checks.
+  // Checking only the track's own stages would still report complete when the
+  // fork was force-opened past an unmet spine gate.
+  const spineEnd = lastSpineIndex(definition);
+  const gateMet = (i) => mainGateProgress(definition.mainStages[i], r, o).met;
+  if (v !== tm.terminal) return "active";
+  for (let i = 0; i <= spineEnd; i++) if (!gateMet(i)) return "active";
+  for (const i of tm.indices) if (!gateMet(i)) return "active";
+  return "complete";
 }
 
 /*
