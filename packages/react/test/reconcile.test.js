@@ -89,3 +89,38 @@ test("applyReconcileToStore: an idempotent fn applied twice deep-equals once", (
   const twice = applyReconcileToStore(fn, once, workflows);
   assert.deepEqual(twice, once);
 });
+
+test("applyReconcileToStore: a prototype-key entry id stays an own entry, not prototype pollution", () => {
+  // A persisted store (JSON.parse) can carry an own "__proto__" entry id.
+  const protoStore = {
+    version: 3,
+    activeWorkflowId: "w1",
+    activeRunByWorkflow: { w1: "__proto__" },
+    entries: JSON.parse(
+      '{"__proto__":{"id":"__proto__","workflowId":"w1","name":"P","status":"active","createdAt":1,"updatedAt":2,"run":{"idx":0,"frontier":0,"stepState":{}}}}'
+    ),
+  };
+  const out = applyReconcileToStore((rr) => ({ ...rr, mark: true }), protoStore, [{ id: "w1" }]);
+  // The reconciled entry must be an own property the active mapping can resolve.
+  assert.ok(Object.prototype.hasOwnProperty.call(out.entries, "__proto__"));
+  assert.equal(out.entries["__proto__"].run.mark, true);
+  // No global prototype pollution.
+  assert.equal({}.mark, undefined);
+});
+
+test("applyReconcileToStore: a workflow id matching a prototype key is not a definition", () => {
+  // entry.workflowId "toString" must not resolve to Object.prototype.toString.
+  const s = {
+    version: 3,
+    activeWorkflowId: "toString",
+    activeRunByWorkflow: { toString: "e1" },
+    entries: {
+      e1: { id: "e1", workflowId: "toString", name: "X", status: "active", createdAt: 1, updatedAt: 2, run: run() },
+    },
+  };
+  let called = false;
+  const fn = (rr) => { called = true; return { ...rr, mark: true }; };
+  const out = applyReconcileToStore(fn, s, [{ id: "w1" }]); // "toString" not in workflows
+  assert.equal(called, false);
+  assert.equal(out.entries.e1.run, s.entries.e1.run);
+});

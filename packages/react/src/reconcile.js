@@ -41,9 +41,12 @@ export function applyReconcile(reconcileFn, run, context) {
  */
 export function applyReconcileToStore(reconcileFn, store, workflows) {
   if (typeof reconcileFn !== "function") return store;
-  const defsById = {};
+  // Null-prototype maps: store ids (workflow id, entry id) are data, so a key
+  // like "__proto__" or "toString" must become an own entry, never reach the
+  // prototype or be mistaken for an inherited member.
+  const defsById = Object.create(null);
   for (const w of workflows || []) defsById[w.id] = w;
-  const entries = {};
+  const entries = Object.create(null);
   for (const id of Object.keys(store.entries)) {
     const entry = store.entries[id];
     const def = defsById[entry.workflowId];
