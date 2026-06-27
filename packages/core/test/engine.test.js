@@ -1892,3 +1892,38 @@ test("validateOutputValue: linear definition is a pass-through (no scoping)", ()
   assert.equal(validateOutputValue(subs, r, 0, "anyStep", spec, "", validators), "empty");
   assert.equal(validateOutputValue(subs, r, 0, "anyStep", spec, "ok", validators), null);
 });
+
+test("buildContext on a forked run excludes cross-track state", () => {
+  // Mirrors "a forked validator cannot read a sibling track's output via ctx.run"
+  // (gate path), but asserts through buildContext.
+  const subsF = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subsF), subsF).run; // fork open
+  r = setOutput(r, "demoScript", "s", "SECRET"); // sibling demo-track output
+  r = setOutput(r, "respDraft", "d", "ok"); // response-track output
+  let sawSibling = false;
+  const validators = {
+    check: (_v, _s, ctx) => {
+      if (JSON.stringify(ctx.run.stepState).includes("SECRET")) sawSibling = true;
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "check"; // respDraft
+  const dsubs = flattenSubStages(def);
+  buildContext(dsubs, r, dsubs.findIndex((s) => s.id === "resp-draft-sub"), undefined, { validators });
+  assert.equal(sawSibling, false);
+});
+
+test("serializeStep renders a link output", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "St", outputs: [{ id: "o", type: "link" }] };
+  const run = { idx: 0, frontier: 0, stepState: { st: { checkedDone: false, outputs: { o: "https://x/y" } } } };
+  assert.equal(serializeStep(sub, step, run), "### M / S / St\nLink: https://x/y");
+});
+
+test("serializeStep renders fields and drops empty field lines", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "St", outputs: [{ id: "o", type: "fields", fields: [{ key: "a", label: "A" }, { key: "b", label: "B" }] }] };
+  const run = { idx: 0, frontier: 0, stepState: { st: { checkedDone: false, outputs: { o: { a: "x", b: "" } } } } };
+  assert.equal(serializeStep(sub, step, run), "### M / S / St\nA: x");
+});
