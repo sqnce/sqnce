@@ -61,7 +61,7 @@ function newId() {
 }
 
 /**
- * <ProcessRolodex />
+ * <Sqnce />
  *
  * Props:
  *  - workflows: array of sqnce definitions (see /definitions for examples)
@@ -194,7 +194,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {RendererContext} context
  */
 /**
- * @typedef {Object} ProcessRolodexProps
+ * @typedef {Object} SqnceProps
  * @property {import("@sqnce/core").Definition[]} workflows
  * @property {{ load: () => Promise<any>, save: (state: any) => Promise<void> }} [persistence]
  * @property {(prompt: string, context: { workflowId: string, stepId: string, subject: string, runId: string }) => Promise<string>} [generateDraft]
@@ -209,8 +209,8 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(run: import("@sqnce/core").Run, context: { def: import("@sqnce/core").Definition, runId: string|null }) => import("@sqnce/core").Run} [reconcileRun]
  */
 
-/** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
+/** @param {SqnceProps} props */
+export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]

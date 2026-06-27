@@ -1,6 +1,6 @@
 /*
  * Apply a consumer-supplied run-reconcile function. Pure and React-free so it
- * runs under node:test: ProcessRolodex calls these where a run first enters
+ * runs under node:test: Sqnce calls these where a run first enters
  * the rendered state (entry creation, load, and each content transition), so
  * a consumer whose run state is partly derived from policy reflects it live.
  * The reconcile function is the consumer's; this module only decides when to

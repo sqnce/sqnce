@@ -1,7 +1,7 @@
 import React from "react";
 import { readThemeVars } from "./themeTokens.js";
 
-/* A ref to the owning .pf-root element, provided by ProcessRolodex so a
+/* A ref to the owning .pf-root element, provided by Sqnce so a
    portaled overlay mirrors its own instance's tokens, not another instance's. */
 export const ThemeRootContext = React.createContext(null);
 

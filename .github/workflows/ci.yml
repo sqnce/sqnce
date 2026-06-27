@@ -59,5 +59,5 @@ jobs:
           [ "$actual" = "$expected" ] || { echo "consumer resolved @sqnce/core@$actual, packed $expected"; exit 1; }
           [ ! -d node_modules/@sqnce/react/node_modules/@sqnce/core ] || { echo "react pulled a nested registry @sqnce/core instead of the packed tarball: version skew"; exit 1; }
           node -e "import('@sqnce/core').then(m => { if (typeof m.createRun !== 'function') process.exit(1); })"
-          printf 'import { ProcessRolodex } from "@sqnce/react";\nconsole.log(typeof ProcessRolodex);\n' > entry.jsx
+          printf 'import { Sqnce } from "@sqnce/react";\nconsole.log(typeof Sqnce);\n' > entry.jsx
           npx esbuild entry.jsx --bundle --format=esm --external:react --external:react-dom --outfile=/dev/null
