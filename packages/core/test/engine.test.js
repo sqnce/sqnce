@@ -39,6 +39,7 @@ import {
   isRunComplete,
   trackStatus,
   validateOutputValue,
+  buildTopology,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 import { FORKED } from "./fixtures/forked.js";
@@ -1926,4 +1927,19 @@ test("serializeStep renders fields and drops empty field lines", () => {
   const step = { id: "st", name: "St", outputs: [{ id: "o", type: "fields", fields: [{ key: "a", label: "A" }, { key: "b", label: "B" }] }] };
   const run = { idx: 0, frontier: 0, stepState: { st: { checkedDone: false, outputs: { o: { a: "x", b: "" } } } } };
   assert.equal(serializeStep(sub, step, run), "### M / S / St\nA: x");
+});
+
+test("read aggregates accept a precomputed topology and return identical results", () => {
+  const subsF = flattenSubStages(FORKED);
+  const run = advance(commitSpine(createRun(), subsF), subsF).run; // fork open
+  const topology = buildTopology(FORKED);
+  assert.deepEqual(runSummary(FORKED, run, { topology }), runSummary(FORKED, run, {}));
+  assert.equal(isRunComplete(FORKED, run, { topology }), isRunComplete(FORKED, run, {}));
+  for (const t of FORKED.tracks) {
+    assert.equal(trackStatus(FORKED, run, t.id, { topology }), trackStatus(FORKED, run, t.id, {}));
+  }
+  // linear path unchanged with and without topology
+  const lt = buildTopology(FIXTURE);
+  assert.deepEqual(runSummary(FIXTURE, createRun(), { topology: lt }), runSummary(FIXTURE, createRun(), {}));
+  assert.equal(isRunComplete(FIXTURE, createRun(), { topology: lt }), isRunComplete(FIXTURE, createRun(), {}));
 });

@@ -1111,6 +1111,16 @@ export function jumpTo(run, subStages, index) {
   return { ...r, idx: index };
 }
 
+/** The shared gate-commit decision: run the stage aggregate, then decide. `ok`
+ * false means the gate is unmet and not forced (no advance); `ok` true with
+ * `forced` true means a forced commit past an unmet gate. Each caller still
+ * builds its own next run and records forces[boundary] when forced. */
+function evalCommitGate(stageSubs, run, opts, force) {
+  const progress = aggregateGate(stageSubs, run, opts);
+  if (!progress.met && !force) return { ok: false, missing: progress.missing };
+  return { ok: true, forced: !progress.met };
+}
+
 /**
  * Commit the next main stage. Legal from any card within the frontier
  * main stage; a no-op while browsing a committed stage or at the last
@@ -1123,16 +1133,6 @@ export function jumpTo(run, subStages, index) {
  * @param {{ force?: boolean, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
  * @returns {AdvanceResult}
  */
-/** The shared gate-commit decision: run the stage aggregate, then decide. `ok`
- * false means the gate is unmet and not forced (no advance); `ok` true with
- * `forced` true means a forced commit past an unmet gate. Each caller still
- * builds its own next run and records forces[boundary] when forced. */
-function evalCommitGate(stageSubs, run, opts, force) {
-  const progress = aggregateGate(stageSubs, run, opts);
-  if (!progress.met && !force) return { ok: false, missing: progress.missing };
-  return { ok: true, forced: !progress.met };
-}
-
 export function advance(run, subStages, { force = false, validators } = {}) {
   // Infer the definition-less topology from the flat list: a tracked card
   // carries `track`; the spine end is the last untracked mainIndex.
@@ -1787,18 +1787,40 @@ export function deleteRun(store, runId) {
 }
 
 /**
+ * Precompute the per-definition topology so a caller (the UI) can build it once
+ * and pass it into the read aggregates via opts.topology, instead of each
+ * aggregate re-flattening the definition and rebuilding the track map per call.
+ * Pure, no run state.
+ * @param {Definition} definition
+ * @returns {{ subs: FlatSubStage[], spineEnd: number, trackMap: Map<string, any>, isForked: boolean }}
+ */
+export function buildTopology(definition) {
+  return {
+    subs: flattenSubStages(definition),
+    spineEnd: lastSpineIndex(definition),
+    trackMap: trackMap(definition),
+    isForked: isForked(definition),
+  };
+}
+
+/** Resolve a precomputed topology from opts.topology, else build it. Internal. */
+function resolveTopology(definition, opts) {
+  return (opts && opts.topology) || buildTopology(definition);
+}
+
+/**
  * Progress over a definition: how many flattened sub-stage gates are
  * met. Skipped sub-stages are excluded from both counts; for a forked
  * definition, an effectively-skipped track's sub-stages are excluded too.
  * @param {Definition} definition
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, topology?: any }} [opts]
  * @returns {{ met: number, total: number }}
  */
 export function runSummary(definition, run, opts = {}) {
-  const subs = flattenSubStages(definition);
+  const { subs, isForked: forked } = resolveTopology(definition, opts);
   const o = { ...opts, subStages: subs };
-  const skipped = isForked(definition) ? effectiveSkippedTrackIds(definition, run) : new Set();
+  const skipped = forked ? effectiveSkippedTrackIds(definition, run) : new Set();
   const active = subs.filter((ss) => !isSubStageSkipped(run, ss.id) && !(ss.track !== undefined && skipped.has(ss.track)));
   return { met: active.filter((ss) => gateProgress(ss, run, o).met).length, total: active.length };
 }
@@ -1813,18 +1835,16 @@ export function runSummary(definition, run, opts = {}) {
  * @returns {boolean}
  */
 export function isRunComplete(definition, run, opts = {}) {
-  const subs = flattenSubStages(definition);
+  const { subs, spineEnd, trackMap: tm, isForked: forked } = resolveTopology(definition, opts);
   const o = { ...opts, subStages: subs };
-  if (!isForked(definition)) {
+  if (!forked) {
     const last = definition.mainStages.length - 1;
     if (run.frontier !== last) return false;
     return mainGateProgress(definition.mainStages[last], run, o).met &&
       definition.mainStages.every((ms) => mainGateProgress(ms, run, o).met);
   }
   const r = normalizeFlat(subs, run);
-  const spineEnd = lastSpineIndex(definition);
   if (r.frontier !== spineEnd) return false; // spine fully committed
-  const tm = trackMap(definition);
   const skipped = effectiveSkippedTrackIds(definition, r);
   // fork OPENED: the boundary advance initialized a valid in-range trackFrontier
   // entry for EVERY declared track, including skipped ones. Without this, a run
@@ -1856,10 +1876,9 @@ export function isRunComplete(definition, run, opts = {}) {
  * @returns {"not-open"|"active"|"complete"|"skipped"}
  */
 export function trackStatus(definition, run, trackId, opts = {}) {
-  if (!isForked(definition)) return "not-open";
-  const subs = flattenSubStages(definition);
+  const { subs, spineEnd, trackMap: tmap, isForked: forked } = resolveTopology(definition, opts);
+  if (!forked) return "not-open";
   const o = { ...opts, subStages: subs };
-  const tmap = trackMap(definition);
   const tm = tmap.get(trackId);
   if (!tm) return "not-open";
   const r = normalizeFlat(subs, run);
@@ -1870,7 +1889,7 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   // not-open for ANY track, including a skipped one, until the boundary advance
   // repairs every entry, so trackStatus never reports a track active/complete
   // while navigation treats the fork as unopened.
-  if (r.frontier !== lastSpineIndex(definition)) return "not-open";
+  if (r.frontier !== spineEnd) return "not-open";
   if (!allTrackFrontiersInRange(r, tmap)) return "not-open";
   const v = r.trackFrontier[trackId]; // own + in-range, verified by the check above
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
@@ -1878,7 +1897,6 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   // spine plus the track's own stages), matching the gates isRunComplete checks.
   // Checking only the track's own stages would still report complete when the
   // fork was force-opened past an unmet spine gate.
-  const spineEnd = lastSpineIndex(definition);
   const gateMet = (i) => mainGateProgress(definition.mainStages[i], r, o).met;
   if (v !== tm.terminal) return "active";
   for (let i = 0; i <= spineEnd; i++) if (!gateMet(i)) return "active";
