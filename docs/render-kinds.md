@@ -49,6 +49,6 @@ A renderer is a pure presentation component receiving `{ spec, value, onChange, 
 - `spec`: the output spec, including `render.options`.
 - `value`: the stored output value.
 - `onChange(value)`: value mutations only. Renderer view state (selection, pan, zoom, expansion) stays internal; values feed `serializeStep`, which feeds LLM draft prompts, so leaked view state pollutes prompt context. View-only renderers that never call `onChange` are normal.
-- `context`: `{ workflowId, stepId, subject, readOnly, expanded }`. `expanded` is true inside the full-screen overlay; re-fit or re-measure on its change.
+- `context`: `{ workflowId, stepId, subject, readOnly, runId, expanded }`. `runId` is the active run entry id (null when there is no active run yet). `expanded` is true inside the full-screen overlay; re-fit or re-measure on its change.
 
 Renderers should fail soft on shape drift: render what is there, never throw.

@@ -23,7 +23,8 @@ DEFINITION (JSON, swap to run any process)
 
 RUN (runtime state, separate from the definition)
   { idx, frontier, stepState: { [stepId]: { checkedDone, outputs, reopened?, generated? } },
-    skips?, forces? }
+    skips?, forces?, trackFrontier?, skippedTracks? }
+  (trackFrontier and skippedTracks appear only for a forked definition; a linear run omits both)
 
 ENGINE (@sqnce/core, pure functions, zero dependencies)
   flatten, completion, gate progress, browse/jump/advance,
