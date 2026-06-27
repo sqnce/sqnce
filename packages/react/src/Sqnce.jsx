@@ -37,6 +37,7 @@ import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
 import { resolveRunStatus } from "./runStatus.js";
 import { applyReconcile, applyReconcileToStore } from "./reconcile.js";
+import { applyRunWrite } from "./runWrite.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -271,19 +272,15 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
     setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
   }, [loaded, entry, staleActiveId, activeId, view, newEntryFor]);
 
-  /* Content mutations bump updatedAt and are blocked on archived runs.
-     The status is re-checked inside the updater with current state:
-     an async writer (draft generation, file read) that started while
-     the run was live must not land after it is archived or deleted. */
+  /* Content mutations route through applyRunWrite: it bumps updatedAt, is
+     blocked on archived runs, and resolves a functional write against the
+     entry's current run so an async writer (draft generation, file read) does
+     not clobber edits made while it was in flight. arg is a value or
+     (prevRun) => nextRun. */
   const setRun = useCallback(
-    (next) => {
+    (arg) => {
       if (!entry || readOnly) return;
-      setStore((s) => {
-        const e = s.entries[entry.id];
-        if (!(e && e.status === "active")) return s;
-        const reconciled = applyReconcile(reconcileRun, next, { def, runId: entry.id });
-        return updateRunState(s, entry.id, reconciled, Date.now());
-      });
+      setStore((s) => applyRunWrite(s, entry.id, arg, { reconcileRun, def, now: Date.now() }));
     },
     [entry, readOnly, reconcileRun, def]
   );
@@ -368,11 +365,18 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
 
   const doAdvance = (force) => {
     if (readOnly) return;
-    const result = coreAdvance(run, subs, { force, validators });
-    if (result.advanced) {
-      clearTransients();
-      setRun(result.run);
-    }
+    /* Decide whether an advance happens and whether to clear transient UI from
+       the current render (a blocked advance leaves the expanded step open),
+       then write through the functional form so the commit recomputes against
+       the latest run. The updater never reads a flag set inside it, so a
+       re-invoked updater (StrictMode) is safe. */
+    const preview = coreAdvance(run, subs, { force, validators });
+    if (!preview.advanced) return;
+    clearTransients();
+    setRun((prev) => {
+      const r = coreAdvance(prev, subs, { force, validators });
+      return r.advanced ? r.run : prev;
+    });
   };
 
   /* Pick the landing view for a run entry: a finished run reads, an
@@ -431,23 +435,23 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   /* ---------- mutations ---------- */
   const writeOutput = (stepId, outputId, value, opts) => {
     if (readOnly) return;
-    setRun(coreSetOutput(run, stepId, outputId, value, opts));
+    setRun((prev) => coreSetOutput(prev, stepId, outputId, value, opts));
   };
   const toggleDone = (stepId, checked) => {
     if (readOnly) return;
-    setRun(setCheckedDone(run, stepId, checked));
+    setRun((prev) => setCheckedDone(prev, stepId, checked));
   };
   const reopen = (stepId) => {
     if (readOnly) return;
-    setRun(reopenStep(run, stepId));
+    setRun((prev) => reopenStep(prev, stepId));
   };
   /* setRun, not setNav: a skip changes gate state, so it bumps
      updatedAt and is blocked on archived runs. */
   const toggleSkip = (subStageId, skipped) => {
     if (readOnly) return;
     setExpanded(null);
-    setRun(
-      skipped ? unskipSubStage(run, subs, subStageId) : skipSubStage(run, subs, subStageId)
+    setRun((prev) =>
+      skipped ? unskipSubStage(prev, subs, subStageId) : skipSubStage(prev, subs, subStageId)
     );
   };
 
@@ -525,7 +529,9 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   const resetRun = () => {
     if (readOnly) return;
     clearTransients();
-    setRun(makeInitialRun(activeId));
+    /* A reset is a replace, not a compose, so the function ignores prev; it
+       passes a function only to keep one call style for setRun. */
+    setRun(() => makeInitialRun(activeId));
   };
 
   /* ---------- render ---------- */
