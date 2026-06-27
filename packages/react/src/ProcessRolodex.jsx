@@ -577,6 +577,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
                class is unchanged; only the lock glyph and interactivity follow
                reachability. */
             const { firstFlat, interactive, glyph, state } = railChip(run, subs, def.mainStages, mi, validators);
+            /* The rail also renders on the runs screen (view !== "reading"),
+               but only the authoring deck may navigate. Gate interactivity to
+               the rolodex view, otherwise a chip click would silently rewrite
+               the active run's idx behind the run manager. The rail still shows
+               (inert) elsewhere, matching its pre-clickable behavior. */
+            const clickable = interactive && view === "rolodex";
             const go = () => {
               clearTransients();
               setNav(jumpTo(run, subs, firstFlat));
@@ -585,14 +591,14 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
               <React.Fragment key={ms.id}>
                 {mi > 0 && <span className={`pf-rail-line ${mi <= frontier ? "pf-rail-line-fill" : ""}`} />}
                 <span
-                  className={`pf-rail-stage pf-rail-${state} ${interactive ? "pf-rail-clickable" : ""}`}
+                  className={`pf-rail-stage pf-rail-${state} ${clickable ? "pf-rail-clickable" : ""}`}
                   aria-current={state === "active" ? "step" : undefined}
-                  role={interactive ? "button" : undefined}
-                  tabIndex={interactive ? 0 : undefined}
-                  aria-label={interactive ? `Go to ${ms.name}` : undefined}
-                  onClick={interactive ? go : undefined}
+                  role={clickable ? "button" : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  aria-label={clickable ? `Go to ${ms.name}` : undefined}
+                  onClick={clickable ? go : undefined}
                   onKeyDown={
-                    interactive
+                    clickable
                       ? (e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
