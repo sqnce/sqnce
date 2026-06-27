@@ -2,9 +2,9 @@
 
 Issue: #86 (within-document section navigation in the output overlay). Milestone: "UI shell: reading mode, renderers & theming". Supersedes the now-closed duplicate #83. Source: the presales UI-presentation evaluation, finding M3 (severity Medium).
 
-A first-draft spec committed to a draft PR ahead of the Codex review loop.
+A spec on the PR branch, for the owner to review before the spec-approval gate.
 
-Layer: pure `@sqnce/react`, in `packages/react/src/OutputView.jsx` (the expand `Overlay`) and `packages/react/src/renderers/Markdown.jsx` (heading ids and a shared slug helper). No `@sqnce/core` change.
+Layer: pure `@sqnce/react`. The change touches `packages/react/src/OutputView.jsx` (the expand `Overlay`, which renders the outline pane and parses the heading list) and `packages/react/src/renderers/Markdown.jsx` (it stamps heading ids), and it adds a small shared module under `packages/react/src/renderers/` holding the per-document slugger and the outline parser, so the renderer and the overlay use exactly the same slug logic. No `@sqnce/core` change.
 
 ## Current behavior
 
@@ -22,13 +22,13 @@ Render a section list (a heading jump-list) alongside the body in the expand ove
 
 ### Heading ids in the renderer
 
-The markdown renderer assigns a stable slug id to each heading (slugify the heading text, and disambiguate collisions with a numeric suffix so ids are unique within the document). This gives each heading a scroll target.
+The markdown renderer assigns a stable slug id to each heading. It walks the headings in document order through a per-document slug sequence: each heading text is slugified, and a repeat of an already-issued slug gets the next numeric suffix (the first `## Summary` becomes `summary`, a second becomes `summary-2`), so ids are unique within the document and the order of the headings decides which repeat gets which suffix. This gives each heading a scroll target.
 
 ### Outline in the overlay
 
-The overlay derives the heading outline by parsing the ATX headings from the markdown source string it already holds (the output value), producing a list of entries with text, level, and slug. It renders this list as a jump-list pane beside the body; clicking an entry scrolls the overlay body to the matching heading id (`scrollIntoView` within the overlay's scroll container). Entries nest by heading level.
+The overlay derives the heading outline by parsing the ATX headings from the same markdown source string the renderer receives (the value passed to the renderer), producing a list of entries with text, level, and slug. It walks the headings in the same document order through the same slug sequence, so the slug it computes for the nth heading is exactly the id the renderer stamped on that heading. It renders this list as a jump-list pane beside the body; clicking an entry scrolls the overlay body to the matching heading id (`scrollIntoView` within the overlay's scroll container). Entries nest by heading level.
 
-To keep the anchors and the outline in agreement, the slug function is factored into one shared helper used by both the renderer (when it stamps ids) and the overlay parser (when it builds targets), so a given heading text always produces the same slug in both places.
+To keep the anchors and the outline in agreement, the slug logic is factored into one shared helper that is stateful per document: it remembers the slugs already issued and disambiguates a repeat by appending the next numeric suffix. Both the renderer (when it stamps ids) and the overlay parser (when it builds targets) create a fresh instance and feed it the document's headings in order, so two headings with the same text resolve to the same pair of ids (`summary` and `summary-2`) in both places. A pure text-to-slug function would not do this: it would map both `## Summary` headings to `summary`, so every duplicate jump-list entry would target the first occurrence and the later sections could not be reached.
 
 ### When the pane shows
 
@@ -47,7 +47,7 @@ The section pane collapses on narrow widths so the reading column keeps its meas
 
 ## Verification
 
-No React test harness exists (the test suite is engine-only). Verify by the JSX syntax check on the two touched files (`npx esbuild <file> --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`), the demo build (`npm run build -w examples/demo`), and a manual check: open the expand overlay for a long markdown artifact, confirm the heading list appears, and confirm clicking a heading scrolls the body to that section. Confirm a short artifact (fewer than two headings) shows the unchanged overlay.
+The repo's `npm test` already runs the React unit tests under `packages/react/test/*.test.js` (Node's built-in test runner) alongside the engine tests, so the pure parsing logic gets unit coverage. Add React unit tests for the two pure pieces in the shared module: the per-document slugger (a single heading slugifies cleanly, a repeated heading gets `-2` then `-3`, and a renderer instance and a parser instance fed the same heading sequence produce identical ids) and the outline parser (it extracts ATX headings with their text and level, nests by level, and yields fewer than two entries for a document with zero or one heading). The React component wiring (the pane layout, the scroll-on-click, the responsive collapse) has no unit-test harness, so verify it by the JSX syntax check on the two touched files (`npx esbuild <file> --bundle --format=esm --external:react --external:react-dom --external:@sqnce/core --outfile=/dev/null`), the demo build (`npm run build -w examples/demo`), and a manual check: open the expand overlay for a long markdown artifact, confirm the heading list appears, confirm clicking a heading scrolls the body to that section, and confirm a short artifact (fewer than two headings) shows the unchanged overlay.
 
 ## Acceptance
 
