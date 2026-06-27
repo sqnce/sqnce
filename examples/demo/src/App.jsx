@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { ProcessRolodex } from "@sqnce/react";
-import { getStepEntry } from "@sqnce/core";
+import { getStepEntry, flattenSubStages, autoSkipSubStage, clearAutoSkipSubStage } from "@sqnce/core";
 import carBuying from "../../../definitions/car-buying.json";
 import moving from "../../../definitions/moving.json";
 import tripPlanning from "../../../definitions/trip-planning.json";
@@ -78,6 +78,24 @@ function renderStageStatus({ def, run, stepId, status }) {
   return <span className={`demo-verdict demo-verdict-${st.tone}`}>{st.word}</span>;
 }
 
+/* Reference run-reconcile: on the presales workflow, derive whether the
+   Orals Prep lane applies from the accepted solution narrative and reflect it
+   live. A narrative that signals a written-only pursuit (mentions "no orals"
+   or "written only") auto-skips the Orals Prep lane; otherwise the auto-skip
+   is cleared. The auto-skip primitives defer to any manual skip the user set
+   and are no-ops until the lane is reachable, so this never overrides a
+   person's decision. Other workflows are returned unchanged. */
+function reconcileRun(run, { def }) {
+  if (def.id !== "presales-pursuit") return run;
+  const subs = flattenSubStages(def);
+  const e = getStepEntry(run, "solution-narrative");
+  const text = e && e.outputs && typeof e.outputs.out === "string" ? e.outputs.out : "";
+  const writtenOnly = /no orals|written[- ]only/i.test(text);
+  return writtenOnly
+    ? autoSkipSubStage(run, subs, "orals")
+    : clearAutoSkipSubStage(run, subs, "orals");
+}
+
 export default function App() {
   return (
     <>
@@ -102,6 +120,7 @@ export default function App() {
         runStatus={runStatus}
         renderRunHeader={renderRunHeader}
         renderStageStatus={renderStageStatus}
+        reconcileRun={reconcileRun}
       />
     </>
   );
