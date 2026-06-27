@@ -51,6 +51,7 @@ import OverviewModal from "./OverviewModal.jsx";
 import { resolveGeneratedBadge } from "./badge.js";
 import { resolveRunStatus } from "./runStatus.js";
 import { resolveStageStatus } from "./stageStatus.js";
+import { applyReconcile, applyReconcileToStore } from "./reconcile.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -123,6 +124,15 @@ function newId() {
  *      return falls back to the generic word; any other return is shown as
  *      given. Called once per drawn step, so keep it cheap and pure. Omit
  *      to show the generic word everywhere.
+ *  - reconcileRun (optional): (run, { def, runId }) => run, a pure,
+ *      idempotent function the component applies to a run before it is used
+ *      to select or render a card: to each entry's run on load, to every
+ *      newly seeded run at entry creation, and to the run each setRun
+ *      transition produces. Use it to reflect run state a consumer derives
+ *      from policy (for example an auto-skip computed from upstream content)
+ *      live, without a page reload. It must change only policy-derived run
+ *      state and must not move navigation (idx). Omit for the current
+ *      behavior (no-op).
  */
 
 function SwitcherButtons({ workflows, activeId, onSwitch }) {
@@ -196,10 +206,11 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null }) => (string | { word: string, tone?: string } | null)} [runStatus]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, stepId: string, status: "done"|"draft"|"open" }) => import("react").ReactNode} [renderStageStatus]
+ * @property {(run: import("@sqnce/core").Run, context: { def: import("@sqnce/core").Definition, runId: string|null }) => import("@sqnce/core").Run} [reconcileRun]
  */
 
 /** @param {ProcessRolodexProps} props */
-export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus }) {
+export default function ProcessRolodex({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -208,14 +219,13 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
   const newEntryFor = useCallback(
     (s, workflowId) => {
       const first = runsForWorkflow(s, workflowId).length === 0;
-      return createRunEntry({
-        id: newId(),
-        workflowId,
-        run: first ? makeInitialRun(workflowId) : createRun(),
-        now: Date.now(),
-      });
+      const id = newId();
+      const seed = first ? makeInitialRun(workflowId) : createRun();
+      const wf = workflows.find((w) => w.id === workflowId);
+      const run = wf ? applyReconcile(reconcileRun, seed, { def: wf, runId: id }) : seed;
+      return createRunEntry({ id, workflowId, run, now: Date.now() });
     },
-    [makeInitialRun]
+    [makeInitialRun, workflows, reconcileRun]
   );
 
   const [store, setStore] = useState(() => {
@@ -285,10 +295,12 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
       if (!entry || readOnly) return;
       setStore((s) => {
         const e = s.entries[entry.id];
-        return e && e.status === "active" ? updateRunState(s, entry.id, next, Date.now()) : s;
+        if (!(e && e.status === "active")) return s;
+        const reconciled = applyReconcile(reconcileRun, next, { def, runId: entry.id });
+        return updateRunState(s, entry.id, reconciled, Date.now());
       });
     },
-    [entry, readOnly]
+    [entry, readOnly, reconcileRun, def]
   );
   /* Navigation stays available on archived runs and must not disturb
      updatedAt ordering, so it writes with the entry's own timestamp. */
@@ -312,7 +324,7 @@ export default function ProcessRolodex({ workflows, persistence, generateDraft, 
         /* Version 2 stores only; anything else (including the old
            { activeId, runs } shape) is discarded. Pre-launch, no users. */
         if (saved && saved.version === 3 && saved.entries && saved.activeRunByWorkflow) {
-          setStore(saved);
+          setStore(applyReconcileToStore(reconcileRun, saved, workflows));
         }
       } catch (e) {
         /* nothing saved yet */
