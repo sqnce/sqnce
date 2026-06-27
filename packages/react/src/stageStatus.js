@@ -32,7 +32,14 @@ export function defaultStageStatusWord(status) {
  */
 export function resolveStageStatus({ render, ctx, status }) {
   if (typeof render === "function") {
-    const node = render(ctx);
+    // A throwing render slot degrades to the generic word rather than crashing
+    // the render, matching applyReconcile's degrade-not-crash contract.
+    let node;
+    try {
+      node = render(ctx);
+    } catch (e) {
+      return { word: defaultStageStatusWord(status) };
+    }
     if (node !== null && node !== undefined) return { node };
   }
   return { word: defaultStageStatusWord(status) };

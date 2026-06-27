@@ -38,3 +38,11 @@ test("resolveGeneratedBadge: a resolver is never consulted for a non-generated o
   assert.equal(resolveGeneratedBadge({ generated: false, lifecycle: "open", spec: {}, resolver }), null);
   assert.equal(called, false);
 });
+
+test("resolveGeneratedBadge: returns the trimmed label", () => {
+  assert.equal(resolveGeneratedBadge({ generated: true, lifecycle: "done", spec: {}, resolver: () => "  Custom  " }), "Custom");
+});
+
+test("resolveGeneratedBadge: a throwing resolver degrades to no badge", () => {
+  assert.equal(resolveGeneratedBadge({ generated: true, lifecycle: "done", spec: {}, resolver: () => { throw new Error("boom"); } }), null);
+});

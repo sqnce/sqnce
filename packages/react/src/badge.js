@@ -32,8 +32,15 @@ export function defaultGeneratedBadge(lifecycle) {
 export function resolveGeneratedBadge({ generated, lifecycle, spec, resolver }) {
   if (!generated) return null;
   if (resolver) {
-    const out = resolver(lifecycle, spec);
-    return typeof out === "string" && out.trim() ? out : null;
+    // A throwing consumer resolver degrades to no badge rather than crashing
+    // the render, matching applyReconcile's degrade-not-crash contract.
+    let out;
+    try {
+      out = resolver(lifecycle, spec);
+    } catch (e) {
+      return null;
+    }
+    return typeof out === "string" && out.trim() ? out.trim() : null;
   }
   return defaultGeneratedBadge(lifecycle);
 }
