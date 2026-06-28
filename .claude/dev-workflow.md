@@ -37,7 +37,13 @@ effort for `/codex:review` come from each machine's `~/.codex/config.toml`. The 
 accepts a model via `-m`, but pin one only if the local Codex auth actually exposes it: a
 ChatGPT-account Codex does not offer every model ID — for example `gpt-5.3-codex` is
 unavailable there (that account exposes `gpt-5.5`, `gpt-5.4`, and `gpt-5.3-codex-spark`).
-Reasoning effort cannot be set per call; it is global-only.
+Reasoning effort is global-only for `/codex:review` and `/codex:adversarial-review` — they
+read `model_reasoning_effort` from the config. Keep that global at **`medium`** (the
+default; it is shared with interactive coding). To run a **deeper adversarial review at
+`xhigh`**, do NOT raise the global — that also raises coding, and an interrupted edit can
+leave it stuck at the wrong tier — instead use the per-call argument on the Codex `task`
+path, which honours the effort you pass: `codex task --effort xhigh --prompt-file
+<review-prompt>` with **no `--write`** so it runs read-only (review-only).
 
 ## One human gate
 
