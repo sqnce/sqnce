@@ -1,5 +1,6 @@
 import React from "react";
 import JsonTree from "./JsonTree.jsx";
+import { discoverColumns } from "./discoverColumns.js";
 
 /** Array-of-uniform-objects renderer. Anything else falls back to the tree. */
 export default function DataTable({ value }) {
@@ -10,12 +11,7 @@ export default function DataTable({ value }) {
   ) {
     return <JsonTree value={value} />;
   }
-  const cols = [];
-  value.slice(0, 50).forEach((row) =>
-    Object.keys(row).forEach((k) => {
-      if (!cols.includes(k)) cols.push(k);
-    })
-  );
+  const cols = discoverColumns(value);
   const cell = (v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v));
   return (
     <table className="pf-table">

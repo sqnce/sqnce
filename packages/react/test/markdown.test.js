@@ -41,3 +41,15 @@ test("tokenizeInline: bold and italic inner text is not re-tokenized", () => {
     { type: "text", value: " c" },
   ]);
 });
+
+test("tokenizeInline: keeps a balanced trailing paren in a bare URL", () => {
+  const link = tokenizeInline("see https://en.wikipedia.org/wiki/Foo_(bar)").find((t) => t.type === "link");
+  assert.equal(link.href, "https://en.wikipedia.org/wiki/Foo_(bar)");
+});
+
+test("tokenizeInline: strips an unbalanced trailing paren and sentence punctuation", () => {
+  const a = tokenizeInline("(see https://x/y)").find((t) => t.type === "link");
+  assert.equal(a.href, "https://x/y");
+  const b = tokenizeInline("see https://x/y.").find((t) => t.type === "link");
+  assert.equal(b.href, "https://x/y");
+});

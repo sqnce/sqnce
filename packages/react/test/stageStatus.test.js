@@ -35,3 +35,7 @@ test("resolveStageStatus: the render slot receives the context", () => {
   resolveStageStatus({ render: (c) => { seen = c; return NODE; }, ctx, status: "done" });
   assert.deepEqual(seen, ctx);
 });
+
+test("resolveStageStatus: a throwing render slot degrades to the default word", () => {
+  assert.deepEqual(resolveStageStatus({ render: () => { throw new Error("boom"); }, ctx, status: "done" }), { word: "Done" });
+});

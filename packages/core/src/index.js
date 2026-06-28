@@ -295,6 +295,50 @@ function effectiveSkippedTrackIds(definition, run) {
   return set;
 }
 
+/* ------------------------------------------------------------------ */
+/* Flat-list-derived topology helpers (#114): one source for the spine */
+/* end, per-track ranges, and the fork-open check, previously inlined  */
+/* in several places.                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Spine end as a main-stage index, derived from the flat annotations. */
+function flatSpineEnd(subStages) {
+  let spineEnd = -1;
+  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  return spineEnd;
+}
+
+/** Per-track main-index ranges, derived from the flat annotations. */
+function flatTrackRanges(subStages) {
+  const ranges = new Map();
+  subStages.forEach((s) => {
+    if (s.track === undefined) return;
+    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
+    e.first = Math.min(e.first, s.mainIndex);
+    e.terminal = Math.max(e.terminal, s.mainIndex);
+    ranges.set(s.track, e);
+  });
+  return ranges;
+}
+
+/** Every declared track has a valid in-range OWN trackFrontier entry. `ranges`
+ * is a Map<id,{first,terminal}> (from flatTrackRanges or trackMap). Own-property
+ * read: an inherited key must not count as an opened track. */
+function allTrackFrontiersInRange(run, ranges) {
+  const tf = run.trackFrontier || {};
+  for (const [id, rg] of ranges) {
+    const v = hasOwn(tf, id) ? tf[id] : undefined;
+    if (!(typeof v === "number" && v >= rg.first && v <= rg.terminal)) return false;
+  }
+  return true;
+}
+
+/** The fork is open only when the spine is committed and every declared track
+ * has a valid in-range own trackFrontier entry. Mirrors the inline check. */
+function flatForkOpen(run, ranges, spineEnd) {
+  return run.frontier >= spineEnd && allTrackFrontiersInRange(run, ranges);
+}
+
 /**
  * Sorted reachable flat indices: the spine prefix plus each open
  * non-skipped track's committed range. For a linear definition this is
@@ -311,15 +355,8 @@ function reachableFlat(subStages, run) {
     for (let i = 0; i <= last; i++) out.push(i);
     return out;
   }
-  let spineEnd = -1;
-  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-  const ranges = new Map();
-  subStages.forEach((s) => {
-    if (s.track === undefined) return;
-    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
-    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
-    ranges.set(s.track, e);
-  });
+  const spineEnd = flatSpineEnd(subStages);
+  const ranges = flatTrackRanges(subStages);
   const skipped = new Set();
   ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
   const tf = run.trackFrontier || {};
@@ -332,13 +369,7 @@ function reachableFlat(subStages, run) {
   // like { frontier: 1, idx: <demo card>, trackFrontier: { demo: 2 } } would
   // let demo advance while the required response entry stays missing, instead of
   // recentering to the spine so the boundary advance repairs both.
-  let forkOpen = run.frontier >= spineEnd;
-  if (forkOpen) {
-    for (const [id, rg] of ranges) {
-      const v = hasOwn(tf, id) ? tf[id] : undefined;
-      if (!(typeof v === "number" && v >= rg.first && v <= rg.terminal)) { forkOpen = false; break; }
-    }
-  }
+  const forkOpen = flatForkOpen(run, ranges, spineEnd);
   const out = [];
   subStages.forEach((s, i) => {
     if (s.track === undefined) { if (s.mainIndex <= Math.min(run.frontier, spineEnd)) out.push(i); return; }
@@ -359,8 +390,7 @@ function reachableFlat(subStages, run) {
 function normalizeFlat(subStages, run) {
   const forked = subStages.some((s) => s.track !== undefined);
   if (!forked) return run;
-  let spineEnd = -1;
-  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+  const spineEnd = flatSpineEnd(subStages);
   let next = run;
   if (run.frontier > spineEnd) next = { ...next, frontier: spineEnd };
   const reach = reachableFlat(subStages, next);
@@ -660,20 +690,24 @@ export function wasAdvanceForced(run, mainIndex) {
  * @param {string} subStageId
  * @returns {Run}
  */
-export function skipSubStage(run, subStages, subStageId) {
+/** Shared skip-mutator preamble: normalize, locate, check skippable + reachable.
+ * Returns { r, idx, sub }; idx === -1 (sub null) on any no-op path, with r the
+ * normalized run so callers return r unchanged on a no-op, matching browse/jumpTo
+ * (a stale frontier/idx is normalized even when nothing is skipped). The reachable
+ * check rejects an unopened fork and a missing or out-of-range track frontier
+ * (own-property read), so a corrupted run such as { trackFrontier: { demo: 99 } }
+ * cannot make a tracked sub-stage look committed. */
+function locateReachableSkippable(run, subStages, subStageId) {
   const r = normalizeFlat(subStages, run);
   const idx = subStages.findIndex((s) => s.id === subStageId);
   const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  // committed-in-region: the card must be inside the reachable set (the spine
-  // prefix up to frontier, or an open non-skipped track's committed range).
-  // reachableFlat already rejects an unopened fork and a missing or
-  // out-of-range track frontier (and reads trackFrontier own-property only), so
-  // a corrupted run such as { trackFrontier: { demo: 99 } } cannot make a
-  // tracked sub-stage look committed. Return r (the normalized run) on every
-  // no-op path, matching browse/jumpTo, so a stale frontier/idx is normalized
-  // even when nothing is skipped.
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  if (!sub || !sub.skippable || !reachableFlat(subStages, r).includes(idx)) return { r, idx: -1, sub: null };
+  return { r, idx, sub };
+}
+
+export function skipSubStage(run, subStages, subStageId) {
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   if (r.skips && r.skips[subStageId] === true) return r; // already a user skip (idempotent)
   return { ...r, skips: { ...r.skips, [subStageId]: true } };
 }
@@ -690,11 +724,8 @@ export function skipSubStage(run, subStages, subStageId) {
  * @returns {Run}
  */
 export function unskipSubStage(run, subStages, subStageId) {
-  const r = normalizeFlat(subStages, run);
-  const idx = subStages.findIndex((s) => s.id === subStageId);
-  const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   const entry = r.skips && r.skips[subStageId];
   if (entry && entry !== true && entry.source === "user" && entry.skipped === false) return r; // already a keep-in
   return { ...r, skips: { ...r.skips, [subStageId]: { source: "user", skipped: false } } };
@@ -711,11 +742,8 @@ export function unskipSubStage(run, subStages, subStageId) {
  * @returns {Run}
  */
 export function autoSkipSubStage(run, subStages, subStageId) {
-  const r = normalizeFlat(subStages, run);
-  const idx = subStages.findIndex((s) => s.id === subStageId);
-  const sub = idx === -1 ? null : subStages[idx];
-  if (!sub || !sub.skippable) return r;
-  if (!reachableFlat(subStages, r).includes(idx)) return r;
+  const { r, idx } = locateReachableSkippable(run, subStages, subStageId);
+  if (idx === -1) return r;
   const entry = r.skips && r.skips[subStageId];
   if (entry === true || (entry && entry.source === "user")) return r; // user wins
   if (entry && entry.source === "auto" && entry.skipped === true) return r; // already auto-skipped
@@ -964,6 +992,29 @@ export function gateProgress(subStage, run, { validators, subStages } = {}) {
 }
 
 /**
+ * Validate one output value with the same spine-plus-own-track relation-set
+ * scoping the gate uses, so a draft-time check matches the boundary gate. For
+ * a linear definition the scoping is a pass-through. Returns the validator's
+ * message string when invalid, else null (also null when no validator resolves).
+ * @param {FlatSubStage[]} subStages
+ * @param {Run} run
+ * @param {number} flatIdx flat sub-stage index of the drafted step's sub-stage
+ * @param {string} stepId
+ * @param {OutputSpec} spec
+ * @param {any} value
+ * @param {Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>} [validators]
+ * @returns {string|null}
+ */
+export function validateOutputValue(subStages, run, flatIdx, stepId, spec, value, validators) {
+  const fn = spec && spec.validate && validators && validators[spec.validate];
+  if (typeof fn !== "function") return null;
+  const forked = subStages.some((s) => s.track !== undefined);
+  const evalRun = forked ? scopeValidatorRun(subStages, run, flatIdx) : run;
+  const message = fn(value, spec, { run: evalRun, stepId });
+  return typeof message === "string" ? message : null;
+}
+
+/**
  * Aggregate gate over one main stage's sub-stages. Missing step names
  * are qualified by sub-stage when the stage has more than one, so
  * single-sub-stage main stages read as before.
@@ -1060,6 +1111,16 @@ export function jumpTo(run, subStages, index) {
   return { ...r, idx: index };
 }
 
+/** The shared gate-commit decision: run the stage aggregate, then decide. `ok`
+ * false means the gate is unmet and not forced (no advance); `ok` true with
+ * `forced` true means a forced commit past an unmet gate. Each caller still
+ * builds its own next run and records forces[boundary] when forced. */
+function evalCommitGate(stageSubs, run, opts, force) {
+  const progress = aggregateGate(stageSubs, run, opts);
+  if (!progress.met && !force) return { ok: false, missing: progress.missing };
+  return { ok: true, forced: !progress.met };
+}
+
 /**
  * Commit the next main stage. Legal from any card within the frontier
  * main stage; a no-op while browsing a committed stage or at the last
@@ -1085,11 +1146,11 @@ export function advance(run, subStages, { force = false, validators } = {}) {
     const maxMain = subStages.length ? subStages[subStages.length - 1].mainIndex : 0;
     if (!cur || cur.mainIndex !== r.frontier || r.frontier >= maxMain)
       return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === r.frontier), r, { validators }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     /** @type {Run} */
     const next = { ...r, idx: subStages.findIndex((s) => s.mainIndex === r.frontier + 1), frontier: r.frontier + 1 };
-    if (!progress.met) next.forces = { ...r.forces, [r.frontier]: true };
+    if (g.forced) next.forces = { ...r.forces, [r.frontier]: true };
     return { run: next, advanced: true, missing: [] };
   }
   return advanceForked(r, subStages, { force, validators });
@@ -1107,16 +1168,8 @@ export function advance(run, subStages, { force = false, validators } = {}) {
  */
 function advanceForked(run, subStages, { force, validators }) {
   // spine end = last untracked mainIndex
-  let spineEnd = -1;
-  subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
-  // track ranges from the flat annotations
-  const ranges = new Map(); // trackId -> { first, terminal, optional }
-  subStages.forEach((s) => {
-    if (s.track === undefined) return;
-    const e = ranges.get(s.track) || { first: s.mainIndex, terminal: s.mainIndex, optional: !!s.optional };
-    e.first = Math.min(e.first, s.mainIndex); e.terminal = Math.max(e.terminal, s.mainIndex);
-    ranges.set(s.track, e);
-  });
+  const spineEnd = flatSpineEnd(subStages);
+  const ranges = flatTrackRanges(subStages);
   const skipped = new Set();
   ranges.forEach((r, id) => { if (r.optional && hasOwn(run.skippedTracks, id)) skipped.add(id); });
   const cur = subStages[run.idx];
@@ -1126,18 +1179,18 @@ function advanceForked(run, subStages, { force, validators }) {
   // browsing a committed spine stage that is not the fork boundary: spine advance
   if (curTrack === null && cur.mainIndex < spineEnd) {
     if (cur.mainIndex !== run.frontier) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === run.frontier), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const next = { ...run, idx: subStages.findIndex((s) => s.mainIndex === run.frontier + 1), frontier: run.frontier + 1 };
-    if (!progress.met) next.forces = { ...run.forces, [run.frontier]: true };
+    if (g.forced) next.forces = { ...run.forces, [run.frontier]: true };
     return { run: next, advanced: true, missing: [] };
   }
 
   // at the last spine stage: open or repair the fork
   if (curTrack === null && cur.mainIndex === spineEnd) {
     if (run.frontier !== spineEnd) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === spineEnd), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const tf = { ...run.trackFrontier };
     let initialized = false;
     ranges.forEach((r, id) => {
@@ -1148,7 +1201,7 @@ function advanceForked(run, subStages, { force, validators }) {
     });
     if (!initialized) return { run, advanced: false, missing: [] }; // already open: no-op
     const next = { ...run, trackFrontier: tf };
-    if (!progress.met) next.forces = { ...run.forces, [spineEnd]: true };
+    if (g.forced) next.forces = { ...run.forces, [spineEnd]: true };
     // idx -> first non-skipped track's first sub, else last spine sub
     let target = null, targetFirst = Infinity;
     ranges.forEach((r, id) => { if (!skipped.has(id) && r.first < targetFirst) { targetFirst = r.first; target = id; } });
@@ -1169,14 +1222,14 @@ function advanceForked(run, subStages, { force, validators }) {
     const r = ranges.get(curTrack);
     const tfv = hasOwn(run.trackFrontier, curTrack) ? run.trackFrontier[curTrack] : undefined;
     if (cur.mainIndex !== tfv || tfv >= r.terminal) return { run, advanced: false, missing: [] };
-    const progress = aggregateGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages });
-    if (!progress.met && !force) return { run, advanced: false, missing: progress.missing };
+    const g = evalCommitGate(subStages.filter((s) => s.mainIndex === tfv), run, { validators, subStages }, force);
+    if (!g.ok) return { run, advanced: false, missing: g.missing };
     const next = {
       ...run,
       trackFrontier: { ...run.trackFrontier, [curTrack]: tfv + 1 },
       idx: subStages.findIndex((s) => s.mainIndex === tfv + 1),
     };
-    if (!progress.met) next.forces = { ...run.forces, [tfv]: true };
+    if (g.forced) next.forces = { ...run.forces, [tfv]: true };
     return { run: next, advanced: true, missing: [] };
   }
   return { run, advanced: false, missing: [] };
@@ -1304,11 +1357,10 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
   if (forked) {
     const reach = reachableFlat(subStages, r);
     if (!reach.includes(flatIdx)) {
-      let spineEnd = -1;
-      subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
       // Math.min keeps the fallback inside the committed spine, matching
       // normalizeFlat and buildDraftPrompt (a corrupted frontier below spineEnd
       // must not land the card on an un-committed spine stage).
+      const spineEnd = flatSpineEnd(subStages);
       idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
     }
   }
@@ -1369,8 +1421,7 @@ export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts 
     // so a forked definition is not guaranteed a spine step: if the committed
     // spine has no step at all, this loop finds none and the synthetic fallback
     // below applies (it never reuses the tracked step).
-    let spineEnd = -1;
-    subStages.forEach((s) => { if (s.track === undefined) spineEnd = Math.max(spineEnd, s.mainIndex); });
+    const spineEnd = flatSpineEnd(subStages);
     idx = lastIndexInMain(subStages, Math.min(r.frontier, spineEnd));
     effStep = undefined;
     for (let j = idx; j >= 0 && !effStep; j--) {
@@ -1736,18 +1787,40 @@ export function deleteRun(store, runId) {
 }
 
 /**
+ * Precompute the per-definition topology so a caller (the UI) can build it once
+ * and pass it into the read aggregates via opts.topology, instead of each
+ * aggregate re-flattening the definition and rebuilding the track map per call.
+ * Pure, no run state.
+ * @param {Definition} definition
+ * @returns {{ subs: FlatSubStage[], spineEnd: number, trackMap: Map<string, any>, isForked: boolean }}
+ */
+export function buildTopology(definition) {
+  return {
+    subs: flattenSubStages(definition),
+    spineEnd: lastSpineIndex(definition),
+    trackMap: trackMap(definition),
+    isForked: isForked(definition),
+  };
+}
+
+/** Resolve a precomputed topology from opts.topology, else build it. Internal. */
+function resolveTopology(definition, opts) {
+  return (opts && opts.topology) || buildTopology(definition);
+}
+
+/**
  * Progress over a definition: how many flattened sub-stage gates are
  * met. Skipped sub-stages are excluded from both counts; for a forked
  * definition, an effectively-skipped track's sub-stages are excluded too.
  * @param {Definition} definition
  * @param {Run} run
- * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, topology?: any }} [opts]
  * @returns {{ met: number, total: number }}
  */
 export function runSummary(definition, run, opts = {}) {
-  const subs = flattenSubStages(definition);
+  const { subs, isForked: forked } = resolveTopology(definition, opts);
   const o = { ...opts, subStages: subs };
-  const skipped = isForked(definition) ? effectiveSkippedTrackIds(definition, run) : new Set();
+  const skipped = forked ? effectiveSkippedTrackIds(definition, run) : new Set();
   const active = subs.filter((ss) => !isSubStageSkipped(run, ss.id) && !(ss.track !== undefined && skipped.has(ss.track)));
   return { met: active.filter((ss) => gateProgress(ss, run, o).met).length, total: active.length };
 }
@@ -1758,34 +1831,27 @@ export function runSummary(definition, run, opts = {}) {
  * non-skipped gate along the kept path is met.
  * @param {Definition} definition
  * @param {Run} run
- * @param {{ validators?: Object }} [opts]
+ * @param {{ validators?: Object, topology?: any }} [opts]
  * @returns {boolean}
  */
 export function isRunComplete(definition, run, opts = {}) {
-  const subs = flattenSubStages(definition);
+  const { subs, spineEnd, trackMap: tm, isForked: forked } = resolveTopology(definition, opts);
   const o = { ...opts, subStages: subs };
-  if (!isForked(definition)) {
+  if (!forked) {
     const last = definition.mainStages.length - 1;
     if (run.frontier !== last) return false;
     return mainGateProgress(definition.mainStages[last], run, o).met &&
       definition.mainStages.every((ms) => mainGateProgress(ms, run, o).met);
   }
   const r = normalizeFlat(subs, run);
-  const spineEnd = lastSpineIndex(definition);
   if (r.frontier !== spineEnd) return false; // spine fully committed
-  const tm = trackMap(definition);
   const skipped = effectiveSkippedTrackIds(definition, r);
   // fork OPENED: the boundary advance initialized a valid in-range trackFrontier
   // entry for EVERY declared track, including skipped ones. Without this, a run
   // sitting at the last spine stage is only ready-to-open, not complete; this is
   // also what stops an all-optional, all-skipped run from completing before the
   // boundary advance ever ran.
-  for (const [id, t] of tm) {
-    // own-property read (spec: never bare key reads on trackFrontier); an
-    // inherited key must not be counted as an opened track.
-    const v = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
-    if (!(typeof v === "number" && v >= t.first && v <= t.terminal)) return false;
-  }
+  if (!allTrackFrontiersInRange(r, tm)) return false;
   // every KEPT track has reached its terminal
   for (const [id, t] of tm) {
     if (skipped.has(id)) continue;
@@ -1806,14 +1872,13 @@ export function isRunComplete(definition, run, opts = {}) {
  * @param {Definition} definition
  * @param {Run} run
  * @param {string} trackId
- * @param {{ validators?: Object }} [opts]
+ * @param {{ validators?: Object, topology?: any }} [opts]
  * @returns {"not-open"|"active"|"complete"|"skipped"}
  */
 export function trackStatus(definition, run, trackId, opts = {}) {
-  if (!isForked(definition)) return "not-open";
-  const subs = flattenSubStages(definition);
+  const { subs, spineEnd, trackMap: tmap, isForked: forked } = resolveTopology(definition, opts);
+  if (!forked) return "not-open";
   const o = { ...opts, subStages: subs };
-  const tmap = trackMap(definition);
   const tm = tmap.get(trackId);
   if (!tm) return "not-open";
   const r = normalizeFlat(subs, run);
@@ -1824,19 +1889,14 @@ export function trackStatus(definition, run, trackId, opts = {}) {
   // not-open for ANY track, including a skipped one, until the boundary advance
   // repairs every entry, so trackStatus never reports a track active/complete
   // while navigation treats the fork as unopened.
-  if (r.frontier !== lastSpineIndex(definition)) return "not-open";
-  for (const [id, t] of tmap) {
-    // own-property read (spec: never bare key reads on trackFrontier).
-    const ev = hasOwn(r.trackFrontier, id) ? r.trackFrontier[id] : undefined;
-    if (!(typeof ev === "number" && ev >= t.first && ev <= t.terminal)) return "not-open";
-  }
-  const v = r.trackFrontier[trackId]; // own + in-range, verified by the loop above
+  if (r.frontier !== spineEnd) return "not-open";
+  if (!allTrackFrontiersInRange(r, tmap)) return "not-open";
+  const v = r.trackFrontier[trackId]; // own + in-range, verified by the check above
   if (isTrackSkippedEffective(definition, r, trackId)) return "skipped";
   // "complete" must mean every gate along this track's path is met (the shared
   // spine plus the track's own stages), matching the gates isRunComplete checks.
   // Checking only the track's own stages would still report complete when the
   // fork was force-opened past an unmet spine gate.
-  const spineEnd = lastSpineIndex(definition);
   const gateMet = (i) => mainGateProgress(definition.mainStages[i], r, o).met;
   if (v !== tm.terminal) return "active";
   for (let i = 0; i <= spineEnd; i++) if (!gateMet(i)) return "active";

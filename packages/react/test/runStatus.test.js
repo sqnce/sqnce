@@ -34,3 +34,7 @@ test("resolveRunStatus: the resolver receives the run context", () => {
   resolveRunStatus((c) => { seen = c; return "X"; }, ctx);
   assert.deepEqual(seen, ctx);
 });
+
+test("resolveRunStatus: a throwing resolver degrades to null", () => {
+  assert.equal(resolveRunStatus(() => { throw new Error("boom"); }, ctx), null);
+});

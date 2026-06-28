@@ -97,7 +97,10 @@ export default function ReadingView({ def, run, subs, runName, renderers, subjec
     return out;
   }, [def, run, subs]);
 
-  const selectedMain = subs[Math.min(run.idx, subs.length - 1)].mainIndex;
+  const rawSelected = subs[Math.min(run.idx, subs.length - 1)].mainIndex;
+  // Fall back to the first readable stage if the centered stage is not readable,
+  // so the canvas never renders an unchecked stage (#112).
+  const selectedMain = readable.indexOf(rawSelected) === -1 && readable.length ? readable[0] : rawSelected;
   const at = readable.indexOf(selectedMain);
   const prevMi = at > 0 ? readable[at - 1] : null;
   const nextMi = at >= 0 && at < readable.length - 1 ? readable[at + 1] : null;

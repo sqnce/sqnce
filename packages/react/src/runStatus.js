@@ -22,7 +22,14 @@
  */
 export function resolveRunStatus(resolver, ctx) {
   if (typeof resolver !== "function") return null;
-  const out = resolver(ctx);
+  // A throwing consumer resolver degrades to no status word rather than
+  // crashing the render, matching applyReconcile's degrade-not-crash contract.
+  let out;
+  try {
+    out = resolver(ctx);
+  } catch (e) {
+    return null;
+  }
   if (typeof out === "string") {
     const word = out.trim();
     return word ? { word } : null;

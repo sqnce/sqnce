@@ -38,6 +38,8 @@ import {
   isTrackSkipped,
   isRunComplete,
   trackStatus,
+  validateOutputValue,
+  buildTopology,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
 import { FORKED } from "./fixtures/forked.js";
@@ -1850,4 +1852,94 @@ test("buildDraftPrompt falls back on an out-of-range idx instead of throwing", (
   const prompt = buildDraftPrompt(FIXTURE, subs, createRun(), 999, step);
   assert.equal(typeof prompt, "string");
   assert.ok(prompt.length > 0);
+});
+
+test("validateOutputValue: a forked draft value that passes unscoped fails under the gate's scoping", () => {
+  // spine s0; tracks A (a1) and B (b1). The validator on a1 REQUIRES b1's output
+  // (cross-track). Unscoped it sees b1 and passes; scoped, a1 never sees track B,
+  // so it fails, matching the boundary gate.
+  const def = {
+    id: "vf", name: "VF",
+    tracks: [ { id: "A", name: "A" }, { id: "B", name: "B" } ],
+    mainStages: [
+      { id: "m0", name: "M0", subStages: [ { id: "s0", name: "S0", gate: { type: "hybrid" }, steps: [ { id: "st0", name: "St0" } ] } ] },
+      { id: "mA", name: "MA", track: "A", subStages: [ { id: "a1", name: "A1", gate: { type: "hybrid" }, steps: [ { id: "stA", name: "StA", required: true, outputs: [ { id: "oA", type: "text", validate: "requireSibling" } ] } ] } ] },
+      { id: "mB", name: "MB", track: "B", subStages: [ { id: "b1", name: "B1", gate: { type: "hybrid" }, steps: [ { id: "stB", name: "StB", outputs: [ { id: "oB", type: "text" } ] } ] } ] },
+    ],
+  };
+  assert.deepEqual(validateDefinition(def), []);
+  const subs = flattenSubStages(def);
+  const validators = {
+    requireSibling: (_v, _spec, ctx) => (getStepEntry(ctx.run, "stB").outputs.oB ? null : "needs the sibling track"),
+  };
+  const run = {
+    idx: subs.findIndex((s) => s.id === "a1"),
+    frontier: 0,
+    trackFrontier: { A: 1, B: 2 },
+    stepState: { stB: { checkedDone: false, outputs: { oB: "x" } } },
+  };
+  const flatIdx = subs.findIndex((s) => s.id === "a1");
+  // Unscoped, the raw validator sees stB and PASSES (this is the latent draft-time bug):
+  assert.equal(validators.requireSibling("draft", subs[flatIdx].steps[0].outputs[0], { run, stepId: "stA" }), null);
+  // Scoped through the helper, A1 cannot see track B, so it FAILS, as the gate does:
+  assert.equal(validateOutputValue(subs, run, flatIdx, "stA", subs[flatIdx].steps[0].outputs[0], "draft", validators), "needs the sibling track");
+});
+
+test("validateOutputValue: linear definition is a pass-through (no scoping)", () => {
+  const subs = flattenSubStages(FIXTURE);
+  const spec = { id: "o", type: "text", validate: "nonEmpty" };
+  const validators = { nonEmpty: (v) => (v && v.trim() ? null : "empty") };
+  const r = createRun();
+  assert.equal(validateOutputValue(subs, r, 0, "anyStep", spec, "", validators), "empty");
+  assert.equal(validateOutputValue(subs, r, 0, "anyStep", spec, "ok", validators), null);
+});
+
+test("buildContext on a forked run excludes cross-track state", () => {
+  // Mirrors "a forked validator cannot read a sibling track's output via ctx.run"
+  // (gate path), but asserts through buildContext.
+  const subsF = flattenSubStages(FORKED);
+  let r = advance(commitSpine(createRun(), subsF), subsF).run; // fork open
+  r = setOutput(r, "demoScript", "s", "SECRET"); // sibling demo-track output
+  r = setOutput(r, "respDraft", "d", "ok"); // response-track output
+  let sawSibling = false;
+  const validators = {
+    check: (_v, _s, ctx) => {
+      if (JSON.stringify(ctx.run.stepState).includes("SECRET")) sawSibling = true;
+      return null;
+    },
+  };
+  const def = clone(FORKED);
+  def.mainStages[5].subStages[0].steps[0].outputs[0].validate = "check"; // respDraft
+  const dsubs = flattenSubStages(def);
+  buildContext(dsubs, r, dsubs.findIndex((s) => s.id === "resp-draft-sub"), undefined, { validators });
+  assert.equal(sawSibling, false);
+});
+
+test("serializeStep renders a link output", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "St", outputs: [{ id: "o", type: "link" }] };
+  const run = { idx: 0, frontier: 0, stepState: { st: { checkedDone: false, outputs: { o: "https://x/y" } } } };
+  assert.equal(serializeStep(sub, step, run), "### M / S / St\nLink: https://x/y");
+});
+
+test("serializeStep renders fields and drops empty field lines", () => {
+  const sub = { mainName: "M", name: "S" };
+  const step = { id: "st", name: "St", outputs: [{ id: "o", type: "fields", fields: [{ key: "a", label: "A" }, { key: "b", label: "B" }] }] };
+  const run = { idx: 0, frontier: 0, stepState: { st: { checkedDone: false, outputs: { o: { a: "x", b: "" } } } } };
+  assert.equal(serializeStep(sub, step, run), "### M / S / St\nA: x");
+});
+
+test("read aggregates accept a precomputed topology and return identical results", () => {
+  const subsF = flattenSubStages(FORKED);
+  const run = advance(commitSpine(createRun(), subsF), subsF).run; // fork open
+  const topology = buildTopology(FORKED);
+  assert.deepEqual(runSummary(FORKED, run, { topology }), runSummary(FORKED, run, {}));
+  assert.equal(isRunComplete(FORKED, run, { topology }), isRunComplete(FORKED, run, {}));
+  for (const t of FORKED.tracks) {
+    assert.equal(trackStatus(FORKED, run, t.id, { topology }), trackStatus(FORKED, run, t.id, {}));
+  }
+  // linear path unchanged with and without topology
+  const lt = buildTopology(FIXTURE);
+  assert.deepEqual(runSummary(FIXTURE, createRun(), { topology: lt }), runSummary(FIXTURE, createRun(), {}));
+  assert.equal(isRunComplete(FIXTURE, createRun(), { topology: lt }), isRunComplete(FIXTURE, createRun(), {}));
 });

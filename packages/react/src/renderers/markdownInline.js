@@ -21,7 +21,25 @@
 
 const TOKEN =
   /(`[^`]+`)|(\*\*[^*]+?\*\*)|(\*[^*]+?\*)|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s]+)/;
-const TRAILING_PUNCT = /[.,;:!?)\]}>"'»]+$/;
+
+// Trim trailing sentence punctuation from a bare URL, but keep a ")" that
+// balances a "(" inside the URL (the CommonMark / GitHub autolink rule), so a
+// Wikipedia-style https://en.wikipedia.org/wiki/Foo_(bar) keeps its final paren.
+function trimUrlPunct(url) {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url[end - 1];
+    if (!/[.,;:!?)\]}>"'»]/.test(ch)) break;
+    if (ch === ")") {
+      const slice = url.slice(0, end);
+      const opens = (slice.match(/\(/g) || []).length;
+      const closes = (slice.match(/\)/g) || []).length;
+      if (closes <= opens) break; // balanced: keep this ")"
+    }
+    end--;
+  }
+  return url.slice(0, end);
+}
 
 /**
  * Tokenize one line of inline markdown into a flat descriptor list.
@@ -53,7 +71,7 @@ export function tokenizeInline(text) {
     } else {
       // Bare http(s) URL: trim a trailing run of sentence punctuation back to
       // plain text, so "see https://x/y." links https://x/y and keeps the period.
-      const url = tok.replace(TRAILING_PUNCT, "") || tok;
+      const url = trimUrlPunct(tok) || tok;
       out.push({ type: "link", text: url, href: url });
       consumed = url.length;
     }
