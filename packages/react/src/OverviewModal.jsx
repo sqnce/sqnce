@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ThemeScope } from "./themeScope.jsx";
+import { useFocusTrap } from "./useFocusTrap.js";
 import {
   gateProgress,
   gateTypeOf,
@@ -19,6 +20,8 @@ import {
  * which would trap position: fixed overlays inside the card).
  */
 export default function OverviewModal({ def, run, subs, idx, frontier, validators, onClose }) {
+  const overlayRef = useRef(null);
+  useFocusTrap(overlayRef);
   useEffect(() => {
     /* No textarea/input guard: Escape is not a typing key and the
        modal should always close. */
@@ -36,7 +39,7 @@ export default function OverviewModal({ def, run, subs, idx, frontier, validator
 
   return createPortal(
     <ThemeScope>
-    <div className="pf-overlay" role="dialog" aria-modal="true">
+    <div className="pf-overlay" role="dialog" aria-modal="true" ref={overlayRef} tabIndex={-1}>
       <div className="pf-overlay-head">
         <span className="pf-overlay-title">About this process</span>
         <button className="pf-btn pf-btn-sm" onClick={onClose} title="Close">

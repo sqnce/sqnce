@@ -62,6 +62,7 @@ export default function RolodexView({
   doAdvance,
   fileRef,
   attachFor,
+  onOverlayOpenChange,
 }) {
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
@@ -292,6 +293,7 @@ export default function RolodexView({
                                 context={buildRendererContext({ workflowId: def.id, stepId: step.id, subject: subjectName, readOnly, runId: activeRunId })}
                                 generated={isGen}
                                 badge={genBadge}
+                                onOverlayOpenChange={onOverlayOpenChange}
                               />
                             );
                           })}

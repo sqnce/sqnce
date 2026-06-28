@@ -18,6 +18,7 @@ import {
   draftTarget,
   parseDraft,
   validateOutputValue,
+  buildTopology,
   createRunStore,
   createRunEntry,
   addRun,
@@ -229,6 +230,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   const [view, setView] = useState("rolodex");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const [overlayOpen, setOverlayOpen] = useState(false);
   const pfRootRef = useRef(null);
   const fileRef = useRef(null);
   const attachFor = useRef(null);
@@ -244,6 +246,9 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
     [workflows, activeId]
   );
   const subs = useMemo(() => flattenSubStages(def), [def]);
+  // Build the per-definition topology once and feed it to the read aggregates,
+  // so they do not re-flatten the definition on every render (#113).
+  const topology = useMemo(() => buildTopology(def), [def]);
   const entry = activeRunEntry(store, activeId);
   const readOnly = !!entry && entry.status === "archived";
   const activeRunId = entry ? entry.id : null;
@@ -251,7 +256,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, def.mainStages.length - 1);
-  const complete = useMemo(() => isRunComplete(def, run, { validators }), [def, run, validators]);
+  const complete = useMemo(() => isRunComplete(def, run, { validators, topology }), [def, run, validators, topology]);
 
   /* Repair a loaded store whose active pointers do not match the
      rendered state. Two cases: a foreign activeWorkflowId (workflow no
@@ -347,7 +352,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   }, [view, entry, complete]);
 
   /* ---------- derived ---------- */
-  const subjectName = resolveSubject(def, run);
+  const subjectName = useMemo(() => resolveSubject(def, run), [def, run]);
 
   const clearTransients = () => {
     setExpanded(null);
@@ -423,16 +428,22 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   const doUnarchive = (runId) => setStore((s) => unarchiveRun(s, runId, Date.now()));
   const doDelete = (runId) => setStore((s) => coreDeleteRun(s, runId));
 
+  /* Latest-handler ref so the window listener subscribes once (it previously
+     had no dependency array and re-subscribed every render, #113) while still
+     seeing current state. The guard also bails while an output overlay is open,
+     so its arrow keys do not browse the deck behind it (#112). */
+  const onKeyRef = useRef(null);
+  onKeyRef.current = (e) => {
+    if (overviewOpen || overlayOpen || view === "reading") return;
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+    if (e.key === "ArrowLeft") doBrowse(-1);
+    if (e.key === "ArrowRight") doBrowse(1);
+  };
   useEffect(() => {
-    const onKey = (e) => {
-      if (overviewOpen || view === "reading") return;
-      if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
-      if (e.key === "ArrowLeft") doBrowse(-1);
-      if (e.key === "ArrowRight") doBrowse(1);
-    };
+    const onKey = (e) => onKeyRef.current && onKeyRef.current(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   /* ---------- mutations ---------- */
   const writeOutput = (stepId, outputId, value, opts) => {
@@ -736,6 +747,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
           doAdvance={doAdvance}
           fileRef={fileRef}
           attachFor={attachFor}
+          onOverlayOpenChange={setOverlayOpen}
         />
       )}
 

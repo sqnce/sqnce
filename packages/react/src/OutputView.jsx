@@ -6,6 +6,7 @@ import { parseOutline } from "./renderers/markdownOutline.js";
 import JsonTree from "./renderers/JsonTree.jsx";
 import { OutputTypeIcon } from "./icons.jsx";
 import { ThemeScope } from "./themeScope.jsx";
+import { useFocusTrap } from "./useFocusTrap.js";
 
 /*
  * Renderer contract: a renderer is a pure presentation component
@@ -18,6 +19,8 @@ import { ThemeScope } from "./themeScope.jsx";
 
 function Overlay({ label, outline, onClose, children }) {
   const bodyRef = useRef(null);
+  const overlayRef = useRef(null);
+  useFocusTrap(overlayRef);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
@@ -40,7 +43,7 @@ function Overlay({ label, outline, onClose, children }) {
      trap position: fixed overlays inside the card. */
   return createPortal(
     <ThemeScope>
-      <div className="pf-overlay" role="dialog" aria-modal="true">
+      <div className="pf-overlay" role="dialog" aria-modal="true" ref={overlayRef} tabIndex={-1}>
         <div className="pf-overlay-head">
           <span className="pf-overlay-title">{label}</span>
           <button className="pf-btn pf-btn-sm" onClick={onClose}>
@@ -169,7 +172,7 @@ function DefaultEditor({ spec, value, onChange, onAttach, readOnly, generated, b
  * renderers map, then built-ins, then falls back (JSON tree for data,
  * the default editor otherwise). Unknown kinds never render blank.
  */
-export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, badge = null, invalid }) {
+export default function OutputView({ spec, value, onChange, onAttach, renderers, context, generated, badge = null, invalid, onOverlayOpenChange = null }) {
   const kind = spec.render && spec.render.kind;
   const Custom = kind ? (renderers && renderers[kind]) || BUILTIN_RENDERERS[kind] : null;
   const isData = spec.type === "data";
@@ -184,6 +187,12 @@ export default function OutputView({ spec, value, onChange, onAttach, renderers,
      an empty hinted output from edit to view on the first keystroke. */
   const [mode, setMode] = useState(() => (isData ? "view" : Renderer && filled ? "view" : "edit"));
   const [big, setBig] = useState(false);
+  /* Report the fullscreen-overlay open state up to the shell so its global
+     arrow-key handler can bail while the overlay is open (#112). */
+  useEffect(() => {
+    if (onOverlayOpenChange) onOverlayOpenChange(big);
+    return () => { if (onOverlayOpenChange) onOverlayOpenChange(false); };
+  }, [big, onOverlayOpenChange]);
   const readOnly = !!(context && context.readOnly);
   /* Read-only forces renderer-backed outputs into view mode; the raw
      JSON editor and the edit toggles become unreachable. */
