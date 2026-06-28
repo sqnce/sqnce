@@ -19,7 +19,6 @@ import {
   parseDraft,
   validateOutputValue,
   buildTopology,
-  createRunStore,
   createRunEntry,
   addRun,
   renameRun,
@@ -39,8 +38,9 @@ import RunSidebar from "./RunSidebar.jsx";
 import RunsScreen from "./RunsScreen.jsx";
 import OverviewModal from "./OverviewModal.jsx";
 import { resolveRunStatus } from "./runStatus.js";
-import { applyReconcile, applyReconcileToStore } from "./reconcile.js";
+import { applyReconcile } from "./reconcile.js";
 import { applyRunWrite } from "./runWrite.js";
+import { useRunStore } from "./useRunStore.js";
 
 /* Ids and timestamps are generated here, never inside @sqnce/core. */
 function newId() {
@@ -217,15 +217,10 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
     [makeInitialRun, workflows, reconcileRun]
   );
 
-  const [store, setStore] = useState(() => {
-    const empty = createRunStore();
-    return addRun(empty, newEntryFor(empty, workflows[0].id));
-  });
   const [expanded, setExpanded] = useState(null);
   const [generating, setGenerating] = useState(null);
   const [genError, setGenError] = useState(null);
   const [manualEdit, setManualEdit] = useState([]);
-  const [loaded, setLoaded] = useState(!persistence);
   const [showInputs, setShowInputs] = useState(false);
   const [view, setView] = useState("rolodex");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -234,13 +229,14 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   const pfRootRef = useRef(null);
   const fileRef = useRef(null);
   const attachFor = useRef(null);
-  const saveTimer = useRef(null);
   const routedOnLoad = useRef(false);
 
-  const activeId =
-    store.activeWorkflowId && workflows.some((w) => w.id === store.activeWorkflowId)
-      ? store.activeWorkflowId
-      : workflows[0].id;
+  /* The run-store lifecycle (persisted store, active pointers, load/save/repair)
+     lives in useRunStore; the shell keeps view state and the initial-view route
+     effect below. */
+  const { store, setStore, loaded, activeId, entry, cancelPendingSave } =
+    useRunStore({ persistence, workflows, reconcileRun, newEntryFor, view });
+
   const def = useMemo(
     () => workflows.find((w) => w.id === activeId) || workflows[0],
     [workflows, activeId]
@@ -249,35 +245,13 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
   // Build the per-definition topology once and feed it to the read aggregates,
   // so they do not re-flatten the definition on every render (#113).
   const topology = useMemo(() => buildTopology(def), [def]);
-  const entry = activeRunEntry(store, activeId);
   const readOnly = !!entry && entry.status === "archived";
   const activeRunId = entry ? entry.id : null;
-  /* One-frame fallback while the ensure effect below creates an entry. */
+  /* One-frame fallback while the repair effect (in useRunStore) creates an entry. */
   const run = entry ? entry.run : makeInitialRun(activeId);
   const idx = Math.min(run.idx, subs.length - 1);
   const frontier = Math.min(run.frontier, def.mainStages.length - 1);
   const complete = useMemo(() => isRunComplete(def, run, { validators, topology }), [def, run, validators, topology]);
-
-  /* Repair a loaded store whose active pointers do not match the
-     rendered state. Two cases: a foreign activeWorkflowId (workflow no
-     longer in the props) is normalized to the rendered fallback so the
-     sidebar highlight and saves agree; a missing active entry (last
-     live run deleted) gets a fresh entry, but only when the rolodex
-     view actually needs it: on the runs screen a confirmed delete of
-     the final run must not appear to recreate a blank run. */
-  const staleActiveId = store.activeWorkflowId !== activeId;
-  useEffect(() => {
-    if (!loaded) return;
-    if (entry && staleActiveId) {
-      setStore((s) => {
-        const e = activeRunEntry(s, activeId);
-        return e ? coreSetActiveRun(s, e.id) : s;
-      });
-      return;
-    }
-    if (entry || view !== "rolodex") return;
-    setStore((s) => (activeRunEntry(s, activeId) ? s : addRun(s, newEntryFor(s, activeId))));
-  }, [loaded, entry, staleActiveId, activeId, view, newEntryFor]);
 
   /* Content mutations route through applyRunWrite: it bumps updatedAt, is
      blocked on archived runs, and resolves a functional write against the
@@ -303,34 +277,6 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
     },
     [entry]
   );
-
-  /* ---------- persistence ---------- */
-  useEffect(() => {
-    if (!persistence) return;
-    (async () => {
-      try {
-        const saved = await persistence.load();
-        /* Version 2 stores only; anything else (including the old
-           { activeId, runs } shape) is discarded. Pre-launch, no users. */
-        if (saved && saved.version === 3 && saved.entries && saved.activeRunByWorkflow) {
-          setStore(applyReconcileToStore(reconcileRun, saved, workflows));
-        }
-      } catch (e) {
-        /* nothing saved yet */
-      }
-      setLoaded(true);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!persistence || !loaded) return;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      persistence.save(store).catch((e) => console.error("save failed", e));
-    }, 500);
-    return () => clearTimeout(saveTimer.current);
-  }, [store, loaded, persistence]);
 
   /* Route the startup active run once: a finished run that was active at
      load (cold mount without persistence, or after persistence.load swaps
@@ -481,7 +427,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
     setGenError(null);
     try {
       if (persistence) {
-        clearTimeout(saveTimer.current);
+        cancelPendingSave();
         try {
           await persistence.save(store);
         } catch (e) {
