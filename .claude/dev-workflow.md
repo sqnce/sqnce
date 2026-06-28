@@ -17,7 +17,7 @@ re-baseline (sqnce has no eval pipeline).
 
 ## The Codex review loop
 
-At each authored artifact, run `/codex:review --wait --base main` on the committed branch
+At each authored artifact, run `/codex:review --wait --base main -m gpt-5.3-codex` on the committed branch
 diff for an independent review, address the findings, and re-run it until a pass returns
 no medium-or-higher findings. Each run re-reviews the whole diff from scratch, so every
 pass is fresh and catches issues a confirming re-read would miss, including ones the fixes
@@ -31,6 +31,24 @@ Drive each pass with `superpowers:requesting-code-review`, act on the findings w
 automatically as part of the agreed process, without pausing to ask; it is not a
 stop-time gate. For an approach-challenge pass, `/codex:adversarial-review` takes the same
 flags plus a focus string.
+
+**Model tiering: a cheap iterative loop, then one flagship gate.** The iterative passes
+above run on the cheaper code-tuned model `gpt-5.3-codex` (set with `-m` on each
+`/codex:review`), because the great majority of findings surface there at a fraction of the
+cost. Reasoning effort and sub-agent fan-out are set once, globally, in
+`~/.codex/config.toml`, not as per-call flags on `/codex:review`.
+
+**Final pre-merge gate (code only, once per PR).** After the step-10 code-review loop has
+passed on `gpt-5.3-codex`, run exactly one flagship review of the final branch diff before
+marking the PR ready: `/codex:review --wait --base main -m gpt-5.5`. This puts the
+expensive model at the single point of maximum consequence, the autonomous squash-merge to
+main, and pays for it once rather than on every pass. If this gate returns
+medium-or-higher findings, fix them and re-run only this final `gpt-5.5` pass until it is
+clean, so that what merges is what the flagship actually reviewed; if it returns low-only
+findings, fix them in place and merge without re-running. Because per-call reasoning effort
+cannot be set on `/codex:review`, this pass runs at the global effort, so the assurance
+comes from the model upgrade to `gpt-5.5`, not from a higher effort tier. The spec and plan
+loops do not get this gate; only the code does.
 
 ## One human gate
 
