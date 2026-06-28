@@ -661,36 +661,10 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
         />
       ) : (
         <RolodexView
-          def={def}
-          run={run}
-          subs={subs}
-          idx={idx}
-          frontier={frontier}
-          validators={validators}
-          renderers={renderers}
-          subjectName={subjectName}
-          activeRunId={activeRunId}
-          readOnly={readOnly}
-          generateDraft={generateDraft}
-          generatedBadge={generatedBadge}
-          renderStageStatus={renderStageStatus}
-          expanded={expanded}
-          setExpanded={setExpanded}
-          showInputs={showInputs}
-          setShowInputs={setShowInputs}
-          manualEdit={manualEdit}
-          setManualEdit={setManualEdit}
-          generating={generating}
-          genError={genError}
-          setNav={setNav}
-          clearTransients={clearTransients}
-          reopen={reopen}
-          toggleDone={toggleDone}
-          generate={generate}
-          writeOutput={writeOutput}
-          toggleSkip={toggleSkip}
-          doBrowse={doBrowse}
-          doAdvance={doAdvance}
+          view={{ def, run, subs, idx, frontier, subjectName, activeRunId, readOnly }}
+          slots={{ validators, renderers, generateDraft, generatedBadge, renderStageStatus }}
+          ui={{ expanded, setExpanded, showInputs, setShowInputs, manualEdit, setManualEdit, generating, genError }}
+          ops={{ setNav, clearTransients, reopen, toggleDone, generate, writeOutput, toggleSkip, doBrowse, doAdvance }}
           fileRef={fileRef}
           attachFor={attachFor}
           onOverlayOpenChange={setOverlayOpen}

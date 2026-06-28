@@ -29,41 +29,12 @@ import { resolveStageStatus } from "./stageStatus.js";
  * mutation handlers, and the transient UI state with its reset; this view
  * receives them as props and owns only the deck's own derived view-model.
  */
-export default function RolodexView({
-  def,
-  run,
-  subs,
-  idx,
-  frontier,
-  validators,
-  renderers,
-  subjectName,
-  activeRunId,
-  readOnly,
-  generateDraft,
-  generatedBadge,
-  renderStageStatus,
-  expanded,
-  setExpanded,
-  showInputs,
-  setShowInputs,
-  manualEdit,
-  setManualEdit,
-  generating,
-  genError,
-  setNav,
-  clearTransients,
-  reopen,
-  toggleDone,
-  generate,
-  writeOutput,
-  toggleSkip,
-  doBrowse,
-  doAdvance,
-  fileRef,
-  attachFor,
-  onOverlayOpenChange,
-}) {
+export default function RolodexView({ view, slots, ui, ops, fileRef, attachFor, onOverlayOpenChange }) {
+  // Cohesive prop groups (#114), destructured here so the body below is unchanged.
+  const { def, run, subs, idx, frontier, subjectName, activeRunId, readOnly } = view;
+  const { validators, renderers, generateDraft, generatedBadge, renderStageStatus } = slots;
+  const { expanded, setExpanded, showInputs, setShowInputs, manualEdit, setManualEdit, generating, genError } = ui;
+  const { setNav, clearTransients, reopen, toggleDone, generate, writeOutput, toggleSkip, doBrowse, doAdvance } = ops;
   const current = subs[idx];
   const inFrontierStage = current.mainIndex === frontier;
   const maxBrowse = subs.reduce((acc, s, i) => (s.mainIndex <= frontier ? i : acc), 0);
