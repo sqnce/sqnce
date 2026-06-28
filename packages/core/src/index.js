@@ -1831,7 +1831,7 @@ export function runSummary(definition, run, opts = {}) {
  * non-skipped gate along the kept path is met.
  * @param {Definition} definition
  * @param {Run} run
- * @param {{ validators?: Object }} [opts]
+ * @param {{ validators?: Object, topology?: any }} [opts]
  * @returns {boolean}
  */
 export function isRunComplete(definition, run, opts = {}) {
@@ -1872,7 +1872,7 @@ export function isRunComplete(definition, run, opts = {}) {
  * @param {Definition} definition
  * @param {Run} run
  * @param {string} trackId
- * @param {{ validators?: Object }} [opts]
+ * @param {{ validators?: Object, topology?: any }} [opts]
  * @returns {"not-open"|"active"|"complete"|"skipped"}
  */
 export function trackStatus(definition, run, trackId, opts = {}) {

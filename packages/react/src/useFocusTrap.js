@@ -10,11 +10,13 @@ export function useFocusTrap(ref) {
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const prev = document.activeElement;
+    const prev = /** @type {HTMLElement | null} */ (document.activeElement);
     const sel =
       'a[href],button:not([disabled]),textarea,input:not([disabled]),select,[tabindex]:not([tabindex="-1"])';
     const focusables = () =>
-      Array.from(node.querySelectorAll(sel)).filter((el) => el.offsetParent !== null);
+      /** @type {HTMLElement[]} */ (Array.from(node.querySelectorAll(sel))).filter(
+        (el) => el.offsetParent !== null
+      );
     (focusables()[0] || node).focus();
     const onKey = (e) => {
       if (e.key !== "Tab") return;
