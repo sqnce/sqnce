@@ -102,11 +102,12 @@ truncation point and truncated blocks still end with the `[truncated]` marker.
 - `buildDraftPrompt(definition, subStages, run, subIdx, step, opts)`: already forwards `opts`
   to `buildContext`, so `contextViews` flows through with no signature change beyond docs.
 - Forked/tracked definitions: `buildContext` already excludes sibling-track blocks and only
-  serializes spine plus own-track steps, so a view never sees cross-track content it should
-  not. The view receives the same normalized run `serializeStep` already serializes from;
-  cross-track *scoping of the view's `ctx.run`* is out of scope because materials live on the
-  spine (intake), and validator gating already uses its own scoped run. This is documented, not
-  changed.
+  serializes spine plus own-track steps. In addition, the view's `ctx.run` is scoped to the
+  target's relation set (spine plus the target's own track) via the same `scopeValidatorRun`
+  the validator pass uses, so a view that reads `ctx.run` cannot reach sibling-track state.
+  This preserves the existing invariant that cross-track state never leaks into draft context,
+  and `scopeValidatorRun` returns the run unchanged for a linear definition (no behavior
+  change there).
 
 ## UI changes (`@sqnce/react`)
 
@@ -145,7 +146,6 @@ names a no-op and headers preserved); root `README.md` and `packages/react/READM
   headers: the consumer owns the format.
 - Per-step character budget maps (that was #52's deferred budget knob, a different axis) and
   any change to the truncation behavior.
-- Cross-track scoping of a view's `ctx.run` for forked definitions.
 - Demo/bundled-definition changes: no bundled definition uses materials, so the demo is
   unchanged; the seam is exercised by core tests and, downstream, by the consumer.
 

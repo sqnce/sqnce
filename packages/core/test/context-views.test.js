@@ -12,6 +12,7 @@ import {
   serializeStep,
 } from "../src/index.js";
 import { FIXTURE } from "./fixtures/workflow.js";
+import { FORKED } from "./fixtures/forked.js";
 
 // ---- shared helpers (consumer-style, proving core never needs the format) ----
 const MATERIALS =
@@ -232,4 +233,38 @@ test("buildDraftPrompt threads contextViews end-to-end", () => {
   // omitted contextViews -> full materials in the prompt
   const fullPrompt = buildDraftPrompt(FIXTURE, subs, run, ai, approve);
   assert.match(fullPrompt, /\[input-002\]/);
+});
+
+test("buildContext scopes a forked target's view ctx.run to spine + own track", () => {
+  // target respReview (response track); demoScript is a SIBLING (demo) track step.
+  const def = structuredClone(FORKED);
+  for (const m of def.mainStages)
+    for (const s of m.subStages)
+      for (const st of s.steps) if (st.id === "respReview") st.contextView = "peek";
+  const subs = flattenSubStages(def);
+
+  let run = createRun();
+  run = setOutput(run, "intake", "facts", { client: "Acme" });
+  run = setOutput(run, "findings", "notes", "spine notes");
+  run = setOutput(run, "demoScript", "s", "DEMO SECRET"); // sibling track output
+  run = setOutput(run, "respDraft", "d", "resp draft"); // own (response) track prior
+  run.frontier = 1; // spine committed through findings
+  run.trackFrontier = { demo: 4, response: 6 }; // fork open, both tracks advanced
+
+  const ri = subs.findIndex((s) => (s.steps || []).some((st) => st.id === "respReview"));
+  let seenRun = null;
+  const contextViews = {
+    peek: (value, spec, ctx) => {
+      seenRun = ctx.run;
+      return value;
+    },
+  };
+  buildContext(subs, run, ri, "respReview", { contextViews });
+
+  assert.ok(seenRun, "the view should run on at least one prior source");
+  // the sibling demo-track output must NOT be reachable through the view's ctx.run
+  assert.equal(getStepEntry(seenRun, "demoScript").outputs?.s, undefined);
+  // the target's own-track prior and the spine remain visible
+  assert.equal(getStepEntry(seenRun, "respDraft").outputs?.d, "resp draft");
+  assert.equal(getStepEntry(seenRun, "findings").outputs?.notes, "spine notes");
 });

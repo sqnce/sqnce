@@ -1311,7 +1311,7 @@ export function parseDraft(spec, text) {
  * @param {FlatSubStage} subStage
  * @param {Step} step
  * @param {Run} run
- * @param {{ maxChars?: number, view?: (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any, targetStepId?: string }} [opts]
+ * @param {{ maxChars?: number, view?: (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any, targetStepId?: string, viewRun?: Run }} [opts]
  *   maxChars: block budget in characters, default 2500; Infinity disables
  *   truncation. The budget is the single truncation point (no per-part
  *   caps); a truncated block ends with a "[truncated]" line.
@@ -1319,14 +1319,18 @@ export function parseDraft(spec, text) {
  *   presence check and formatting; the returned value is what serializes
  *   (selection runs before truncation). Core never parses the value.
  *   targetStepId: the draft target, forwarded to view as ctx.targetStepId.
+ *   viewRun: the run handed to the view as ctx.run (defaults to run); the
+ *   caller scopes it (for a forked target, to spine plus the target's
+ *   track) so cross-track state never leaks into the view.
  * @returns {string|null}
  */
-export function serializeStep(subStage, step, run, { maxChars = 2500, view, targetStepId } = {}) {
+export function serializeStep(subStage, step, run, { maxChars = 2500, view, targetStepId, viewRun } = {}) {
   const entry = getStepEntry(run, step.id);
   const parts = [];
   (step.outputs || []).forEach((spec) => {
     let val = (entry.outputs || {})[spec.id];
-    if (typeof view === "function") val = view(val, spec, { run, sourceStepId: step.id, targetStepId });
+    if (typeof view === "function")
+      val = view(val, spec, { run: viewRun ?? run, sourceStepId: step.id, targetStepId });
     if (!hasValue(spec, val)) return;
     if (spec.type === "text") parts.push(val);
     if (spec.type === "link") parts.push(`Link: ${val}`);
@@ -1376,15 +1380,20 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
   // against the consumer-supplied contextViews map. An absent map, an unresolvable name,
   // a step without contextView, or an empty excludeStepId all yield no view (full context).
   let viewFn;
+  let targetSubIdx = -1;
   if (excludeStepId && contextViews) {
     let targetStep;
-    for (const s of subStages) {
-      const st = (s.steps || []).find((x) => x.id === excludeStepId);
-      if (st) { targetStep = st; break; }
+    for (let i = 0; i < subStages.length; i++) {
+      const st = (subStages[i].steps || []).find((x) => x.id === excludeStepId);
+      if (st) { targetStep = st; targetSubIdx = i; break; }
     }
     const name = targetStep && targetStep.contextView;
     if (typeof name === "string" && name && typeof contextViews[name] === "function") viewFn = contextViews[name];
   }
+  // A forked target's view sees only its relation set (spine plus its own track),
+  // mirroring validator scoping, so cross-track state never leaks through ctx.run.
+  // scopeValidatorRun returns the run unchanged for a linear definition.
+  const viewRun = viewFn ? scopeValidatorRun(subStages, r, targetSubIdx) : undefined;
   // a stale or unreachable requested index falls back to the last spine sub-stage,
   // so a stale run.idx passed straight through cannot draft a tracked card or leak track context
   let idx = flatIdx;
@@ -1416,7 +1425,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
       if (step.id === excludeStepId) return;
       const evalRun = forked ? scopeValidatorRun(subStages, r, subStages.indexOf(sub)) : r;
       if (!isStepComplete(step, getStepEntry(evalRun, step.id), gateType, validators, evalRun)) return;
-      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep, view: viewFn, targetStepId: excludeStepId });
+      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep, view: viewFn, targetStepId: excludeStepId, viewRun });
       if (block) blocks.push(block);
     });
   });
