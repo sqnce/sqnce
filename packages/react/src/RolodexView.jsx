@@ -19,6 +19,7 @@ import { buildRendererContext } from "./rendererContext.js";
 import { OutputTypeIcon } from "./icons.jsx";
 import { resolveGeneratedBadge } from "./badge.js";
 import { resolveStageStatus } from "./stageStatus.js";
+import { resolveAdvisories } from "./advisories.js";
 
 /*
  * The card-deck authoring view: the rotating deck of stage cards (centered
@@ -32,7 +33,7 @@ import { resolveStageStatus } from "./stageStatus.js";
 export default function RolodexView({ view, slots, ui, ops, fileRef, attachFor, onOverlayOpenChange }) {
   // Cohesive prop groups (#114), destructured here so the body below is unchanged.
   const { def, run, subs, idx, frontier, subjectName, activeRunId, readOnly } = view;
-  const { validators, renderers, generateDraft, generatedBadge, renderStageStatus } = slots;
+  const { validators, advisories, renderers, generateDraft, generatedBadge, renderStageStatus } = slots;
   const { expanded, setExpanded, showInputs, setShowInputs, manualEdit, setManualEdit, generating, genError } = ui;
   const { setNav, clearTransients, reopen, toggleDone, generate, writeOutput, toggleSkip, doBrowse, doAdvance } = ops;
   const current = subs[idx];
@@ -78,6 +79,14 @@ export default function RolodexView({ view, slots, ui, ops, fileRef, attachFor, 
           const center = pos === 0;
           const p = gateProgress(sub, run, { validators });
           const skipped = isSubStageSkipped(run, sub.id);
+          const cardAdvisories = skipped
+            ? []
+            : resolveAdvisories({
+                advisories,
+                ctx: { def, run, runId: activeRunId, subStageId: sub.id },
+              });
+          const advisoryHasWarning = cardAdvisories.some((a) => a.severity === "warning");
+          const advisoryLabel = `${cardAdvisories.length} ${cardAdvisories.length === 1 ? "advisory" : "advisories"}`;
           const sideClickable = !center && Math.abs(pos) === 1 && sub.mainIndex <= frontier;
           return (
             <div
@@ -111,10 +120,21 @@ export default function RolodexView({ view, slots, ui, ops, fileRef, attachFor, 
                 <span className="pf-card-code">
                   {sub.mainName.toUpperCase()} · S{sub.subIndex + 1}
                 </span>
-                <span className="pf-card-count">
-                  {skipped
-                    ? "Skipped"
-                    : `${p.done}/${p.total} required${p.gateType === "strict" ? " · strict gate" : ""}`}
+                <span className="pf-card-strip-right">
+                  {cardAdvisories.length > 0 && (
+                    <span
+                      className={`pf-card-advisory pf-card-advisory-${advisoryHasWarning ? "warning" : "info"}`}
+                      aria-label={advisoryLabel}
+                      title={advisoryLabel}
+                    >
+                      {advisoryHasWarning ? "⚠" : "ℹ"} {cardAdvisories.length}
+                    </span>
+                  )}
+                  <span className="pf-card-count">
+                    {skipped
+                      ? "Skipped"
+                      : `${p.done}/${p.total} required${p.gateType === "strict" ? " · strict gate" : ""}`}
+                  </span>
                 </span>
               </div>
               <div className="pf-card-title">{sub.name}</div>
@@ -310,6 +330,18 @@ export default function RolodexView({ view, slots, ui, ops, fileRef, attachFor, 
 
               {center && (
                 <div className="pf-card-foot">
+                  {cardAdvisories.length > 0 && (
+                    <div className="pf-advisories">
+                      {cardAdvisories.map((a, ai) => (
+                        <div key={ai} className={`pf-advisory pf-advisory-${a.severity}`}>
+                          <span className="pf-advisory-icon" aria-hidden="true">
+                            {a.severity === "warning" ? "⚠" : "ℹ"}
+                          </span>
+                          <span className="pf-advisory-msg">{a.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {inFrontierStage ? (
                     <>
                       {stageProg.met ? (
