@@ -6,7 +6,8 @@
  * a render hint, a validated output and a run-aware validated output
  * (`validate`), a subject with field
  * and fallback, required steps,
- * a checklist step, and an aiPrompt. Engine behavior tests assert
+ * a checklist step, an aiPrompt, and a step with a contextView. Engine
+ * behavior tests assert
  * against this content, never against bundled definitions.
  */
 export const FIXTURE = {
@@ -90,6 +91,7 @@ export const FIXTURE = {
               id: "approve",
               name: "Approve",
               required: true,
+              contextView: "select",
               outputs: [{ id: "memo", type: "text", label: "Memo" }],
             },
           ],

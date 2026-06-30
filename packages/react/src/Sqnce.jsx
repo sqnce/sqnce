@@ -91,6 +91,12 @@ function newId() {
  *      owning step incomplete (gates, status, draft context) and
  *      rejects generated drafts. Pure functions; omit to validate
  *      nothing.
+ *  - contextViews (optional): map of context-view name -> (value, spec,
+ *      { run, sourceStepId, targetStepId }) => value, resolving the
+ *      contextView a step declares. When a step's draft prompt is built,
+ *      each prior output's value passes through the named view, selecting
+ *      what that step sees (selection at serialization, run state
+ *      untouched). Pure functions; omit for full context.
  *  - generatedBadge (optional): (lifecycle, spec) => string | null,
  *      overrides the generated-output badge label. lifecycle is the owning
  *      step's status ("done" | "draft" | "open"). A non-empty string is the
@@ -191,6 +197,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+ * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run: import("@sqnce/core").Run, sourceStepId: string, targetStepId?: string }) => any>} [contextViews] Map of context-view name to a pure selector; a step's `contextView` names one. Applied to prior outputs when building that step's draft prompt; optional, the component works without it.
  * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null }) => (string | { word: string, tone?: string } | null)} [runStatus]
@@ -199,7 +206,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  */
 
 /** @param {SqnceProps} props */
-export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
+export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, contextViews, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -440,7 +447,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
           return;
         }
       }
-      const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators });
+      const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators, contextViews });
       const text = await generateDraft(prompt, {
         workflowId: def.id,
         stepId: step.id,

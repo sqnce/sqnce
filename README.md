@@ -93,6 +93,8 @@ Draft generation targets a step's first `text` output, or its first `data` outpu
 
 A `validators` prop resolves the `validate` names declared on output specs: `validators={{ "win-themes": (value, spec, { run, stepId }) => Array.isArray(value) ? null : "Expected an array." }}`. The third argument carries the run (read other steps with `getStepEntry`) and the stepId, so a validator can relate one step's output to another. A returned string is the problem message: the owning step reads incomplete (gates, status, draft context) until the value is fixed, and the message appears in the gate footer. Validators are pure functions; omit the prop to validate nothing.
 
+A step can also name a `contextView`, and a `contextViews` prop supplies pure selectors that control what that step sees of prior outputs in its draft prompt: `contextViews={{ cited: (value, spec, { run, sourceStepId }) => sourceStepId === "materials" ? keepCitedSlices(value, run) : value }}`. The selection happens when the prompt is built (at serialization), so run state stays untouched and validators still read the full outputs; a selector that returns the value unchanged leaves a source as-is, and slice headers survive because the engine never parses the value. Omit the prop for full context.
+
 `@sqnce/react` ships raw JSX. Vite and esbuild consumers work out of the box; webpack/Next.js consumers add `transpilePackages: ["@sqnce/react"]` (or a babel-loader include) because bundlers usually skip transpiling `node_modules`.
 
 Using the engine without the UI:
