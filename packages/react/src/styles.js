@@ -351,6 +351,24 @@ export const CSS = `
 }
 .pf-gate-state { font-family: var(--sqnce-_font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--sqnce-_ink-muted-on-card); }
 .pf-gate-met { color: var(--sqnce-_done); }
+.pf-card-strip-right { display: inline-flex; align-items: center; gap: 10px; }
+.pf-card-advisory {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: var(--sqnce-_radius-sm);
+  font-family: var(--sqnce-_font-mono); font-size: 10.5px; letter-spacing: 0.04em;
+}
+.pf-card-advisory-warning { background: var(--sqnce-_revise-bg); color: var(--sqnce-_revise-ink); }
+.pf-card-advisory-info { background: var(--sqnce-_status-bg); color: var(--sqnce-_ink-muted-on-card); }
+.pf-advisories { flex-basis: 100%; display: flex; flex-direction: column; gap: var(--sqnce-_space-2); margin-bottom: 4px; }
+.pf-advisory {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 10px; border-radius: var(--sqnce-_radius-control);
+  font-size: 12px; line-height: 1.35;
+}
+.pf-advisory-warning { background: var(--sqnce-_revise-bg); color: var(--sqnce-_revise-ink); }
+.pf-advisory-info { background: var(--sqnce-_status-bg); color: var(--sqnce-_ink-muted-on-card); }
+.pf-advisory-icon { flex-shrink: 0; }
+.pf-advisory-msg { flex: 1; }
 .pf-gen-invite {
   border: 1.5px dashed var(--sqnce-_border-soft); border-radius: var(--sqnce-_radius-control); padding: 18px;
   display: flex; align-items: center; justify-content: center; gap: var(--sqnce-_space-5);

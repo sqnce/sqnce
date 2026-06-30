@@ -91,6 +91,18 @@ function newId() {
  *      owning step incomplete (gates, status, draft context) and
  *      rejects generated drafts. Pure functions; omit to validate
  *      nothing.
+ *  - advisories (optional): (ctx) => Array<{ message, severity? }>, a pure
+ *      function called once per drawn sub-stage card with ctx = { def, run,
+ *      runId, subStageId }. It returns non-blocking advisory items for that
+ *      sub-stage: each item has a message and an optional severity ("info" |
+ *      "warning"; an absent or unrecognized value normalizes to "info").
+ *      They render as a marker on the sub-stage card and as notes in the
+ *      centered card's foot, distinct from the blocking gate state.
+ *      Advisories inform, never block: the value is computed in the view only
+ *      and never enters core, so it cannot affect a gate, the run summary,
+ *      completion, or advance. Every failure mode (no function, a throw, a
+ *      non-array return, an item without a message) degrades to no advisory.
+ *      Skipped sub-stages show none. Omit to show none.
  *  - contextViews (optional): map of context-view name -> (value, spec,
  *      { run, sourceStepId, targetStepId }) => value, resolving the
  *      contextView a step declares. When a step's draft prompt is built,
@@ -197,6 +209,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  * @property {(workflowId: string) => import("@sqnce/core").Run} [initialRunFor]
  * @property {Object<string, import("react").ComponentType<RendererProps>>} [renderers]
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run?: import("@sqnce/core").Run, stepId: string }) => (string|null)>} [validators]
+ * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subStageId: string }) => ({ message: string, severity?: "info"|"warning" }[])} [advisories] Pure function returning non-blocking advisory items for a sub-stage; render-only, never enters core, degrades every failure mode to no advisory. Optional.
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run: import("@sqnce/core").Run, sourceStepId: string, targetStepId?: string }) => any>} [contextViews] Map of context-view name to a pure selector; a step's `contextView` names one. Applied to prior outputs when building that step's draft prompt; optional, the component works without it.
  * @property {(lifecycle: "done"|"draft"|"open", spec: import("@sqnce/core").OutputSpec) => (string|null)} [generatedBadge]
  * @property {(ctx: { def: import("@sqnce/core").Definition, run: import("@sqnce/core").Run, runId: string|null, subject: string, complete: boolean }) => import("react").ReactNode} [renderRunHeader]
@@ -206,7 +219,7 @@ function WorkflowSwitcher({ workflows, groups, activeId, onSwitch }) {
  */
 
 /** @param {SqnceProps} props */
-export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, contextViews, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
+export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, advisories, contextViews, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
   const makeInitialRun = useCallback(
     (id) => (initialRunFor ? initialRunFor(id) : createRun()),
     [initialRunFor]
@@ -669,7 +682,7 @@ export default function Sqnce({ workflows, persistence, generateDraft, workflowG
       ) : (
         <RolodexView
           view={{ def, run, subs, idx, frontier, subjectName, activeRunId, readOnly }}
-          slots={{ validators, renderers, generateDraft, generatedBadge, renderStageStatus }}
+          slots={{ validators, advisories, renderers, generateDraft, generatedBadge, renderStageStatus }}
           ui={{ expanded, setExpanded, showInputs, setShowInputs, manualEdit, setManualEdit, generating, genError }}
           ops={{ setNav, clearTransients, reopen, toggleDone, generate, writeOutput, toggleSkip, doBrowse, doAdvance }}
           fileRef={fileRef}
