@@ -26,6 +26,13 @@
  *      the process is about, so generated drafts can reference it.
  *    - A step may carry an optional manual: true; the engine ignores it,
  *      the UI layer suppresses the draft action on that step.
+ *    - A step may carry an optional contextView: "<name>", a free string
+ *      resolved against a consumer-supplied contextViews map
+ *      { [name]: (value, spec, { run, sourceStepId, targetStepId }) => value }.
+ *      When building that step's draft prompt, each prior output's value is
+ *      passed through the named view before serialization; the view selects
+ *      what this step sees (it never mutates run state). Unresolvable names
+ *      mean no view (full context). The engine never parses the value.
  *
  * 2) RUN (runtime state, also JSON-compatible)
  *    { idx, frontier, stepState: { [stepId]: { checkedDone, outputs,
@@ -86,6 +93,7 @@
  * @property {boolean} [required]
  * @property {string} [aiPrompt]
  * @property {boolean} [manual] When true, the UI suppresses the Generate affordance; the step is human-entered.
+ * @property {string} [contextView] Names a consumer-supplied context view (in the contextViews map) that selects what this step sees of prior outputs when its draft prompt is built. Free string, resolved by name, never whitelisted.
  * @property {OutputSpec[]} [outputs]
  */
 /**
@@ -438,6 +446,11 @@ export function validateDefinition(definition) {
         stepIds.add(st.id);
         if (st.manual !== undefined && typeof st.manual !== "boolean")
           problems.push(`step "${st.id}": manual must be a boolean`);
+        if (
+          st.contextView !== undefined &&
+          (typeof st.contextView !== "string" || !st.contextView.trim())
+        )
+          problems.push(`step "${st.id}": contextView must be a non-empty string`);
         const outputIds = new Set();
         (st.outputs || []).forEach((o) => {
           if (typeof o.id !== "string" || !o.id.trim())
