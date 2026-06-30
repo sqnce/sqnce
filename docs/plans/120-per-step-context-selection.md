@@ -27,6 +27,8 @@
 - `packages/react/src/Sqnce.jsx` — the draft host. Adds the optional `contextViews` prop and threads it into the single `buildDraftPrompt` call; JSDoc.
 - `CLAUDE.md`, `README.md`, `packages/react/README.md` — docs.
 
+**Not touched (deliberate):** `packages/react/src/RolodexView.jsx:144` calls `serializeStep(prevSub, step, run)` on the display path (rendering a previous card's stored output). It passes no view and stays that way: context views are a draft-prompt selection, not a change to what a committed output actually contains, so the display shows the real stored output. The new `serializeStep` options are optional, so this call is unchanged.
+
 ---
 
 ## Task 1: Definition schema — `contextView` on Step + validation
@@ -98,7 +100,7 @@ test("validateDefinition rejects an empty or non-string contextView", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd ~/dev/sqnce-worktrees/120-per-step-context-selection && node --test packages/core/test/context-views.test.js`
-Expected: FAIL. The first test fails because the FIXTURE does not yet declare `contextView` (so `validateDefinition` is `[]` only after the fixture edit, but `import` succeeds), and the rejection test fails because `validateDefinition` does not yet check `contextView`.
+Expected: the rejection test FAILS (the real red test: `validateDefinition` does not yet push a `contextView` problem, so `.some(...)` is false). The acceptance test (`validateDefinition(FIXTURE)` deepEqual `[]`) passes trivially at this point and only becomes meaningful after Step 6 adds a valid `contextView` to the fixture, where it guards that a valid `contextView` is accepted (green stays green). Treat the rejection test as the failing test that drives the implementation.
 
 - [ ] **Step 3: Add the `contextView` check to `validateDefinition`** — in `packages/core/src/index.js`, in the step loop, immediately after the `manual` check (`step "${st.id}": manual must be a boolean`):
 
