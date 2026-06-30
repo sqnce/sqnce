@@ -1311,17 +1311,22 @@ export function parseDraft(spec, text) {
  * @param {FlatSubStage} subStage
  * @param {Step} step
  * @param {Run} run
- * @param {{ maxChars?: number }} [opts] Block budget in characters,
- *   default 2500; Infinity disables truncation. The budget is the
- *   single truncation point (no per-part caps); a truncated block ends
- *   with a "[truncated]" line.
+ * @param {{ maxChars?: number, view?: (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any, targetStepId?: string }} [opts]
+ *   maxChars: block budget in characters, default 2500; Infinity disables
+ *   truncation. The budget is the single truncation point (no per-part
+ *   caps); a truncated block ends with a "[truncated]" line.
+ *   view: when present, each output's value passes through it before the
+ *   presence check and formatting; the returned value is what serializes
+ *   (selection runs before truncation). Core never parses the value.
+ *   targetStepId: the draft target, forwarded to view as ctx.targetStepId.
  * @returns {string|null}
  */
-export function serializeStep(subStage, step, run, { maxChars = 2500 } = {}) {
+export function serializeStep(subStage, step, run, { maxChars = 2500, view, targetStepId } = {}) {
   const entry = getStepEntry(run, step.id);
   const parts = [];
   (step.outputs || []).forEach((spec) => {
-    const val = (entry.outputs || {})[spec.id];
+    let val = (entry.outputs || {})[spec.id];
+    if (typeof view === "function") val = view(val, spec, { run, sourceStepId: step.id, targetStepId });
     if (!hasValue(spec, val)) return;
     if (spec.type === "text") parts.push(val);
     if (spec.type === "link") parts.push(`Link: ${val}`);
