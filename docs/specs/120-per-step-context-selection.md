@@ -6,9 +6,11 @@ implementation on this same branch; nothing here should be read as already built
 
 Builds directly on #52 (issues #52/#53/#54, `docs/specs/52-53-54-draft-pipeline.md`), which
 gave `buildDraftPrompt`/`buildContext`/`serializeStep` a character budget (`maxCharsPerStep`)
-and explicitly deferred per-step *selection*: "a per-step budget map stays out of scope; the
-single knob unblocks the consumer." #120 is that deferred selection, but selection of *which
-content* a step sees, not how many characters.
+and left any per-step map out of scope (the #52 spec: a per-step budget map "stays out of
+scope; the single knob unblocks the consumer"). That deferral was on the *budget* axis (how
+many characters per step). #120 adds the orthogonal axis the issue groups under "per-step
+selection": *which content* a step sees, not how much of it. The two are independent; this
+spec touches selection only and changes nothing about the budget or its truncation.
 
 ## Driving need
 
@@ -154,8 +156,10 @@ names a no-op and headers preserved); root `README.md` and `packages/react/READM
   drops the block. `buildContext`/`buildDraftPrompt` resolve `contextView` from the target
   (the excluded step), apply the bound view, and are a no-op when `contextViews` is omitted,
   when the name is missing from the map, or when the step has no `contextView`; an empty/absent
-  `excludeStepId` resolves no view. A view trimming one prior output does not change which
-  steps are complete or included, and does not change another step's context. `input-NNN`
+  `excludeStepId` resolves no view. A view that transforms only the materials source leaves
+  every other prior output in that same target's context unchanged (the pass-through contract).
+  A view trimming one prior output does not change which steps are complete or included, and
+  does not change another step's context. `input-NNN`
   header bytes in kept slices are preserved. Selection runs before truncation (a selected
   subset still over budget ends with `[truncated]`). `validateDefinition` accepts a non-empty
   `contextView` and rejects an empty or non-string one; all bundled definitions still validate.
