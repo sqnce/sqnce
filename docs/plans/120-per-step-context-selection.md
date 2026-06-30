@@ -21,17 +21,17 @@
 
 ## File Structure
 
-- `packages/core/src/index.js` — the engine. Adds: `Step.contextView` typedef + file-header bullet; a `validateDefinition` step-level check; the `view`/`targetStepId` options in `serializeStep`; the `contextViews` resolution + threading in `buildContext`; JSDoc on `buildContext`/`buildDraftPrompt`.
-- `packages/core/test/fixtures/workflow.js` — the core-owned fixture. Adds `contextView: "select"` to the `approve` step and one coverage-comment line.
-- `packages/core/test/context-views.test.js` — NEW. All `#120` engine tests (schema validation, `serializeStep` view, `buildContext` resolution + selection, no-regression, header preservation, validator independence, pass-through, truncation order, end-to-end through `buildDraftPrompt`).
-- `packages/react/src/Sqnce.jsx` — the draft host. Adds the optional `contextViews` prop and threads it into the single `buildDraftPrompt` call; JSDoc.
-- `CLAUDE.md`, `README.md`, `packages/react/README.md` — docs.
+- `packages/core/src/index.js`, the engine. Adds: `Step.contextView` typedef + file-header bullet; a `validateDefinition` step-level check; the `view`/`targetStepId` options in `serializeStep`; the `contextViews` resolution + threading in `buildContext`; JSDoc on `buildContext`/`buildDraftPrompt`.
+- `packages/core/test/fixtures/workflow.js`, the core-owned fixture. Adds `contextView: "select"` to the `approve` step and one coverage-comment line.
+- `packages/core/test/context-views.test.js`, NEW. All `#120` engine tests (schema validation, `serializeStep` view, `buildContext` resolution + selection, no-regression, header preservation, validator independence, pass-through, truncation order, end-to-end through `buildDraftPrompt`).
+- `packages/react/src/Sqnce.jsx`, the draft host. Adds the optional `contextViews` prop and threads it into the single `buildDraftPrompt` call; JSDoc.
+- `CLAUDE.md`, `README.md`, `packages/react/README.md`, docs.
 
 **Not touched (deliberate):** `packages/react/src/RolodexView.jsx:144` calls `serializeStep(prevSub, step, run)` on the display path (rendering a previous card's stored output). It passes no view and stays that way: context views are a draft-prompt selection, not a change to what a committed output actually contains, so the display shows the real stored output. The new `serializeStep` options are optional, so this call is unchanged.
 
 ---
 
-## Task 1: Definition schema — `contextView` on Step + validation
+## Task 1: Definition schema, `contextView` on Step + validation
 
 **Files:**
 - Modify: `packages/core/src/index.js` (Step typedef near line 82-90; file header comment near line 28-30; `validateDefinition` step loop near line 439-440)
@@ -40,7 +40,7 @@
 **Interfaces:**
 - Produces: `Step.contextView?: string` (optional, non-empty when present). `validateDefinition(definition)` pushes `step "<id>": contextView must be a non-empty string` when present and empty or non-string.
 
-- [ ] **Step 1: Write the failing test** — create `packages/core/test/context-views.test.js`:
+- [ ] **Step 1: Write the failing test**, create `packages/core/test/context-views.test.js`:
 
 ```js
 import { test } from "node:test";
@@ -102,7 +102,7 @@ test("validateDefinition rejects an empty or non-string contextView", () => {
 Run: `cd ~/dev/sqnce-worktrees/120-per-step-context-selection && node --test packages/core/test/context-views.test.js`
 Expected: the rejection test FAILS (the real red test: `validateDefinition` does not yet push a `contextView` problem, so `.some(...)` is false). The acceptance test (`validateDefinition(FIXTURE)` deepEqual `[]`) passes trivially at this point and only becomes meaningful after Step 6 adds a valid `contextView` to the fixture, where it guards that a valid `contextView` is accepted (green stays green). Treat the rejection test as the failing test that drives the implementation.
 
-- [ ] **Step 3: Add the `contextView` check to `validateDefinition`** — in `packages/core/src/index.js`, in the step loop, immediately after the `manual` check (`step "${st.id}": manual must be a boolean`):
+- [ ] **Step 3: Add the `contextView` check to `validateDefinition`**, in `packages/core/src/index.js`, in the step loop, immediately after the `manual` check (`step "${st.id}": manual must be a boolean`):
 
 ```js
         if (st.manual !== undefined && typeof st.manual !== "boolean")
@@ -114,7 +114,7 @@ Expected: the rejection test FAILS (the real red test: `validateDefinition` does
           problems.push(`step "${st.id}": contextView must be a non-empty string`);
 ```
 
-- [ ] **Step 4: Add `contextView` to the `Step` typedef** — in `packages/core/src/index.js`, in the `@typedef {Object} Step` block, after the `manual` property:
+- [ ] **Step 4: Add `contextView` to the `Step` typedef**, in `packages/core/src/index.js`, in the `@typedef {Object} Step` block, after the `manual` property:
 
 ```js
  * @property {boolean} [manual] When true, the UI suppresses the Generate affordance; the step is human-entered.
@@ -122,7 +122,7 @@ Expected: the rejection test FAILS (the real red test: `validateDefinition` does
  * @property {OutputSpec[]} [outputs]
 ```
 
-- [ ] **Step 5: Add a file-header bullet** — in `packages/core/src/index.js`, in the leading file comment, after the `manual: true` bullet (around line 28-30):
+- [ ] **Step 5: Add a file-header bullet**, in `packages/core/src/index.js`, in the leading file comment, after the `manual: true` bullet (around line 28-30):
 
 ```js
  *    - A step may carry an optional manual: true; the engine ignores it,
@@ -136,7 +136,7 @@ Expected: the rejection test FAILS (the real red test: `validateDefinition` does
  *      mean no view (full context). The engine never parses the value.
 ```
 
-- [ ] **Step 6: Add `contextView` to the `approve` step in the fixture** — in `packages/core/test/fixtures/workflow.js`, the `approve` step in `omega`/`signoff`:
+- [ ] **Step 6: Add `contextView` to the `approve` step in the fixture**, in `packages/core/test/fixtures/workflow.js`, the `approve` step in `omega`/`signoff`:
 
 ```js
             {
@@ -153,7 +153,7 @@ And extend the fixture's coverage comment (the `Coverage floor:` list) by adding
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `node --test packages/core/test/context-views.test.js`
-Expected: PASS (2 tests). Then run the full core suite to confirm no regression from the fixture edit: `node --test packages/core/test/*.test.js` — Expected: all pass (the existing `validateDefinition(FIXTURE)` deepEqual `[]` still holds; `contextView` is inert without a `contextViews` map).
+Expected: PASS (2 tests). Then run the full core suite to confirm no regression from the fixture edit: `node --test packages/core/test/*.test.js`, Expected: all pass (the existing `validateDefinition(FIXTURE)` deepEqual `[]` still holds; `contextView` is inert without a `contextViews` map).
 
 - [ ] **Step 8: Commit**
 
@@ -176,7 +176,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `Step.contextView` (Task 1).
 - Produces: `serializeStep(subStage, step, run, { maxChars = 2500, view, targetStepId })`. When `view` is a function, each output value is replaced by `view(value, spec, { run, sourceStepId: step.id, targetStepId })` before the `hasValue` check and formatting. Omitting `view` is byte-identical to today. A view returning an empty/absent value drops that output (and the block if it was the only output).
 
-- [ ] **Step 1: Write the failing tests** — append to `packages/core/test/context-views.test.js`:
+- [ ] **Step 1: Write the failing tests**, append to `packages/core/test/context-views.test.js`:
 
 ```js
 test("serializeStep applies a view to each output value before formatting", () => {
@@ -259,7 +259,7 @@ test("serializeStep without a view is unchanged", () => {
 Run: `node --test packages/core/test/context-views.test.js`
 Expected: FAIL. `serializeStep` ignores `view`, so the trimmed/suppress/truncate tests fail (full materials returned, block not dropped).
 
-- [ ] **Step 3: Implement the view in `serializeStep`** — in `packages/core/src/index.js`, change the signature and the per-output read:
+- [ ] **Step 3: Implement the view in `serializeStep`**, in `packages/core/src/index.js`, change the signature and the per-output read:
 
 ```js
 export function serializeStep(subStage, step, run, { maxChars = 2500, view, targetStepId } = {}) {
@@ -273,7 +273,7 @@ export function serializeStep(subStage, step, run, { maxChars = 2500, view, targ
 
 (The remainder of `serializeStep` is unchanged: it formats `val` per type, joins, truncates at `maxChars` with the `[truncated]` marker.)
 
-- [ ] **Step 4: Update the `serializeStep` JSDoc** — extend its options block:
+- [ ] **Step 4: Update the `serializeStep` JSDoc**, extend its options block:
 
 ```js
  * @param {{ maxChars?: number, view?: (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any, targetStepId?: string }} [opts]
@@ -309,7 +309,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `Step.contextView` (Task 1), `serializeStep({ view, targetStepId })` (Task 2).
 - Produces: `buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators, contextViews })`. The draft target is the step whose id is `excludeStepId`; core resolves its `contextView` against `contextViews` and binds the function (or none). `buildDraftPrompt` already forwards `opts`, so `contextViews` flows through unchanged. No view resolves when `contextViews` is absent, the name is missing, the step has no `contextView`, or `excludeStepId` is empty/absent.
 
-- [ ] **Step 1: Write the failing tests** — append to `packages/core/test/context-views.test.js`:
+- [ ] **Step 1: Write the failing tests**, append to `packages/core/test/context-views.test.js`:
 
 ```js
 // helper: flat index of the sub-stage containing a step
@@ -428,7 +428,7 @@ test("buildDraftPrompt threads contextViews end-to-end", () => {
 Run: `node --test packages/core/test/context-views.test.js`
 Expected: FAIL. `buildContext` ignores `contextViews`, so selection tests fail (full materials returned).
 
-- [ ] **Step 3: Implement resolution + threading in `buildContext`** — in `packages/core/src/index.js`, change the signature and add resolution right after `const r = normalizeFlat(...)`:
+- [ ] **Step 3: Implement resolution + threading in `buildContext`**, in `packages/core/src/index.js`, change the signature and add resolution right after `const r = normalizeFlat(...)`:
 
 ```js
 export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators, contextViews } = {}) {
@@ -456,7 +456,7 @@ Then thread the bound view and target id into the `serializeStep` call inside th
       if (block) blocks.push(block);
 ```
 
-- [ ] **Step 4: Update the `buildContext` and `buildDraftPrompt` JSDoc** — extend each options block to mention `contextViews`:
+- [ ] **Step 4: Update the `buildContext` and `buildDraftPrompt` JSDoc**, extend each options block to mention `contextViews`:
 
 `buildContext`:
 ```js
@@ -471,8 +471,8 @@ Then thread the bound view and target id into the `serializeStep` call inside th
 
 - [ ] **Step 5: Run the file tests, then the full core suite**
 
-Run: `node --test packages/core/test/context-views.test.js` — Expected: PASS (all).
-Run: `node --test packages/core/test/*.test.js` — Expected: all pass, no regression.
+Run: `node --test packages/core/test/context-views.test.js`, Expected: PASS (all).
+Run: `node --test packages/core/test/*.test.js`, Expected: all pass, no regression.
 
 - [ ] **Step 6: Commit**
 
@@ -485,7 +485,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 4: `@sqnce/react` — `contextViews` prop on the draft host
+## Task 4: `@sqnce/react`, `contextViews` prop on the draft host
 
 **Files:**
 - Modify: `packages/react/src/Sqnce.jsx` (component props + the `buildDraftPrompt` call near line 443; the props JSDoc near line 193/202)
@@ -494,19 +494,19 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `buildDraftPrompt(..., { contextViews })` (Task 3).
 - Produces: `Sqnce` gains an optional `contextViews` prop, passed into the draft call beside `validators`. The component works unchanged when the prop is omitted.
 
-- [ ] **Step 1: Add the prop to the component signature** — in `packages/react/src/Sqnce.jsx`, add `contextViews` to the destructured props (the line beginning `export default function Sqnce({ workflows, persistence, ... })`):
+- [ ] **Step 1: Add the prop to the component signature**, in `packages/react/src/Sqnce.jsx`, add `contextViews` to the destructured props (the line beginning `export default function Sqnce({ workflows, persistence, ... })`):
 
 ```jsx
 export default function Sqnce({ workflows, persistence, generateDraft, workflowGroups, initialRunFor, renderers, validators, contextViews, generatedBadge, renderRunHeader, runStatus, renderStageStatus, reconcileRun }) {
 ```
 
-- [ ] **Step 2: Thread it into the draft prompt** — change the single `buildDraftPrompt` call (near line 443):
+- [ ] **Step 2: Thread it into the draft prompt**, change the single `buildDraftPrompt` call (near line 443):
 
 ```jsx
       const prompt = buildDraftPrompt(def, subs, run, idx, step, { validators, contextViews });
 ```
 
-- [ ] **Step 3: Document the prop** — in the `Sqnce` props JSDoc block, after the `validators` `@property`, add:
+- [ ] **Step 3: Document the prop**, in the `Sqnce` props JSDoc block, after the `validators` `@property`, add:
 
 ```jsx
  * @property {Object<string, (value: any, spec: import("@sqnce/core").OutputSpec, ctx: { run: import("@sqnce/core").Run, sourceStepId: string, targetStepId?: string }) => any>} [contextViews] Map of context-view name to a pure selector; a step's `contextView` names one. Applied to prior outputs when building that step's draft prompt; optional, the component works without it.
@@ -540,17 +540,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `CLAUDE.md`, `README.md`, `packages/react/README.md`
 
-- [ ] **Step 1: Update `CLAUDE.md`** — in the Architecture section's Definitions bullet (item 1), after the `validate` sentence, add: `Any step may also carry an optional `contextView: "<name>"`, a free string (non-empty, never whitelisted) resolved against a consumer-supplied `contextViews` map; it names how the step sees prior outputs in its draft prompt.` In "Key behaviors to preserve", add a bullet:
+- [ ] **Step 1: Update `CLAUDE.md`**, in the Architecture section's Definitions bullet (item 1), after the `validate` sentence, add: `Any step may also carry an optional `contextView: "<name>"`, a free string (non-empty, never whitelisted) resolved against a consumer-supplied `contextViews` map; it names how the step sees prior outputs in its draft prompt.` In "Key behaviors to preserve", add a bullet:
 
 ```
 - A step may declare `contextView: "<name>"`, resolved against a consumer-supplied `contextViews` map of pure functions. When core builds that step's draft prompt, each prior output's value passes through the named view (`(value, spec, { run, sourceStepId, targetStepId }) => value`) at serialization only: it selects what the step sees and never mutates run state, so validators, gates, completion, status, runSummary, and other steps' context are unaffected. An absent map, an unresolvable name, or no `contextView` means the full context (no regression). Core never parses the value, so a consumer's slice headers (for example `=== [input-NNN] ===`) survive because core serializes the returned value verbatim. Views never enter core except as arguments.
 ```
 
-- [ ] **Step 2: Update the `contextViews` injected-prop note in `CLAUDE.md`** — in Architecture item 3 (UI), where it lists injected props (`persistence`, `generateDraft`, `renderers`, `validators`), add `contextViews` to the same list as another injected, optional prop the component works without.
+- [ ] **Step 2: Update the `contextViews` injected-prop note in `CLAUDE.md`**, in Architecture item 3 (UI), where it lists injected props (`persistence`, `generateDraft`, `renderers`, `validators`), add `contextViews` to the same list as another injected, optional prop the component works without.
 
-- [ ] **Step 3: Update `README.md`** — wherever the `validators` consumer prop / draft generation is documented, add a sentence: a step may name a `contextView`, and a `contextViews` map of pure selectors controls what each step sees of prior outputs in its draft prompt (selection at serialization, run state untouched, slice headers preserved). Keep it brief and consistent with the existing `validators` description.
+- [ ] **Step 3: Update `README.md`**, wherever the `validators` consumer prop / draft generation is documented, add a sentence: a step may name a `contextView`, and a `contextViews` map of pure selectors controls what each step sees of prior outputs in its draft prompt (selection at serialization, run state untouched, slice headers preserved). Keep it brief and consistent with the existing `validators` description.
 
-- [ ] **Step 4: Update `packages/react/README.md`** — add `contextViews` to the documented optional props of the component, mirroring the `validators` entry: `contextViews` (optional): map of context-view name to a pure selector; a step's `contextView` names one; applied to prior outputs when building that step's draft prompt.
+- [ ] **Step 4: Update `packages/react/README.md`**, add `contextViews` to the documented optional props of the component, mirroring the `validators` entry: `contextViews` (optional): map of context-view name to a pure selector; a step's `contextView` names one; applied to prior outputs when building that step's draft prompt.
 
 - [ ] **Step 5: Regenerate types and confirm clean**
 
