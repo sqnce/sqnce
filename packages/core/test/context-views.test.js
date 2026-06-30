@@ -124,3 +124,112 @@ test("serializeStep without a view is unchanged", () => {
     serializeStep(collect, summary, run, { maxChars: Infinity, view: undefined, targetStepId: "approve" })
   );
 });
+
+// helper: flat index of the sub-stage containing a step
+const idxOf = (subs, stepId) => subs.findIndex((s) => (s.steps || []).some((st) => st.id === stepId));
+const views = {
+  select: (value, spec, ctx) =>
+    ctx.sourceStepId === "summary" ? keepOnly(value, new Set(["input-001"])) : value,
+  suppress: (value, spec, ctx) => (ctx.sourceStepId === "summary" ? "" : value),
+};
+
+test("buildContext resolves the target's contextView and trims that source", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  const ai = idxOf(subs, "approve");
+
+  // no contextViews -> full materials (today's behavior)
+  const full = buildContext(subs, run, ai, "approve");
+  assert.match(full, /\[input-001\]/);
+  assert.match(full, /\[input-002\]/);
+
+  // contextViews + approve.contextView "select" -> only input-001
+  const selected = buildContext(subs, run, ai, "approve", { contextViews: views });
+  assert.match(selected, /\[input-001\] a\.md/);
+  assert.doesNotMatch(selected, /\[input-002\]/);
+});
+
+test("buildContext view is a no-op when the name is unresolvable or absent", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  const ai = idxOf(subs, "approve");
+  const full = buildContext(subs, run, ai, "approve");
+
+  // contextViews present but the name "select" missing from the map
+  assert.equal(buildContext(subs, run, ai, "approve", { contextViews: {} }), full);
+  // a step without a contextView (evidence) is unaffected even with a map present
+  const ei = idxOf(subs, "evidence");
+  assert.equal(
+    buildContext(subs, run, ei, "evidence", { contextViews: views }),
+    buildContext(subs, run, ei, "evidence")
+  );
+  // empty excludeStepId resolves no view
+  assert.equal(buildContext(subs, run, ai, "", { contextViews: views }), buildContext(subs, run, ai, ""));
+});
+
+test("buildContext suppress view drops the materials block entirely", () => {
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  // re-target approve's contextView to "suppress" via a cloned definition
+  const def = structuredClone(FIXTURE);
+  def.mainStages[1].subStages[0].steps[0].contextView = "suppress";
+  const subs2 = flattenSubStages(def);
+  const ai = idxOf(subs2, "approve");
+  const ctx = buildContext(subs2, run, ai, "approve", { contextViews: views });
+  assert.doesNotMatch(ctx, /Summary/); // the summary block (its only content was materials) is gone
+  assert.doesNotMatch(ctx, /input-001/);
+});
+
+test("buildContext non-targeted prior outputs pass through unchanged under a view", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  run = setOutput(run, "inventory", "data", [{ note: "keep me" }]);
+  const ai = idxOf(subs, "approve");
+  const ctx = buildContext(subs, run, ai, "approve", { contextViews: views });
+  // summary trimmed, but inventory (sourceStepId !== "summary") is untouched
+  assert.match(ctx, /keep me/);
+  assert.doesNotMatch(ctx, /\[input-002\]/);
+});
+
+test("a view trimming a source does not change run state or validator-gated completion", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  run = setOutput(run, "inventory", "data", [{ ref: "input-002" }]);
+  const before = structuredClone(run);
+  // traceable: each inventory ref must appear in summary's FULL materials, read via ctx.run
+  const validators = {
+    traceable: (value, spec, { run }) => {
+      const mat = getStepEntry(run, "summary").outputs.out || "";
+      return value.every((it) => mat.includes(`[${it.ref}]`)) ? null : "ref not in materials";
+    },
+  };
+  const ai = idxOf(subs, "approve");
+  const ctx = buildContext(subs, run, ai, "approve", { contextViews: views, validators });
+
+  // the view never mutates the run
+  assert.deepEqual(run, before);
+  // inventory cites input-002, which the view dropped from summary's serialized slice...
+  assert.doesNotMatch(ctx, /\[input-002\] b\.md/);
+  // ...but inventory is still complete & included, because the validator reads run state (full materials)
+  const inv = subs.flatMap((s) => s.steps || []).find((st) => st.id === "inventory");
+  assert.equal(isStepComplete(inv, getStepEntry(run, "inventory"), "hybrid", validators, run), true);
+  assert.match(ctx, /Inventory/); // inventory block present (its validator passed on the intact run)
+});
+
+test("buildDraftPrompt threads contextViews end-to-end", () => {
+  const subs = flattenSubStages(FIXTURE);
+  let run = createRun();
+  run = setOutput(run, "summary", "out", MATERIALS);
+  const approve = subs.flatMap((s) => s.steps || []).find((st) => st.id === "approve");
+  const ai = idxOf(subs, "approve");
+  const prompt = buildDraftPrompt(FIXTURE, subs, run, ai, approve, { contextViews: views });
+  assert.match(prompt, /\[input-001\]/);
+  assert.doesNotMatch(prompt, /\[input-002\]/);
+  // omitted contextViews -> full materials in the prompt
+  const fullPrompt = buildDraftPrompt(FIXTURE, subs, run, ai, approve);
+  assert.match(fullPrompt, /\[input-002\]/);
+});

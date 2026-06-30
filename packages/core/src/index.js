@@ -1362,13 +1362,29 @@ export function serializeStep(subStage, step, run, { maxChars = 2500, view, targ
  * @param {Run} run
  * @param {number} flatIdx
  * @param {string} [excludeStepId]
- * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, contextViews?: Object<string, (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any> }} [opts]
  *   maxCharsPerStep forwards as serializeStep's maxChars (default 2500).
+ *   contextViews: resolved by the excluded (target) step's contextView name;
+ *   the bound view selects what the target sees of each prior output at
+ *   serialization, never mutating run state.
  * @returns {string}
  */
-export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators } = {}) {
+export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsPerStep, validators, contextViews } = {}) {
   const forked = subStages.some((s) => s.track !== undefined);
   const r = normalizeFlat(subStages, run);
+  // #120: the draft target is the excluded step; resolve its named context view (if any)
+  // against the consumer-supplied contextViews map. An absent map, an unresolvable name,
+  // a step without contextView, or an empty excludeStepId all yield no view (full context).
+  let viewFn;
+  if (excludeStepId && contextViews) {
+    let targetStep;
+    for (const s of subStages) {
+      const st = (s.steps || []).find((x) => x.id === excludeStepId);
+      if (st) { targetStep = st; break; }
+    }
+    const name = targetStep && targetStep.contextView;
+    if (typeof name === "string" && name && typeof contextViews[name] === "function") viewFn = contextViews[name];
+  }
   // a stale or unreachable requested index falls back to the last spine sub-stage,
   // so a stale run.idx passed straight through cannot draft a tracked card or leak track context
   let idx = flatIdx;
@@ -1400,7 +1416,7 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
       if (step.id === excludeStepId) return;
       const evalRun = forked ? scopeValidatorRun(subStages, r, subStages.indexOf(sub)) : r;
       if (!isStepComplete(step, getStepEntry(evalRun, step.id), gateType, validators, evalRun)) return;
-      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep });
+      const block = serializeStep(sub, step, r, { maxChars: maxCharsPerStep, view: viewFn, targetStepId: excludeStepId });
       if (block) blocks.push(block);
     });
   });
@@ -1417,8 +1433,9 @@ export function buildContext(subStages, run, flatIdx, excludeStepId, { maxCharsP
  * @param {Run} run
  * @param {number} subIdx
  * @param {Step} step
- * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)> }} [opts]
- *   Forwarded to buildContext.
+ * @param {{ maxCharsPerStep?: number, validators?: Object<string, (value: any, spec: OutputSpec, ctx: { run?: Run, stepId: string }) => (string|null)>, contextViews?: Object<string, (value: any, spec: OutputSpec, ctx: { run: Run, sourceStepId: string, targetStepId?: string }) => any> }} [opts]
+ *   Forwarded to buildContext (including contextViews, resolved by the
+ *   drafted step's contextView name).
  * @returns {string}
  */
 export function buildDraftPrompt(definition, subStages, run, subIdx, step, opts = {}) {
